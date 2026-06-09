@@ -79,14 +79,24 @@ TEMPLATES = [
     },
 ]
 
+from urllib.parse import quote_plus, urlparse
+
 WSGI_APPLICATION = "config.wsgi.application"
+
+
+def _is_valid_db_url(url: str) -> bool:
+    url = url.strip()
+    if not url or url.startswith("${") or "${{" in url:
+        return False
+    scheme = urlparse(url).scheme
+    return scheme in ("mysql", "mysql2", "postgres", "postgresql", "sqlite")
 
 
 def _database_url() -> str:
     """Railway MySQL: MYSQL_URL, DATABASE_URL tai MYSQLHOST/MYSQLUSER/..."""
-    for key in ("DATABASE_URL", "MYSQL_URL", "MYSQL_PUBLIC_URL"):
-        value = os.environ.get(key)
-        if value:
+    for key in ("MYSQL_URL", "DATABASE_URL", "MYSQL_PUBLIC_URL"):
+        value = os.environ.get(key, "").strip()
+        if value and _is_valid_db_url(value):
             return value
 
     host = os.environ.get("MYSQLHOST") or os.environ.get("MYSQL_HOST")
@@ -95,7 +105,9 @@ def _database_url() -> str:
         password = os.environ.get("MYSQLPASSWORD") or os.environ.get("MYSQL_PASSWORD", "")
         database = os.environ.get("MYSQLDATABASE") or os.environ.get("MYSQL_DATABASE", "railway")
         port = os.environ.get("MYSQLPORT") or os.environ.get("MYSQL_PORT", "3306")
-        return f"mysql://{user}:{password}@{host}:{port}/{database}"
+        user_q = quote_plus(user)
+        pass_q = quote_plus(password)
+        return f"mysql://{user_q}:{pass_q}@{host}:{port}/{database}"
 
     return f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
 
