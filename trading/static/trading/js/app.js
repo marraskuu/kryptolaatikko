@@ -177,14 +177,15 @@ function renderAll(lastUpdate) {
 function renderStats() {
   const s = state.stats;
   const total = s.totalValue ?? INITIAL_CAPITAL;
-  const cash = s.cash ?? INITIAL_CAPITAL;
+  const cash = s.cash ?? 0;
   const holdings =
     s.holdingsValue != null ? s.holdingsValue : Math.max(0, total - cash);
 
   els.statPortfolio.textContent = formatEur(total);
-  els.statCash.textContent = formatEur(cash);
-  els.statBreakdown.textContent = `${formatEur(cash)} käteistä + ${formatEur(holdings)} kryptoissa`;
-  els.statCryptoHoldings.textContent = `Osa salkusta — ei lisätä päälle`;
+  els.statCryptoHoldings.textContent = formatEur(holdings);
+  els.statCash.textContent =
+    cash > 1 ? `Vapaa käteinen: ${formatEur(cash)}` : "Kaikki sijoitettu";
+  els.statBreakdown.textContent = `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä = ${formatEur(total)}`;
   els.statTrades.textContent = String(s.tradeCount ?? 0);
   els.statTaxPaid.textContent = formatEur(s.totalTaxPaid ?? 0);
   els.statTaxEstimate.textContent = `Arvio avoimista: ${formatEur(s.estimatedTax ?? 0)}`;

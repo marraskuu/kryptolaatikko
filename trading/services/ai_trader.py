@@ -176,11 +176,7 @@ def make_trading_decisions(
         key=lambda x: (-x["rank"], -(x["analysis"].get("volumeEur") or 0))
     )
 
-    target_count = (
-        4
-        if len(holdings) == 0
-        else min(4, max(3, len(holdings)))
-    )
+    target_count = 4 if len(holdings) < 4 else min(4, len(holdings))
 
     if gemini_picks:
         gemini_top = [
@@ -253,33 +249,39 @@ def make_trading_decisions(
             )
 
     sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
+    symbols_to_sell = {d["symbol"] for d in decisions if d["type"] == "sell"}
     available_cash = cash + sell_proceeds
-    target_per_crypto = available_cash / target_count if target_count else 0
+    # Kohde-omistus perustuu koko salkun arvoon — ei pelkkään käteiseen (muuten käteinen jää roikkumaan).
+    target_per_crypto = total_value / target_count if target_count else 0
 
     for item in top_cryptos:
         symbol = item["symbol"]
         analysis = item["analysis"]
         holding = holdings.get(symbol)
-        holding_value = holding["amount"] * analysis["currentPrice"] if holding else 0
+        if symbol in symbols_to_sell:
+            holding_value = 0.0
+        else:
+            holding_value = holding["amount"] * analysis["currentPrice"] if holding else 0.0
         deficit = target_per_crypto - holding_value
 
-        if not holding and available_cash > 30:
-            buy_amount = min(target_per_crypto, available_cash * 0.95)
-            if buy_amount >= 15:
-                decisions.append(
-                    {
-                        "type": "buy",
-                        "symbol": symbol,
-                        "eurAmount": buy_amount,
-                        "amount": buy_amount / analysis["currentPrice"],
-                        "reason": f"Uusi positio top {target_count}:een — {analysis['reasons'][0]}",
-                        "analysis": analysis,
-                    }
-                )
-                available_cash -= buy_amount
-        elif holding and deficit > 15 and available_cash > 30:
-            buy_amount = min(deficit, available_cash * 0.4)
-            if buy_amount >= 15:
+        if not holding or symbol in symbols_to_sell:
+            if available_cash > 15 and deficit > 10:
+                buy_amount = min(deficit, available_cash - 2)
+                if buy_amount >= 10:
+                    decisions.append(
+                        {
+                            "type": "buy",
+                            "symbol": symbol,
+                            "eurAmount": buy_amount,
+                            "amount": buy_amount / analysis["currentPrice"],
+                            "reason": f"Uusi positio top {target_count}:een — {analysis['reasons'][0]}",
+                            "analysis": analysis,
+                        }
+                    )
+                    available_cash -= buy_amount
+        elif deficit > 10 and available_cash > 15:
+            buy_amount = min(deficit, available_cash - 2)
+            if buy_amount >= 10:
                 decisions.append(
                     {
                         "type": "buy",
@@ -291,9 +293,9 @@ def make_trading_decisions(
                     }
                 )
                 available_cash -= buy_amount
-        elif holding and analysis["action"] == "buy" and deficit > 10 and available_cash > 20:
-            buy_amount = min(deficit, available_cash * 0.3)
-            if buy_amount >= 10:
+        elif holding and analysis["action"] == "buy" and deficit > 5 and available_cash > 10:
+            buy_amount = min(deficit, available_cash - 2)
+            if buy_amount >= 5:
                 decisions.append(
                     {
                         "type": "buy",
@@ -306,22 +308,38 @@ def make_trading_decisions(
                 )
                 available_cash -= buy_amount
 
-    if cash > 150 and not any(d["type"] == "buy" for d in decisions):
-        best_not_held = next((r for r in ranked if r["symbol"] not in holdings), None)
-        if best_not_held and best_not_held["symbol"] in top_symbols:
-            buy_amount = min(cash * 0.25, target_per_crypto)
-            if buy_amount >= 15:
-                analysis = best_not_held["analysis"]
+    if available_cash > 15:
+        underweight = []
+        for item in top_cryptos:
+            symbol = item["symbol"]
+            analysis = item["analysis"]
+            holding = holdings.get(symbol)
+            if symbol in symbols_to_sell:
+                hv = 0.0
+            else:
+                hv = holding["amount"] * analysis["currentPrice"] if holding else 0.0
+            gap = target_per_crypto - hv
+            if gap > 5:
+                underweight.append((gap, symbol, analysis))
+        underweight.sort(reverse=True)
+        for gap, symbol, analysis in underweight:
+            if available_cash <= 15:
+                break
+            if any(d["type"] == "buy" and d["symbol"] == symbol for d in decisions):
+                continue
+            buy_amount = min(gap, available_cash - 2)
+            if buy_amount >= 10:
                 decisions.append(
                     {
                         "type": "buy",
-                        "symbol": best_not_held["symbol"],
+                        "symbol": symbol,
                         "eurAmount": buy_amount,
-                        "amount": buy_amount / analysis["currentPrice"],
-                        "reason": f"Käteinen käytössä — {analysis['reasons'][0]}",
+                        "reason": f"Käteinen sijoitetaan — {analysis['reasons'][0]}",
                         "analysis": analysis,
+                        "amount": buy_amount / analysis["currentPrice"],
                     }
                 )
+                available_cash -= buy_amount
 
     return {
         "decisions": decisions,

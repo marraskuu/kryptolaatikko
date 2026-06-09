@@ -35,6 +35,7 @@ def load_state() -> dict[str, Any]:
         return state
     state = obj.data
     _normalize_state_symbols(state)
+    save_state(state)
     return state
 
 
