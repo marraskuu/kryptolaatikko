@@ -121,7 +121,10 @@ def fetch_all_markets() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, 
 
     best_by_base: dict[str, dict[str, Any]] = {}
 
-    for symbol, ticker in raw.items():
+    for raw_symbol, ticker in raw.items():
+        symbol = normalize_symbol(raw_symbol)
+        if not is_valid_trading_symbol(symbol):
+            continue
         parsed = parse_pair_symbol(symbol)
         if not parsed or ticker["last"] <= 0:
             continue

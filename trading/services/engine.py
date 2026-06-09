@@ -4,13 +4,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ai_trader import (
-    analyze_market,
     analyze_ticker_quick,
     apply_gemini_insights,
     build_decision_report,
     make_trading_decisions,
 )
-from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, normalize_symbol
+from .bitfinex import fetch_all_markets, get_crypto_label
 from .gemini import advise_portfolio, is_configured as gemini_configured
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
@@ -23,51 +22,14 @@ from .state_store import load_state, save_state
 
 logger = logging.getLogger(__name__)
 
-DEEP_ANALYSIS_COUNT = 8
-CANDLE_FETCH_DELAY_SEC = 2.1
-
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _select_candidates_for_deep_analysis(state: dict[str, Any]) -> list[str]:
-    candidates = set(state["portfolio"]["holdings"].keys())
-    ranked = sorted(
-        state["tickers"].items(),
-        key=lambda x: x[1].get("volumeEur", 0),
-        reverse=True,
-    )
-    for symbol, _ in ranked:
-        if len(candidates) >= DEEP_ANALYSIS_COUNT:
-            break
-        candidates.add(symbol)
-    return list(candidates)
-
-
 def _refresh_analyses(state: dict[str, Any]) -> None:
     for symbol, ticker in state["tickers"].items():
         state["analyses"][symbol] = analyze_ticker_quick(ticker)
-
-    fetched = 0
-    for symbol in _select_candidates_for_deep_analysis(state):
-        symbol = normalize_symbol(symbol)
-        if symbol not in state["tickers"]:
-            continue
-        try:
-            if fetched > 0:
-                time.sleep(CANDLE_FETCH_DELAY_SEC)
-            candles = fetch_candles(symbol, "1h", 50)
-            fetched += 1
-            if len(candles) >= 20:
-                deep = analyze_market(candles)
-                ticker = state["tickers"].get(symbol)
-                if ticker:
-                    deep["currentPrice"] = ticker["last"]
-                    deep["volumeEur"] = ticker["volumeEur"]
-                state["analyses"][symbol] = deep
-        except Exception as exc:
-            logger.debug("Deep analysis skipped for %s: %s", symbol, exc)
 
 
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:
@@ -255,7 +217,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             }
         )
 
-    for d in [x for x in decisions if d["type"] == "buy"]:
+    for d in [x for x in decisions if x["type"] == "buy"]:
         ok = portfolio.buy(
             d["symbol"],
             d["eurAmount"],
