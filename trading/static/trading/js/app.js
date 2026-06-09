@@ -1,13 +1,6 @@
-const PRICE_INTERVAL = 15000;
+const POLL_INTERVAL = 8000;
 const AI_EVENT_LIMIT = 20;
 const INITIAL_CAPITAL = 1000;
-
-let running = false;
-let priceTimer = null;
-let tradeTimer = null;
-let countdownTimer = null;
-let countdown = 60;
-let tradeIntervalSec = 60;
 
 let state = {
   tickers: {},
@@ -21,31 +14,18 @@ let state = {
 };
 
 let marketSearch = "";
-const cryptoLabels = {};
+let pollTimer = null;
+let countdownTimer = null;
+let countdown = 60;
 
-async function apiGet(url) {
-  const res = await fetch(url, {
+async function fetchState() {
+  const res = await fetch("/api/state/", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    throw new Error(`Palvelinvirhe ${res.status} — odotettiin JSON-vastausta`);
-  }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Virhe ${res.status}`);
-  return data;
-}
-
-async function apiPost(url) {
-  const res = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-  });
-  const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    throw new Error(`Palvelinvirhe ${res.status} — odotettiin JSON-vastausta`);
+    throw new Error(`Palvelinvirhe ${res.status}`);
   }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Virhe ${res.status}`);
@@ -103,7 +83,6 @@ function formatVolumeEur(value) {
 }
 
 function getCryptoLabel(symbol) {
-  if (cryptoLabels[symbol]) return cryptoLabels[symbol];
   const body = symbol.replace(/^t/, "");
   for (const quote of ["USD", "UST", "EUR"]) {
     if (body.endsWith(quote)) return body.slice(0, -quote.length);
@@ -124,19 +103,14 @@ function applyPayload(data) {
     lastAIReport: data.lastAIReport ?? state.lastAIReport,
     stats: data.stats || state.stats,
   };
-  running = !!data.running;
-  if (data.tradeIntervalSec) tradeIntervalSec = data.tradeIntervalSec;
 
+  if (data.nextTradeInSec != null) countdown = data.nextTradeInSec;
   if (data.error) showError(data.error);
   else clearError();
-
   renderAll(data.lastUpdate);
 }
 
 const els = {
-  btnStart: document.getElementById("btn-start"),
-  btnStop: document.getElementById("btn-stop"),
-  btnReset: document.getElementById("btn-reset"),
   statPortfolio: document.getElementById("stat-portfolio"),
   statPnl: document.getElementById("stat-pnl"),
   statCash: document.getElementById("stat-cash"),
@@ -165,11 +139,11 @@ function clearError() {
 }
 
 function renderAll(lastUpdate) {
-  els.btnStart.disabled = running;
-  els.btnStop.disabled = !running;
   if (lastUpdate) {
     els.lastUpdate.textContent = `Päivitetty ${formatTime(lastUpdate)}`;
   }
+  els.statNext.textContent = `${countdown}s`;
+  els.statNext.classList.add("status-running");
   renderStats();
   renderMarketList();
   renderPortfolio();
@@ -216,7 +190,7 @@ function renderMarketList() {
   els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${activeSet.size}/4`;
 
   if (entries.length === 0) {
-    els.marketList.innerHTML = '<p class="empty-log">Ei hakutuloksia.</p>';
+    els.marketList.innerHTML = '<p class="empty-log">Ladataan markkinoita…</p>';
     return;
   }
 
@@ -254,11 +228,12 @@ function renderPortfolio() {
   const portfolio = state.portfolio;
   const tickers = state.tickers;
   const totalValue = state.stats.totalValue ?? portfolio.cash;
+  const hasHoldings = Object.keys(portfolio.holdings || {}).length > 0;
 
-  if (Object.keys(portfolio.holdings || {}).length === 0 && portfolio.cash === INITIAL_CAPITAL) {
+  if (!hasHoldings && (portfolio.cash ?? INITIAL_CAPITAL) >= INITIAL_CAPITAL - 1) {
     els.portfolioBody.innerHTML = `
       <tr><td colspan="6" style="color:var(--muted);padding:20px 8px">
-        Käynnistä botti — AI valitsee 3–4 parasta kryptoa kaikista Bitfinex-markkinoista.
+        Botti valitsee parhaat kryptot automaattisesti — odota seuraavaa kaupankäyntikierrosta.
       </td></tr>`;
     return;
   }
@@ -307,7 +282,7 @@ function renderPortfolio() {
 
 function renderAIEventLog() {
   if (!state.aiEvents.length) {
-    return `<p class="ai-placeholder">Ei tapahtumia vielä.</p>`;
+    return `<p class="ai-placeholder">Ei tapahtumia vielä — botti aloittaa pian.</p>`;
   }
 
   const typeLabels = {
@@ -336,12 +311,6 @@ function renderAIEventLog() {
 }
 
 function renderAIDecision(report) {
-  if (!report && !state.aiEvents.length) {
-    els.aiDecision.innerHTML =
-      '<p class="ai-placeholder">Käynnistä botti näyttääksesi AI:n osto- ja myyntipäätökset.</p>';
-    return;
-  }
-
   const iconMap = { buy: "📈", sell: "📉", hold: "⏳", mixed: "⚖️" };
   const action = report?.action || "hold";
   const icon = iconMap[action] || "⏳";
@@ -375,7 +344,6 @@ function renderAIDecision(report) {
 
 function getTradePnlBadge(trade) {
   if (trade.type === "tax") return "";
-
   if (trade.type === "sell") {
     const costBasis = trade.costBasis ?? trade.eurTotal - (trade.profitLoss ?? trade.profit ?? 0);
     const profitLoss = trade.profitLoss ?? trade.profit ?? trade.eurTotal - costBasis;
@@ -383,18 +351,15 @@ function getTradePnlBadge(trade) {
     const pct = (profitLoss / costBasis) * 100;
     const cls = pct >= 0 ? "up" : "down";
     const sign = pct >= 0 ? "+" : "";
-    return `<span class="trade-pnl ${cls}" title="Myyntihetkellä">Myynti ${sign}${pct.toFixed(2)} %</span>`;
+    return `<span class="trade-pnl ${cls}">Myynti ${sign}${pct.toFixed(2)} %</span>`;
   }
-
   const ticker = state.tickers[trade.symbol];
   if (!ticker || !trade.price) return "";
-
   const stillHeld = Object.prototype.hasOwnProperty.call(state.portfolio.holdings || {}, trade.symbol);
   const pct = ((ticker.last - trade.price) / trade.price) * 100;
   const cls = pct >= 0 ? "up" : "down";
   const sign = pct >= 0 ? "+" : "";
-  const note = stillHeld ? "" : " · myyty";
-  return `<span class="trade-pnl ${cls}" title="Ostohintaan verrattuna">Nyt ${sign}${pct.toFixed(2)} %${note}</span>`;
+  return `<span class="trade-pnl ${cls}">Nyt ${sign}${pct.toFixed(2)} %${stillHeld ? "" : " · myyty"}</span>`;
 }
 
 function renderTradeLog() {
@@ -422,20 +387,12 @@ function renderTradeLog() {
       const typeLabel = trade.type === "buy" ? "OSTO" : "MYYNTI";
       const taxNote = trade.tax > 0 ? ` · vero ${formatEur(trade.tax)}` : "";
       const pnlBadge = getTradePnlBadge(trade);
-      let pnlSub = "";
-      if (trade.type === "sell") {
-        const pl = trade.profitLoss ?? trade.profit ?? 0;
-        if (pl !== 0) {
-          const sign = pl >= 0 ? "+" : "";
-          pnlSub = ` · ${sign}${formatEur(pl)}`;
-        }
-      }
       return `
         <div class="trade-item">
           <span class="trade-type ${trade.type}">${typeLabel}</span>
           <div class="trade-details">
             <div class="main">${label} · ${formatEur(trade.eurTotal)}${taxNote}${pnlBadge ? ` ${pnlBadge}` : ""}</div>
-            <div class="sub">${formatCrypto(trade.amount, 6)} @ ${formatEur(trade.price)}${pnlSub} — ${trade.reason}</div>
+            <div class="sub">${formatCrypto(trade.amount, 6)} @ ${formatEur(trade.price)} — ${trade.reason}</div>
           </div>
           <span class="trade-time">${formatTime(trade.timestamp)}</span>
         </div>`;
@@ -444,86 +401,22 @@ function renderTradeLog() {
 }
 
 function startCountdown() {
-  countdown = tradeIntervalSec;
-  els.statNext.textContent = `${countdown}s`;
-  els.statNext.classList.add("status-running");
-
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
-    countdown--;
-    if (countdown <= 0) countdown = tradeIntervalSec;
+    if (countdown > 0) countdown--;
     els.statNext.textContent = `${countdown}s`;
   }, 1000);
 }
 
-async function refreshPrices() {
+async function poll() {
   try {
-    const data = await apiGet("/api/prices/");
+    const data = await fetchState();
     applyPayload(data);
-  } catch (err) {
-    showError(err.message);
-    els.lastUpdate.textContent = "Virhe kurssien haussa";
-  }
-}
-
-async function executeTradingCycle() {
-  try {
-    const data = await apiPost("/api/trade/");
-    applyPayload(data);
-    countdown = tradeIntervalSec;
   } catch (err) {
     showError(err.message);
   }
 }
 
-async function startBot() {
-  if (running) return;
-  try {
-    const data = await apiPost("/api/bot/start/");
-    applyPayload(data);
-    running = true;
-    els.btnStart.disabled = true;
-    els.btnStop.disabled = false;
-    startCountdown();
-    priceTimer = setInterval(refreshPrices, PRICE_INTERVAL);
-    tradeTimer = setInterval(executeTradingCycle, tradeIntervalSec * 1000);
-  } catch (err) {
-    showError(err.message);
-  }
-}
-
-async function stopBot() {
-  try {
-    const data = await apiPost("/api/bot/stop/");
-    applyPayload(data);
-  } catch (err) {
-    showError(err.message);
-  }
-  running = false;
-  els.btnStart.disabled = false;
-  els.btnStop.disabled = true;
-  els.statNext.textContent = "—";
-  els.statNext.classList.remove("status-running");
-  if (priceTimer) clearInterval(priceTimer);
-  if (tradeTimer) clearInterval(tradeTimer);
-  if (countdownTimer) clearInterval(countdownTimer);
-}
-
-async function resetBot() {
-  await stopBot();
-  try {
-    const data = await apiPost("/api/bot/reset/");
-    applyPayload(data);
-    els.tradeLog.innerHTML = '<p class="empty-log">Ei kauppoja vielä.</p>';
-    els.lastUpdate.textContent = "Päivitetään…";
-  } catch (err) {
-    showError(err.message);
-  }
-}
-
-els.btnStart.addEventListener("click", startBot);
-els.btnStop.addEventListener("click", stopBot);
-els.btnReset.addEventListener("click", resetBot);
 els.marketSearch.addEventListener("input", (e) => {
   marketSearch = e.target.value;
   renderMarketList();
@@ -535,15 +428,6 @@ if (botUrlEl) {
   botUrlEl.textContent = location.origin;
 }
 
-fetch("/api/state/")
-  .then((r) => {
-    if (!r.headers.get("content-type")?.includes("application/json")) {
-      throw new Error("API ei palauta JSONia — tarkista että uusin versio on deployattu");
-    }
-    return r.json();
-  })
-  .then((data) => {
-    applyPayload(data);
-    refreshPrices();
-  })
-  .catch((err) => showError(err.message));
+poll();
+startCountdown();
+pollTimer = setInterval(poll, POLL_INTERVAL);

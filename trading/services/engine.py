@@ -3,8 +3,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from django.contrib.sessions.backends.base import SessionBase
-
 from .ai_trader import (
     analyze_market,
     analyze_ticker_quick,
@@ -16,11 +14,10 @@ from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
     build_api_payload,
-    load_state,
     log_ai_event,
     log_watch_event,
-    save_state,
 )
+from .state_store import load_state, save_state
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +95,8 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
     return executed
 
 
-def refresh_prices(session: SessionBase) -> dict[str, Any]:
-    state = load_state(session)
+def refresh_prices() -> dict[str, Any]:
+    state = load_state()
     try:
         tickers, _meta = fetch_all_markets()
         if not tickers:
@@ -114,7 +111,7 @@ def refresh_prices(session: SessionBase) -> dict[str, Any]:
         state["lastPriceTick"] = int(time.time() * 1000)
         state["error"] = None
 
-        if state["running"]:
+        if state.get("running", True):
             portfolio = Portfolio(state["portfolio"])
             _check_profit_sells(state, portfolio)
 
@@ -141,18 +138,18 @@ def refresh_prices(session: SessionBase) -> dict[str, Any]:
         logger.exception("Price refresh failed")
         state["error"] = str(exc)
 
-    save_state(session, state)
+    save_state(state)
     payload = build_api_payload(state)
     payload["error"] = state.get("error")
     payload["lastUpdate"] = _now_iso()
     return payload
 
 
-def execute_trading_cycle(session: SessionBase) -> dict[str, Any]:
-    payload = refresh_prices(session)
-    state = load_state(session)
+def execute_trading_cycle() -> dict[str, Any]:
+    refresh_prices()
+    state = load_state()
     if state.get("error"):
-        return payload
+        return build_api_payload(state)
 
     _refresh_analyses(state)
     portfolio = Portfolio(state["portfolio"])
@@ -222,7 +219,7 @@ def execute_trading_cycle(session: SessionBase) -> dict[str, Any]:
             }
         )
 
-    for d in [x for x in decisions if x["type"] == "buy"]:
+    for d in [x for x in decisions if d["type"] == "buy"]:
         ok = portfolio.buy(
             d["symbol"],
             d["eurAmount"],
@@ -249,7 +246,7 @@ def execute_trading_cycle(session: SessionBase) -> dict[str, Any]:
                 {
                     "symbol": symbol,
                     "label": get_crypto_label(symbol),
-                    "reason": watch["statusText"],
+                    "reason": watch.get("statusText"),
                     "profitPct": watch.get("profitPct"),
                 }
             )
@@ -272,37 +269,9 @@ def execute_trading_cycle(session: SessionBase) -> dict[str, Any]:
 
     state["portfolio"] = portfolio.to_dict()
     state["lastTradeTick"] = int(time.time() * 1000)
-    save_state(session, state)
+    state["running"] = True
+    save_state(state)
 
     payload = build_api_payload(state)
     payload["lastUpdate"] = _now_iso()
     return payload
-
-
-def start_bot(session: SessionBase) -> dict[str, Any]:
-    state = load_state(session)
-    if not state["running"]:
-        state["running"] = True
-        log_ai_event(
-            state,
-            "info",
-            "Botti",
-            "Automaattinen kaupankäynti käynnistetty — analysoidaan kaikkia Bitfinex-markkinoita",
-        )
-        save_state(session, state)
-    refresh_prices(session)
-    return execute_trading_cycle(session)
-
-
-def stop_bot(session: SessionBase) -> dict[str, Any]:
-    state = load_state(session)
-    state["running"] = False
-    save_state(session, state)
-    return build_api_payload(state)
-
-
-def reset_bot(session: SessionBase) -> dict[str, Any]:
-    from .session_state import reset_state
-
-    state = reset_state(session)
-    return build_api_payload(state)

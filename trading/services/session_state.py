@@ -1,8 +1,6 @@
-from copy import deepcopy
+import time
 from datetime import datetime, timezone
 from typing import Any
-
-from django.contrib.sessions.backends.base import SessionBase
 
 from .portfolio import Portfolio, default_portfolio
 
@@ -22,7 +20,7 @@ def default_state() -> dict[str, Any]:
         "watchLogKeys": {},
         "aiEvents": [],
         "aiEventId": 0,
-        "running": False,
+        "running": True,
         "lastPriceTick": 0,
         "lastTradeTick": 0,
         "tickers": {},
@@ -32,25 +30,6 @@ def default_state() -> dict[str, Any]:
         "lastAIReport": None,
         "marketSearch": "",
     }
-
-
-def load_state(session: SessionBase) -> dict[str, Any]:
-    state = session.get("bot_state")
-    if not state:
-        state = default_state()
-        save_state(session, state)
-    return state
-
-
-def save_state(session: SessionBase, state: dict[str, Any]) -> None:
-    session["bot_state"] = state
-    session.modified = True
-
-
-def reset_state(session: SessionBase) -> dict[str, Any]:
-    state = default_state()
-    save_state(session, state)
-    return state
 
 
 def log_ai_event(
@@ -104,8 +83,16 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "unrealizedProfit": 0,
     }
 
+    trade_interval = TRADE_INTERVAL_MS // 1000
+    last_trade_ms = state.get("lastTradeTick") or 0
+    if last_trade_ms:
+        elapsed = int(time.time() * 1000 - last_trade_ms) // 1000
+        next_trade_in = max(0, trade_interval - elapsed)
+    else:
+        next_trade_in = trade_interval
+
     return {
-        "running": state["running"],
+        "running": state.get("running", True),
         "portfolio": portfolio.to_dict(),
         "tickers": tickers,
         "analyses": state["analyses"],
@@ -123,5 +110,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "estimatedTax": tax["estimatedTax"],
         },
         "marketCount": len(tickers),
-        "tradeIntervalSec": TRADE_INTERVAL_MS // 1000,
+        "tradeIntervalSec": trade_interval,
+        "nextTradeInSec": next_trade_in,
+        "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
     }

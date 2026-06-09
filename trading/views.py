@@ -1,17 +1,11 @@
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.views.decorators.http import require_GET
 
-from .services.engine import (
-    execute_trading_cycle,
-    refresh_prices,
-    reset_bot,
-    start_bot,
-    stop_bot,
-)
 from .services.export_excel import build_tax_excel
-from .services.session_state import build_api_payload, load_state
+from .services.session_state import build_api_payload
+from .services.state_store import load_state
 
 
 def index(request):
@@ -21,60 +15,17 @@ def index(request):
 @csrf_exempt
 @require_GET
 def api_state(request):
-    state = load_state(request.session)
+    state = load_state()
     payload = build_api_payload(state)
     payload["error"] = state.get("error")
+    payload["autoRun"] = True
     return JsonResponse(payload)
-
-
-@csrf_exempt
-@require_POST
-def api_start(request):
-    try:
-        payload = start_bot(request.session)
-        return JsonResponse(payload)
-    except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
-
-
-@csrf_exempt
-@require_POST
-def api_stop(request):
-    payload = stop_bot(request.session)
-    return JsonResponse(payload)
-
-
-@csrf_exempt
-@require_POST
-def api_reset(request):
-    payload = reset_bot(request.session)
-    return JsonResponse(payload)
-
-
-@csrf_exempt
-@require_http_methods(["GET", "POST"])
-def api_prices(request):
-    try:
-        payload = refresh_prices(request.session)
-        return JsonResponse(payload)
-    except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
-
-
-@csrf_exempt
-@require_POST
-def api_trade(request):
-    try:
-        payload = execute_trading_cycle(request.session)
-        return JsonResponse(payload)
-    except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
 
 
 @csrf_exempt
 @require_GET
 def api_export(request):
-    state = load_state(request.session)
+    state = load_state()
     try:
         buffer, filename = build_tax_excel(state["portfolio"])
     except ValueError as exc:

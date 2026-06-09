@@ -264,6 +264,14 @@ h1 {
   color: #a78bfa;
 }
 
+.badge.live-badge {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green);
+  font-size: 0.85rem;
+  padding: 8px 14px;
+  animation: pulse 2s infinite;
+}
+
 .crypto-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
