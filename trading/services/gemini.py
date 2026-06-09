@@ -366,10 +366,11 @@ Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
 2. Osta nousussa olevia, korkean volyymin kohteita (change_24h_pct > 0)
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti
-4. Salkussa 1–4 kryptoa — valitse ITSE montako (top_picks 1–4 kohdetta). EI pakko neljää; 1 vahva riittää. Käteinen voi jäädä odottamaan.
-5. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
-6. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
-7. Stop-loss noin -2 %: älä anna tappioiden kasvaa
+4. Salkussa 1–4 kryptoa — valitse ITSE montako (top_picks 1–4 kohdetta). EI pakko neljää; 1 vahva riittää. KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
+5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
+6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
+7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
+8. Stop-loss noin -2 %: älä anna tappioiden kasvaa
 
 Markkinadata (JSON):
 {json.dumps(market, ensure_ascii=False)}
@@ -396,7 +397,7 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
 }}
 
 top_picks = 1–4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta). Valitse vain ne joihin oikeasti uskot — 1–2 riittää usein.
-allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa ≈ 100). EI tasajaot.
+allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
 Esim. vahva momentum 40-50 %, keskivahva 25-30 %, täydennys 15-20 %. Min 10 % per valittu kohde.
 signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille.
 Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.

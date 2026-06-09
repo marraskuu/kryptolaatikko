@@ -6,6 +6,9 @@ STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
 PROFIT_TAKE_TRIGGER_PCT = 2.0
 UPTREND_MIN_CHANGE_PCT = 0.3
+MIN_TRADE_EUR = 10
+CASH_BUFFER_EUR = 2
+ROTATION_TRIM_FRACTION = 0.5
 
 
 def _in_uptrend(analysis: dict[str, Any]) -> bool:
@@ -280,6 +283,182 @@ def _target_holding_value(
     return total_value * weights.get(norm, 0.0)
 
 
+def _effective_holding_amount(
+    symbol: str,
+    holdings: dict[str, Any],
+    decisions: list[dict[str, Any]],
+) -> float:
+    holding = holdings.get(symbol)
+    if not holding:
+        return 0.0
+    amount = holding["amount"]
+    for d in decisions:
+        if d.get("type") == "sell" and d.get("symbol") == symbol:
+            amount -= d.get("amount", 0)
+    return max(0.0, amount)
+
+
+def _gemini_sell_fraction(confidence: int) -> float:
+    return {5: 0.35, 6: 0.45, 7: 0.55, 8: 0.65, 9: 0.80, 10: 1.0}.get(confidence, 0.50)
+
+
+def _append_sell_decision(
+    decisions: list[dict[str, Any]],
+    symbol: str,
+    crypto_amount: float,
+    price: float,
+    reason: str,
+    analysis: dict[str, Any],
+) -> None:
+    if crypto_amount <= 0 or crypto_amount * price < MIN_TRADE_EUR:
+        return
+    for d in decisions:
+        if d.get("type") == "sell" and d.get("symbol") == symbol:
+            d["amount"] += crypto_amount
+            d["eurAmount"] = d["amount"] * price
+            return
+    decisions.append(
+        {
+            "type": "sell",
+            "symbol": symbol,
+            "amount": crypto_amount,
+            "eurAmount": crypto_amount * price,
+            "reason": reason,
+            "analysis": analysis,
+        }
+    )
+
+
+def _deploy_cash_to_targets(
+    decisions: list[dict[str, Any]],
+    holdings: dict[str, Any],
+    cash: float,
+    total_value: float,
+    weights: dict[str, float],
+    target_symbols: list[str],
+    analyses: dict[str, dict[str, Any]],
+    label_fn: Callable[[str], str],
+    gemini_active: bool,
+    skip_sell_symbols: set[str],
+) -> None:
+    """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
+    normalized_targets = {normalize_symbol(s) for s in target_symbols}
+
+    for symbol in list(holdings.keys()):
+        if symbol in skip_sell_symbols or is_stablecoin(symbol):
+            continue
+        analysis = analyses.get(symbol)
+        if not analysis:
+            continue
+        price = analysis["currentPrice"]
+        if price <= 0:
+            continue
+        amount = _effective_holding_amount(symbol, holdings, decisions)
+        if amount <= 0:
+            continue
+        current_value = amount * price
+        norm = normalize_symbol(symbol)
+
+        if norm in normalized_targets or symbol in target_symbols:
+            target = _target_holding_value(symbol, total_value, weights)
+            excess = current_value - target
+            if excess >= MIN_TRADE_EUR:
+                sell_amount = min(amount, excess / price)
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    price,
+                    f"Tasapainotus — yli tavoitteen ({excess:.0f} €)",
+                    analysis,
+                )
+        elif target_symbols:
+            sell_amount = amount * ROTATION_TRIM_FRACTION
+            _append_sell_decision(
+                decisions,
+                symbol,
+                sell_amount,
+                price,
+                f"{label_fn(symbol)} ei valinnoissa — myydään osa",
+                analysis,
+            )
+
+    sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
+    buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "buy")
+    available = cash + sell_proceeds - buy_spent - CASH_BUFFER_EUR
+
+    if available < MIN_TRADE_EUR or not target_symbols:
+        return
+
+    deficits: list[tuple[float, str, dict[str, Any]]] = []
+    for sym in target_symbols:
+        analysis = analyses.get(sym)
+        if not analysis or analysis["currentPrice"] <= 0:
+            continue
+        price = analysis["currentPrice"]
+        amount = _effective_holding_amount(sym, holdings, decisions)
+        current = amount * price
+        target = _target_holding_value(sym, total_value, weights)
+        deficit = target - current
+        if deficit > 1:
+            deficits.append((deficit, sym, analysis))
+
+    if not deficits:
+        best = max(
+            target_symbols,
+            key=lambda s: weights.get(normalize_symbol(s), 0),
+        )
+        analysis = analyses.get(best)
+        if analysis and analysis["currentPrice"] > 0:
+            deficits = [(available, best, analysis)]
+
+    total_deficit = sum(d for d, _, _ in deficits)
+    remaining = available
+
+    for i, (deficit, sym, analysis) in enumerate(deficits):
+        if remaining < MIN_TRADE_EUR:
+            break
+        price = analysis["currentPrice"]
+        if i == len(deficits) - 1:
+            buy_eur = remaining
+        elif total_deficit > 0:
+            buy_eur = min(remaining * (deficit / total_deficit), deficit, remaining)
+        else:
+            buy_eur = remaining / len(deficits)
+
+        buy_eur = max(0.0, min(buy_eur, remaining))
+        if buy_eur < MIN_TRADE_EUR:
+            continue
+
+        alloc_pct = round(weights.get(normalize_symbol(sym), 0) * 100, 1)
+        existing = next(
+            (d for d in decisions if d["type"] == "buy" and d["symbol"] == sym),
+            None,
+        )
+        if existing:
+            existing["eurAmount"] += buy_eur
+            existing["amount"] = existing["eurAmount"] / price
+            remaining -= buy_eur
+            continue
+
+        reason = (
+            f"Koko käteinen sijoitettu — tavoite {alloc_pct} %"
+            if gemini_active
+            else f"Käteinen kohteisiin — {alloc_pct} %"
+        )
+        decisions.append(
+            {
+                "type": "buy",
+                "symbol": sym,
+                "eurAmount": buy_eur,
+                "amount": buy_eur / price,
+                "reason": _action_reason(analysis, reason),
+                "analysis": analysis,
+            }
+        )
+        remaining -= buy_eur
+
+
 def _plan_initial_allocation(
     picks: list[dict[str, Any]],
     cash: float,
@@ -289,7 +468,7 @@ def _plan_initial_allocation(
 ) -> list[dict[str, Any]]:
     symbols = [item["symbol"] for item in picks]
     weights = _compute_allocation_weights(gemini_insights, symbols, analyses, gemini_active)
-    investable = max(0.0, cash - 5)
+    investable = cash / 1.001
     planned: list[dict[str, Any]] = []
     remaining = investable
 
@@ -410,12 +589,13 @@ def make_trading_decisions(
     decisions: list[dict[str, Any]] = []
 
     if len(holdings) == 0 and cash > 100:
+        picks: list[dict[str, Any]] = []
         if desired:
             picks = _to_crypto_items(desired, analyses, gemini_boost=True)
         elif not gemini_active and ranked:
             picks = ranked[: min(2, len(ranked))]
-        else:
-            picks = []
+        elif ranked:
+            picks = ranked[:1]
         if picks:
             return {
                 "decisions": [],
@@ -498,18 +678,19 @@ def make_trading_decisions(
 
         sell_conf = 5 if profit_pct < 0 else 6
         if gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= sell_conf:
-            decisions.append(
-                {
-                    "type": "sell",
-                    "symbol": symbol,
-                    "amount": holding["amount"],
-                    "eurAmount": holding_value,
-                    "reason": _action_reason(
-                        analysis,
-                        f"Gemini suosittelee myyntiä — {gemini_sig.get('reason', '')}",
-                    ),
-                    "analysis": analysis,
-                }
+            sell_amount = holding["amount"] * _gemini_sell_fraction(
+                gemini_sig.get("confidence", 5)
+            )
+            _append_sell_decision(
+                decisions,
+                symbol,
+                sell_amount,
+                analysis["currentPrice"],
+                _action_reason(
+                    analysis,
+                    f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
+                ),
+                analysis,
             )
         elif (
             gemini_active
@@ -530,32 +711,24 @@ def make_trading_decisions(
             profit_pct < ROTATE_LOSS_PCT
             and (symbol not in top_symbols or change_24h < -2)
         ):
-            decisions.append(
-                {
-                    "type": "sell",
-                    "symbol": symbol,
-                    "amount": holding["amount"],
-                    "eurAmount": holding_value,
-                    "reason": (
-                        f"Tappiolla {profit_pct:.1f} % — myydään ja siirretään vahvempaan kohteeseen"
-                    ),
-                    "analysis": analysis,
-                }
+            sell_amount = holding["amount"] * ROTATION_TRIM_FRACTION
+            _append_sell_decision(
+                decisions,
+                symbol,
+                sell_amount,
+                analysis["currentPrice"],
+                f"Tappiolla {profit_pct:.1f} % — myydään osa ja siirretään vahvempaan",
+                analysis,
             )
-        elif (desired and symbol not in top_symbols) or analysis["action"] == "sell":
-            decisions.append(
-                {
-                    "type": "sell",
-                    "symbol": symbol,
-                    "amount": holding["amount"],
-                    "eurAmount": holding_value,
-                    "reason": (
-                        f"{label_fn(symbol)} ei Geminin valinnoissa — myydään"
-                        if desired and symbol not in top_symbols
-                        else "; ".join(analysis["reasons"])
-                    ),
-                    "analysis": analysis,
-                }
+        elif analysis["action"] == "sell":
+            sell_amount = holding["amount"] * ROTATION_TRIM_FRACTION
+            _append_sell_decision(
+                decisions,
+                symbol,
+                sell_amount,
+                analysis["currentPrice"],
+                "; ".join(analysis["reasons"]),
+                analysis,
             )
         elif analysis["action"] == "hold":
             decisions.append(
@@ -567,10 +740,6 @@ def make_trading_decisions(
                 }
             )
 
-    sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
-    symbols_to_sell = {d["symbol"] for d in decisions if d["type"] == "sell"}
-    available_cash = cash + sell_proceeds
-
     alloc_symbols = list(
         dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
     )[:MAX_POSITIONS]
@@ -578,150 +747,19 @@ def make_trading_decisions(
         gemini_insights, alloc_symbols, analyses, gemini_active
     )
 
-    for item in top_cryptos:
-        symbol = item["symbol"]
-        analysis = item["analysis"]
-        holding = holdings.get(symbol)
-        if symbol in symbols_to_sell:
-            holding_value = 0.0
-        else:
-            holding_value = holding["amount"] * analysis["currentPrice"] if holding else 0.0
-        target_value = _target_holding_value(symbol, total_value, weights)
-        deficit = target_value - holding_value
-
-        if not holding or symbol in symbols_to_sell:
-            if available_cash > 15 and deficit > 10:
-                buy_amount = min(deficit, available_cash - 2)
-                if buy_amount >= 10:
-                    gemini_sig = _gemini_signal(gemini_insights, symbol)
-                    alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
-                    default = (
-                        f"Gemini sijoittaa {alloc_pct} % — {analysis['reasons'][0]}"
-                        if gemini_active
-                        else f"Uusi positio ({alloc_pct} %) — {analysis['reasons'][0]}"
-                    )
-                    if gemini_sig and gemini_sig.get("action") == "buy":
-                        default = f"Gemini ({gemini_sig.get('confidence', 0)}/10, {alloc_pct} %): {gemini_sig.get('reason', default)}"
-                    decisions.append(
-                        {
-                            "type": "buy",
-                            "symbol": symbol,
-                            "eurAmount": buy_amount,
-                            "amount": buy_amount / analysis["currentPrice"],
-                            "reason": _action_reason(analysis, default),
-                            "analysis": analysis,
-                        }
-                    )
-                    available_cash -= buy_amount
-        elif deficit > 10 and available_cash > 15:
-            buy_amount = min(deficit, available_cash - 2)
-            if buy_amount >= 10:
-                alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
-                decisions.append(
-                    {
-                        "type": "buy",
-                        "symbol": symbol,
-                        "eurAmount": buy_amount,
-                        "amount": buy_amount / analysis["currentPrice"],
-                        "reason": _action_reason(
-                            analysis,
-                            f"Gemini-tavoite {alloc_pct} % — lisätään {label_fn(symbol)}",
-                        ),
-                        "analysis": analysis,
-                    }
-                )
-                available_cash -= buy_amount
-        elif holding and analysis["action"] == "buy" and deficit > 5 and available_cash > 10:
-            buy_amount = min(deficit, available_cash - 2)
-            if buy_amount >= 5:
-                decisions.append(
-                    {
-                        "type": "buy",
-                        "symbol": symbol,
-                        "eurAmount": buy_amount,
-                        "amount": buy_amount / analysis["currentPrice"],
-                        "reason": _action_reason(
-                            analysis,
-                            f"Ostosignaali — {analysis['reasons'][0]}",
-                        ),
-                        "analysis": analysis,
-                    }
-                )
-                available_cash -= buy_amount
-
-    if gemini_insights and available_cash > 20 and desired:
-        held_after_sells = {
-            s for s in holdings if s not in symbols_to_sell
-        }
-        for sym in desired:
-            if sym in symbols_to_sell or sym not in analyses:
-                continue
-            if sym not in held_after_sells and len(held_after_sells) >= len(desired):
-                continue
-            signal = _gemini_signal(gemini_insights, sym) or {}
-            if signal.get("action") == "sell" and signal.get("confidence", 0) >= 5:
-                continue
-            analysis = analyses[sym]
-            target_value = _target_holding_value(sym, total_value, weights)
-            holding = holdings.get(sym)
-            hv = holding["amount"] * analysis["currentPrice"] if holding else 0.0
-            buy_amount = min(max(target_value - hv, 0), available_cash - 2)
-            if buy_amount < 10:
-                continue
-            if any(d["type"] == "buy" and d["symbol"] == sym for d in decisions):
-                continue
-            alloc_pct = round(weights.get(sym, 0) * 100, 1)
-            decisions.append(
-                {
-                    "type": "buy",
-                    "symbol": sym,
-                    "eurAmount": buy_amount,
-                    "amount": buy_amount / analysis["currentPrice"],
-                    "reason": f"Gemini ({signal.get('confidence', 0)}/10, {alloc_pct} %): {signal.get('reason', 'Ostosuositus')}",
-                    "analysis": analysis,
-                }
-            )
-            available_cash -= buy_amount
-            held_after_sells.add(sym)
-            top_symbols.add(sym)
-
-    if available_cash > 15 and (desired or not gemini_active):
-        underweight = []
-        for item in top_cryptos:
-            symbol = item["symbol"]
-            analysis = item["analysis"]
-            holding = holdings.get(symbol)
-            if symbol in symbols_to_sell:
-                hv = 0.0
-            else:
-                hv = holding["amount"] * analysis["currentPrice"] if holding else 0.0
-            target_value = _target_holding_value(symbol, total_value, weights)
-            gap = target_value - hv
-            if gap > 5:
-                underweight.append((gap, symbol, analysis))
-        underweight.sort(reverse=True)
-        for gap, symbol, analysis in underweight:
-            if available_cash <= 15:
-                break
-            if any(d["type"] == "buy" and d["symbol"] == symbol for d in decisions):
-                continue
-            buy_amount = min(gap, available_cash - 2)
-            if buy_amount >= 10:
-                alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
-                decisions.append(
-                    {
-                        "type": "buy",
-                        "symbol": symbol,
-                        "eurAmount": buy_amount,
-                        "reason": _action_reason(
-                            analysis,
-                            f"Käteinen Geminin tavoiteosuuteen ({alloc_pct} %) — {analysis['reasons'][0]}",
-                        ),
-                        "analysis": analysis,
-                        "amount": buy_amount / analysis["currentPrice"],
-                    }
-                )
-                available_cash -= buy_amount
+    skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
+    _deploy_cash_to_targets(
+        decisions,
+        holdings,
+        cash,
+        total_value,
+        weights,
+        alloc_symbols,
+        analyses,
+        label_fn,
+        gemini_active,
+        skip_sell_symbols,
+    )
 
     for d in decisions:
         if d["type"] == "buy" and is_stablecoin(d["symbol"]):
