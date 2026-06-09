@@ -163,6 +163,8 @@ function getTradeCounts() {
     last24h: countTradesSince(active, dayAgo),
   };
 }
+
+function applyPayload(data) {
   state = {
     ...state,
     ...data,
