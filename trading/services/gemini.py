@@ -98,18 +98,85 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+def _build_scan_leaders(
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    label_fn,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    """Tekninen esikarsinta — parhaat ehdokkaat koko markkinasta Geminille."""
+    rows: list[dict[str, Any]] = []
+    for symbol, ticker in tickers.items():
+        if is_stablecoin(symbol):
+            continue
+        analysis = analyses.get(symbol, {})
+        if analysis.get("currentPrice", 0) <= 0:
+            continue
+        change_24h = analysis.get("changePct")
+        if change_24h is None:
+            change_24h = ticker.get("changePct", 0)
+        rows.append(
+            {
+                "symbol": symbol,
+                "label": label_fn(symbol),
+                "technical_score": analysis.get("score", 0),
+                "change_24h_pct": round(change_24h, 2),
+                "change_1h_pct": round(analysis["change1hPct"], 2)
+                if analysis.get("change1hPct") is not None
+                else None,
+                "technical_action": analysis.get("action", "hold"),
+                "rsi": round(analysis.get("rsi", 50), 1),
+                "ema_trend": (
+                    "bullish"
+                    if analysis.get("ema9", 0) > analysis.get("ema21", 0)
+                    else "bearish"
+                    if analysis.get("ema9") is not None
+                    else None
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            -r["technical_score"],
+            -r["change_24h_pct"],
+            -tickers.get(r["symbol"], {}).get("volumeEur", 0),
+        )
+    )
+    return rows[:limit]
+
+
+def _technical_top_picks(
+    analyses: dict[str, dict[str, Any]],
+    limit: int = 4,
+) -> list[str]:
+    ranked = sorted(
+        [
+            (sym, a)
+            for sym, a in analyses.items()
+            if not is_stablecoin(sym) and a.get("currentPrice", 0) > 0
+        ],
+        key=lambda x: (
+            -x[1].get("score", 0),
+            -(x[1].get("changePct") or x[1].get("momentum") or 0),
+        ),
+    )
+    return [normalize_symbol(sym) for sym, _ in ranked[:limit]]
+
+
 def _build_market_summary(
     tickers: dict[str, dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
     portfolio: dict[str, Any],
     label_fn,
-    limit: int = 25,
+    limit: int = 0,
 ) -> list[dict[str, Any]]:
     ranked = sorted(
-        tickers.items(),
+        ((sym, t) for sym, t in tickers.items() if not is_stablecoin(sym)),
         key=lambda x: x[1].get("volumeEur", 0),
         reverse=True,
-    )[:limit]
+    )
+    if limit > 0:
+        ranked = ranked[:limit]
 
     holdings = portfolio.get("holdings", {})
     rows = []
@@ -157,7 +224,7 @@ def _build_market_summary(
         )
 
     for symbol in holdings:
-        if symbol in seen or symbol not in tickers:
+        if symbol in seen or symbol not in tickers or is_stablecoin(symbol):
             continue
         ticker = tickers[symbol]
         analysis = analyses.get(symbol, {})
@@ -547,6 +614,8 @@ def advise_portfolio(
         }
 
     market = _build_market_summary(tickers, analyses, portfolio, label_fn)
+    market_count = len(market)
+    scan_leaders = _build_scan_leaders(tickers, analyses, label_fn)
     if not market:
         return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini", "configured": True}
 
@@ -621,7 +690,17 @@ Kaupankäyntisäännöt (voitto edellä):
 10. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
 11. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 
-Markkinadata (JSON — change_1h/4h/24h, RSI, EMA-trendi, momentum):
+TEHTÄVÄ — SKANNAA KOKO MARKKINA ({market_count} kryptoparia, EI stablecoineja):
+- markkinadata = kaikki volatiilit parit (USDT/USDC/UDC/STABLE/DAI jne. EI mukana) — vertaa jokaista nykyisiin positioihin
+- top_picks = parhaat 1–4 KOKO listasta (ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
+- Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa listalta
+- signals: jokainen held-positio + KAIKKI top_picks + vähintään 3 parasta momentum_johtajaa joita et osta (action hold/buy)
+- Älä vastaa vain salkun 2 kohteella — skannaus kattaa kaikki {market_count} paria
+
+momentum_johtajat (tekninen esikarsinta koko markkinasta):
+{json.dumps(scan_leaders, ensure_ascii=False)}
+
+Markkinadata — {market_count} volatiliparia, stablecoinit pois (change_1h/4h/24h, RSI, EMA-trendi, momentum):
 {json.dumps(market, ensure_ascii=False)}
 
 Vastaa VAIN validilla JSON:lla (ei markdownia):
@@ -645,10 +724,9 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
   ]
 }}
 
-top_picks = 1–4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta). Valitse vain ne joihin oikeasti uskot — 1–2 riittää usein.
+top_picks = 1–4 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta).
 allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
-Esim. vahva momentum 40-50 %, keskivahva 25-30 %, täydennys 15-20 %. Min 10 % per valittu kohde.
-signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
+signals = held-positiot + top_picks + vähintään 3 parasta momentum_johtajaa (max 20 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
 Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.
 Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
@@ -707,6 +785,11 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 if isinstance(s, str) and not is_stablecoin(s)
             ][:4]
 
+            top_picks_fallback = False
+            if not top_picks:
+                top_picks = _technical_top_picks(analyses, 4)
+                top_picks_fallback = True
+
             allocations_map: dict[str, float] = {}
             for item in parsed.get("allocations") or []:
                 sym = item.get("symbol")
@@ -720,11 +803,16 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 "top_picks": top_picks,
                 "signals": signals_map,
                 "allocations": allocations_map,
+                "marketScanned": market_count,
+                "topPicksFallback": top_picks_fallback,
             }
             return insights, {
                 "ok": True,
                 "status": "ok",
-                "message": f"Gemini analysoi {len(signals_map)} signaalia",
+                "message": (
+                    f"Gemini skannasi {market_count} kryptoparia (ei stablecoineja) · "
+                    f"{len(top_picks)} valintaa · {len(signals_map)} signaalia"
+                ),
                 "provider": "gemini",
                 "model": model,
                 "configured": True,

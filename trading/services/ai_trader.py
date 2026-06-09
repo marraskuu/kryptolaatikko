@@ -15,7 +15,7 @@ CASH_BUFFER_EUR = 2
 ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
 FEE_RATE = 0.001
-GEMINI_DEEP_ANALYSIS_LIMIT = 15
+GEMINI_DEEP_ANALYSIS_LIMIT = 25
 
 
 def _in_uptrend(analysis: dict[str, Any]) -> bool:
@@ -637,6 +637,24 @@ def _plan_initial_allocation(
 MAX_POSITIONS = 4
 
 
+def _technical_leader_symbols(
+    analyses: dict[str, dict[str, Any]],
+    limit: int = MAX_POSITIONS,
+) -> list[str]:
+    ranked = sorted(
+        [
+            (sym, a)
+            for sym, a in analyses.items()
+            if not is_stablecoin(sym) and a.get("currentPrice", 0) > 0
+        ],
+        key=lambda x: (
+            -x[1].get("score", 0),
+            -(x[1].get("changePct") or x[1].get("momentum") or 0),
+        ),
+    )
+    return [normalize_symbol(sym) for sym, _ in ranked[:limit]]
+
+
 def _gemini_desired_symbols(gemini_insights: dict[str, Any] | None) -> list[str]:
     """Gemini valitsee 1–4 kohdetta — ei pakota neljää."""
     if not gemini_insights:
@@ -721,8 +739,9 @@ def make_trading_decisions(
     if gemini_active and desired:
         top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)
     elif gemini_active:
-        # Gemini aktiivinen mutta ei uusia valintoja — pidä nykyiset, älä täytä neljään
-        top_cryptos = _to_crypto_items(list(holdings.keys()), analyses)
+        leaders = _technical_leader_symbols(analyses, MAX_POSITIONS)
+        symbols = list(dict.fromkeys(leaders + list(holdings.keys())))
+        top_cryptos = _to_crypto_items(symbols, analyses)
     else:
         fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
         top_cryptos = _build_top_cryptos(ranked, analyses, fallback_n, gemini_insights)
