@@ -2,6 +2,7 @@ import json
 
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from .services.engine import (
@@ -15,6 +16,7 @@ from .services.export_excel import build_tax_excel
 from .services.session_state import build_api_payload, load_state
 
 
+@ensure_csrf_cookie
 def index(request):
     return render(request, "trading/index.html")
 

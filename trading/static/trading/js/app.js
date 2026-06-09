@@ -24,16 +24,29 @@ let marketSearch = "";
 const cryptoLabels = {};
 
 function getCsrfToken() {
+  const meta = document.querySelector('input[name="csrfmiddlewaretoken"]');
+  if (meta?.value) return meta.value;
   const match = document.cookie.match(/csrftoken=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }
 
 async function apiPost(url) {
+  const token = getCsrfToken();
   const res = await fetch(url, {
     method: "POST",
-    headers: { "X-CSRFToken": getCsrfToken() },
+    headers: {
+      "X-CSRFToken": token,
+      Accept: "application/json",
+    },
     credentials: "same-origin",
   });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    if (res.status === 403) {
+      throw new Error("Turvatarkistus epäonnistui — päivitä sivu (Ctrl+F5) ja yritä uudelleen.");
+    }
+    throw new Error(`Palvelinvirhe ${res.status} — odotettiin JSON-vastausta`);
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Virhe ${res.status}`);
   return data;

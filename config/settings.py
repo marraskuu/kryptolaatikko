@@ -19,6 +19,12 @@ RAILWAY_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
 if RAILWAY_DOMAIN:
     ALLOWED_HOSTS.append(RAILWAY_DOMAIN)
 
+CUSTOM_DOMAIN = os.environ.get("CUSTOM_DOMAIN", "").strip()
+if CUSTOM_DOMAIN:
+    for host in (CUSTOM_DOMAIN, f"www.{CUSTOM_DOMAIN}"):
+        if host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+
 CSRF_TRUSTED_ORIGINS = [
     o.strip()
     for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
@@ -26,6 +32,10 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 if RAILWAY_DOMAIN:
     CSRF_TRUSTED_ORIGINS.extend([f"https://{RAILWAY_DOMAIN}"])
+if CUSTOM_DOMAIN:
+    CSRF_TRUSTED_ORIGINS.extend(
+        [f"https://{CUSTOM_DOMAIN}", f"https://www.{CUSTOM_DOMAIN}"]
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
