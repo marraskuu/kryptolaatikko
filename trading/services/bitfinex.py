@@ -30,10 +30,32 @@ def get_crypto_label(symbol: str) -> str:
     return body
 
 
+def normalize_symbol(symbol: str) -> str:
+    """Bitfinex-symbolit ovat muotoa tBTCUSD — ei tBTC:USD."""
+    if not symbol:
+        return symbol
+    s = symbol.strip()
+    if s.startswith("t") and ":" in s:
+        s = "t" + s[1:].replace(":", "")
+    return s
+
+
+def is_valid_trading_symbol(symbol: str) -> bool:
+    if not symbol or not symbol.startswith("t"):
+        return False
+    if "TEST" in symbol.upper():
+        return False
+    parsed = parse_pair_symbol(normalize_symbol(symbol))
+    return parsed is not None
+
+
 def parse_pair_symbol(symbol: str) -> dict[str, str] | None:
+    symbol = normalize_symbol(symbol)
     if not symbol.startswith("t"):
         return None
     body = symbol[1:]
+    if "TEST" in body.upper():
+        return None
     for quote in QUOTE_CURRENCIES:
         if body.endswith(quote) and len(body) > len(quote):
             base = body[: -len(quote)]
@@ -46,7 +68,10 @@ def parse_pair_symbol(symbol: str) -> dict[str, str] | None:
 def _bitfinex_fetch(path: str) -> list | dict:
     url = f"{BITFINEX_DIRECT}{path}"
     res = requests.get(url, timeout=30)
-    res.raise_for_status()
+    try:
+        res.raise_for_status()
+    except requests.HTTPError:
+        raise
     data = res.json()
     if isinstance(data, dict) and data.get("error"):
         raise RuntimeError(data["error"])
@@ -151,7 +176,17 @@ def fetch_all_markets() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, 
 
 
 def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[dict[str, Any]]:
-    data = _bitfinex_fetch(f"/candle/trade:{timeframe}:{symbol}/hist?limit={limit}")
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return []
+
+    path = f"/candles/trade:{timeframe}:{symbol}/hist"
+    try:
+        data = _bitfinex_fetch(f"{path}?limit={limit}&sort=1")
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in (404, 429):
+            return []
+        raise
     if not isinstance(data, list):
         raise RuntimeError("Unexpected API response")
 

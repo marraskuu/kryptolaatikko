@@ -338,6 +338,7 @@ def apply_gemini_insights(
         return
 
     for symbol in insights.get("top_picks") or []:
+        symbol = normalize_symbol(symbol)
         if symbol in analyses:
             analyses[symbol]["score"] = analyses[symbol].get("score", 0) + 4
             analyses[symbol]["reasons"] = ["Gemini: top-valinta"] + analyses[symbol].get(
@@ -346,6 +347,7 @@ def apply_gemini_insights(
             analyses[symbol]["geminiPick"] = True
 
     for symbol, signal in (insights.get("signals") or {}).items():
+        symbol = normalize_symbol(symbol)
         if symbol not in analyses:
             continue
         analysis = analyses[symbol]

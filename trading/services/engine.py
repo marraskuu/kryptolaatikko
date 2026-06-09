@@ -10,7 +10,7 @@ from .ai_trader import (
     build_decision_report,
     make_trading_decisions,
 )
-from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
+from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, normalize_symbol
 from .gemini import advise_portfolio, is_configured as gemini_configured
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
@@ -23,7 +23,8 @@ from .state_store import load_state, save_state
 
 logger = logging.getLogger(__name__)
 
-DEEP_ANALYSIS_COUNT = 30
+DEEP_ANALYSIS_COUNT = 8
+CANDLE_FETCH_DELAY_SEC = 2.1
 
 
 def _now_iso() -> str:
@@ -48,9 +49,16 @@ def _refresh_analyses(state: dict[str, Any]) -> None:
     for symbol, ticker in state["tickers"].items():
         state["analyses"][symbol] = analyze_ticker_quick(ticker)
 
+    fetched = 0
     for symbol in _select_candidates_for_deep_analysis(state):
+        symbol = normalize_symbol(symbol)
+        if symbol not in state["tickers"]:
+            continue
         try:
+            if fetched > 0:
+                time.sleep(CANDLE_FETCH_DELAY_SEC)
             candles = fetch_candles(symbol, "1h", 50)
+            fetched += 1
             if len(candles) >= 20:
                 deep = analyze_market(candles)
                 ticker = state["tickers"].get(symbol)
@@ -59,7 +67,7 @@ def _refresh_analyses(state: dict[str, Any]) -> None:
                     deep["volumeEur"] = ticker["volumeEur"]
                 state["analyses"][symbol] = deep
         except Exception as exc:
-            logger.warning("Deep analysis failed for %s: %s", symbol, exc)
+            logger.debug("Deep analysis skipped for %s: %s", symbol, exc)
 
 
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:

@@ -1,5 +1,8 @@
+import logging
 import os
 import sys
+import threading
+import time
 
 from django.apps import AppConfig
 
@@ -17,6 +20,10 @@ class TradingConfig(AppConfig):
         if not is_web:
             return
 
-        from .services.bot_worker import start_bot_worker
+        def _delayed_start() -> None:
+            time.sleep(3)
+            from .services.bot_worker import start_bot_worker
 
-        start_bot_worker()
+            start_bot_worker()
+
+        threading.Thread(target=_delayed_start, name="bot-worker-init", daemon=True).start()
