@@ -15,7 +15,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
 
 
