@@ -23,7 +23,9 @@ class TradingConfig(AppConfig):
         def _delayed_start() -> None:
             time.sleep(3)
             from .services.bot_worker import start_bot_worker
+            from .services.gemini import log_startup_status
 
+            log_startup_status()
             start_bot_worker()
 
         threading.Thread(target=_delayed_start, name="bot-worker-init", daemon=True).start()

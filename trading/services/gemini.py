@@ -120,20 +120,37 @@ def _build_market_summary(
 
 def get_status() -> dict[str, Any]:
     """Turvallinen tila UI:lle — ei koskaan paljasta avainta."""
+    key = _read_api_key()
+    base = {
+        "configured": is_configured(),
+        "keyPresent": bool(key),
+        "keyLength": len(key),
+        "keyFormat": _key_format() if key else "none",
+    }
     if is_configured():
         return {
+            **base,
             "ok": False,
             "message": "Gemini odottaa seuraavaa analyysikierrosta",
             "provider": "gemini",
-            "configured": True,
-            "keyFormat": _key_format(),
         }
     return {
+        **base,
         "ok": False,
         "message": _key_hint(),
         "provider": "technical",
-        "configured": False,
     }
+
+
+def log_startup_status() -> None:
+    status = get_status()
+    logger.info(
+        "Gemini startup: present=%s len=%s format=%s configured=%s",
+        status["keyPresent"],
+        status["keyLength"],
+        status["keyFormat"],
+        status["configured"],
+    )
 
 
 def advise_portfolio(
