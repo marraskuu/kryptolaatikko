@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -165,6 +165,95 @@ def _build_market_summary(
     return rows
 
 
+def _parse_trade_time(iso: str) -> datetime:
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _sell_profit_eur(trade: dict[str, Any]) -> float:
+    pl = trade.get("profitLoss")
+    if pl is not None:
+        return float(pl)
+    if trade.get("profit") is not None:
+        return float(trade["profit"])
+    return float(trade.get("eurTotal", 0)) - float(trade.get("costBasis", 0))
+
+
+def _summarize_sells(sells: list[dict[str, Any]]) -> dict[str, Any]:
+    wins = losses = 0
+    net = 0.0
+    for t in sells:
+        pl = _sell_profit_eur(t)
+        net += pl
+        if pl > 0.01:
+            wins += 1
+        elif pl < -0.01:
+            losses += 1
+    return {
+        "sells": len(sells),
+        "wins": wins,
+        "losses": losses,
+        "net_profit_eur": round(net, 2),
+    }
+
+
+def _build_trade_history_summary(
+    portfolio: dict[str, Any],
+    label_fn,
+    limit: int = 15,
+) -> dict[str, Any]:
+    """Palauttaa Geminille kauppahistorian ja suorituskyvyn — palautekierros."""
+    all_trades = [t for t in portfolio.get("trades", []) if t.get("type") in ("buy", "sell")]
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    day_ago = now - timedelta(hours=24)
+
+    def in_period(trade: dict[str, Any], since: datetime) -> bool:
+        try:
+            return _parse_trade_time(trade["timestamp"]) >= since
+        except (ValueError, TypeError, KeyError):
+            return False
+
+    sells = [t for t in all_trades if t["type"] == "sell"]
+    recent_rows: list[dict[str, Any]] = []
+    for t in all_trades[:limit]:
+        try:
+            time_str = _parse_trade_time(t["timestamp"]).strftime("%d.%m.%Y %H:%M")
+        except (ValueError, TypeError, KeyError):
+            time_str = str(t.get("timestamp", ""))[:16]
+
+        row: dict[str, Any] = {
+            "time": time_str,
+            "type": "osto" if t["type"] == "buy" else "myynti",
+            "label": label_fn(t.get("symbol", "")),
+            "symbol": t.get("symbol"),
+            "price_eur": round(float(t.get("price") or 0), 6),
+            "amount": round(float(t.get("amount") or 0), 8),
+            "eur_total": round(float(t.get("eurTotal") or 0), 2),
+        }
+        if t["type"] == "sell":
+            pl = _sell_profit_eur(t)
+            row["profit_loss_eur"] = round(pl, 2)
+            row["result"] = "voitto" if pl > 0.01 else "tappio" if pl < -0.01 else "tasapeli"
+        reason = (t.get("reason") or "").strip()[:120]
+        if reason:
+            row["reason"] = reason
+        recent_rows.append(row)
+
+    return {
+        "total_trades": len(all_trades),
+        "realized_profit_eur_total": round(float(portfolio.get("totalRealizedProfit") or 0), 2),
+        "last_7_days": {
+            **_summarize_sells([t for t in sells if in_period(t, week_ago)]),
+            "buys": len([t for t in all_trades if t["type"] == "buy" and in_period(t, week_ago)]),
+        },
+        "last_24h": _summarize_sells([t for t in sells if in_period(t, day_ago)]),
+        "recent_trades_newest_first": recent_rows,
+    }
+
+
 def get_status() -> dict[str, Any]:
     """Turvallinen tila UI:lle — ei koskaan paljasta avainta."""
     key = _read_api_key()
@@ -254,6 +343,7 @@ def advise_portfolio(
         }
         for sym, h in holdings.items()
     ]
+    trade_history = _build_trade_history_summary(portfolio, label_fn)
     prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
 
 Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
@@ -262,6 +352,15 @@ Salkun tila nyt:
 - Arvo yhteensä: {total_value} EUR (P/L {portfolio_pnl_pct:+.2f} % vs alkupääoma)
 - Käteinen: {cash} EUR
 - Positiot: {json.dumps(held, ensure_ascii=False)}
+
+Kauppahistoria ja palaute (opettele näistä — älä toista tappiollisia linjauksia):
+{json.dumps(trade_history, ensure_ascii=False)}
+
+Historian käyttö:
+- Katso recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
+- Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä
+- Jos momentum-ostot tuottivat voittoa → painota samanlaista strategiaa
+- last_7_days / last_24h kertovat lyhyen aikavälin onnistumisen — mukauta aggressiota
 
 Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
@@ -299,7 +398,8 @@ top_picks = 3-4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen da
 allocations = sijoitusosuudet käteisestä/salkusta (alloc_pct, summa ≈ 100). EI tasajaot — enemmän parhaisiin, vähemmän heikompiin.
 Esim. vahva momentum 40-50 %, keskivahva 25-30 %, täydennys 15-20 %. Min 10 % per valittu kohde.
 signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille.
-Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa."""
+Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.
+Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
     api_key = _read_api_key()
     errors: list[str] = []
