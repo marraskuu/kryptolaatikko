@@ -184,12 +184,26 @@ def advise_portfolio(
         return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini", "configured": True}
 
     cash = round(portfolio.get("cash", 0), 2)
+    holdings = portfolio.get("holdings", {})
+    held = [
+        {
+            "symbol": sym,
+            "label": label_fn(sym),
+            "value_eur": round(h["amount"] * analyses.get(sym, {}).get("currentPrice", 0), 2),
+        }
+        for sym, h in holdings.items()
+    ]
     prompt = f"""Olet kryptovaluutta-simulaattorin kaupankäyntiavustaja (paper trading, ei oikeaa rahaa).
+Analysoi markkinaa ja tee AKTIIVISIA kauppapäätöksiä — älä vain listaa parhaita kolikoita.
 
 Säännöt:
 - Salkussa max 3–4 kryptoa, alkupääoma 1000 EUR, käteinen nyt {cash} EUR
-- 30 % vero vain voitoista; myy voitolla +3 % strategian mukaan erikseen
-- Valitse likvidit parit (korkea volume_eur), älä spekuloi obskureilla
+- 30 % vero vain voitoista; voitto-Myyntistrategia (+3 %) hoidetaan erikseen — älä myy voitolla vain signaalin takia
+- Valitse likvidit parit (korkea volume_eur)
+- Perustele jokainen signaali: trendi, dip-osto, momentum, riski, diversifiointi
+- Jos positio on heikko mutta ei vielä myyntikelpoinen, anna hold korkealla confidence-arvolla
+
+Nykyiset positiot: {json.dumps(held, ensure_ascii=False)}
 
 Markkinadata (JSON):
 {json.dumps(market, ensure_ascii=False)}
@@ -202,13 +216,14 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
       "symbol": "tSYM1",
       "action": "buy|sell|hold",
       "confidence": 1-10,
-      "reason": "lyhyt perustelu suomeksi"
+      "reason": "konkreettinen perustelu suomeksi (ei 'top 4 signaalia')"
     }}
   ]
 }}
 
-top_picks = 3-4 parasta ostokohdetta nyt (symbol-kentät täsmälleen).
-signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
+top_picks = 3-4 parasta kohdetta nyt (symbol täsmälleen datasta).
+signals = jokainen held-positio + kaikki top_picks + muut vahvat buy/sell-kohteet (max 15 riviä).
+confidence 8-10 = vahva toimenpide, 5-7 = maltillinen, alle 5 = hold."""
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"

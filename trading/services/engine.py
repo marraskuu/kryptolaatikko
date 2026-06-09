@@ -7,6 +7,7 @@ from .ai_trader import (
     analyze_ticker_quick,
     apply_gemini_insights,
     build_decision_report,
+    format_initial_buy_reason,
     make_trading_decisions,
 )
 from .bitfinex import fetch_all_markets, get_crypto_label
@@ -155,6 +156,7 @@ def execute_trading_cycle() -> dict[str, Any]:
         portfolio.to_dict(),
         total_value,
         get_crypto_label,
+        gemini_insights=gemini_insights,
         gemini_picks=gemini_picks,
     )
     decisions = decision_result["decisions"]
@@ -167,36 +169,42 @@ def execute_trading_cycle() -> dict[str, Any]:
     ]
 
     initial_allocation = decision_result.get("initialAllocation") or []
+    gemini_active = decision_result.get("geminiActive", False)
     if initial_allocation:
         slots = [
             {
                 "symbol": item["symbol"],
                 "price": item["analysis"]["currentPrice"],
-                "reason": (
-                    f"Alkuallokaatio — {get_crypto_label(item['symbol'])} "
-                    f"({i + 1}/{len(initial_allocation)})"
+                "reason": format_initial_buy_reason(
+                    item["analysis"],
+                    get_crypto_label(item["symbol"]),
+                    i + 1,
+                    len(initial_allocation),
+                    gemini_active,
                 ),
             }
             for i, item in enumerate(initial_allocation)
         ]
         portfolio.allocate_initial(slots)
-        for item in initial_allocation:
+        for i, item in enumerate(initial_allocation):
             symbol = item["symbol"]
+            label = get_crypto_label(symbol)
             holding = portfolio.holdings.get(symbol)
             amount = holding["amount"] * item["analysis"]["currentPrice"] if holding else None
-            log_ai_event(
-                state,
-                "buy",
-                get_crypto_label(symbol),
-                f"Alkuallokaatio — top {len(initial_allocation)} parasta signaalia",
-                amount,
+            reason = format_initial_buy_reason(
+                item["analysis"],
+                label,
+                i + 1,
+                len(initial_allocation),
+                gemini_active,
             )
+            log_ai_event(state, "buy", label, reason, amount)
             executed_buys.append(
                 {
                     "symbol": symbol,
-                    "label": get_crypto_label(symbol),
+                    "label": label,
                     "amount": amount,
-                    "reason": f"Top {len(initial_allocation)} parasta signaalia — jaetaan pääoma tasaisesti",
+                    "reason": reason,
                     "analysis": item["analysis"],
                 }
             )
@@ -246,7 +254,11 @@ def execute_trading_cycle() -> dict[str, Any]:
                 }
             )
 
-    report = build_decision_report(decisions, get_crypto_label)
+    report = build_decision_report(
+        decisions,
+        get_crypto_label,
+        gemini_active=decision_result.get("geminiActive", False),
+    )
     report.update(
         {
             "executedBuys": executed_buys,

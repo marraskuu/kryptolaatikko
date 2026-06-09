@@ -1,5 +1,7 @@
 from typing import Any, Callable
 
+from .bitfinex import normalize_symbol
+
 
 def calc_rsi(closes: list[float], period: int = 14) -> float:
     if len(closes) < period + 1:
@@ -157,11 +159,71 @@ def analyze_market(candles: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _gemini_reason(analysis: dict[str, Any]) -> str | None:
+    signal = analysis.get("geminiSignal")
+    if signal and signal.get("reason"):
+        conf = signal.get("confidence", 0)
+        return f"Gemini ({conf}/10): {signal['reason']}"
+    for reason in analysis.get("reasons", []):
+        if reason.startswith("Gemini"):
+            return reason
+    return None
+
+
+def _action_reason(analysis: dict[str, Any], fallback: str) -> str:
+    return _gemini_reason(analysis) or fallback
+
+
+def _gemini_signal(
+    gemini_insights: dict[str, Any] | None, symbol: str
+) -> dict[str, Any] | None:
+    if not gemini_insights:
+        return None
+    signals = gemini_insights.get("signals") or {}
+    sym = normalize_symbol(symbol)
+    return signals.get(sym) or signals.get(symbol)
+
+
+def _build_top_cryptos(
+    ranked: list[dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    target_count: int,
+    gemini_insights: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    gemini_picks = (gemini_insights or {}).get("top_picks") or []
+    if gemini_picks:
+        top: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw_sym in gemini_picks:
+            sym = normalize_symbol(raw_sym)
+            if sym in analyses and sym not in seen:
+                analysis = analyses[sym]
+                top.append(
+                    {
+                        "symbol": sym,
+                        "analysis": analysis,
+                        "rank": analysis.get("score", 0) + 12,
+                    }
+                )
+                seen.add(sym)
+        for item in ranked:
+            if len(top) >= target_count:
+                break
+            if item["symbol"] not in seen:
+                top.append(item)
+                seen.add(item["symbol"])
+        if top:
+            return top[:target_count]
+
+    return ranked[:target_count]
+
+
 def make_trading_decisions(
     analyses: dict[str, dict[str, Any]],
     portfolio_data: dict[str, Any],
     total_value: float,
     label_fn: Callable[[str], str],
+    gemini_insights: dict[str, Any] | None = None,
     gemini_picks: list[str] | None = None,
 ) -> dict[str, Any]:
     holdings = portfolio_data["holdings"]
@@ -177,19 +239,18 @@ def make_trading_decisions(
     )
 
     target_count = 4 if len(holdings) < 4 else min(4, len(holdings))
+    gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
 
-    if gemini_picks:
+    top_cryptos = _build_top_cryptos(ranked, analyses, target_count, gemini_insights)
+    if not top_cryptos and gemini_picks:
         gemini_top = [
-            {"symbol": s, "analysis": analyses[s], "rank": analyses[s].get("score", 0) + 10}
+            {"symbol": normalize_symbol(s), "analysis": analyses[normalize_symbol(s)], "rank": 10}
             for s in gemini_picks
-            if s in analyses
+            if normalize_symbol(s) in analyses
         ]
-        if len(gemini_top) >= 3:
+        if gemini_top:
             top_cryptos = gemini_top[:target_count]
-        else:
-            top_cryptos = ranked[:target_count]
-    else:
-        top_cryptos = ranked[:target_count]
+
     top_symbols = {c["symbol"] for c in top_cryptos}
 
     decisions: list[dict[str, Any]] = []
@@ -200,6 +261,7 @@ def make_trading_decisions(
             "targetCount": target_count,
             "topSymbols": list(top_symbols),
             "initialAllocation": top_cryptos[: min(target_count, len(top_cryptos))],
+            "geminiActive": gemini_active,
         }
 
     for symbol, holding in holdings.items():
@@ -220,6 +282,38 @@ def make_trading_decisions(
                     "type": "hold",
                     "symbol": symbol,
                     "reason": "Voitto-Myyntistrategia: +3 % saavutettu — odotetaan 180 s ja kurssin kääntymistä",
+                    "analysis": analysis,
+                }
+            )
+            continue
+
+        gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
+
+        if gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= 6:
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": _action_reason(
+                        analysis,
+                        f"Gemini suosittelee myyntiä — {gemini_sig.get('reason', '')}",
+                    ),
+                    "analysis": analysis,
+                }
+            )
+        elif (
+            gemini_active
+            and gemini_sig
+            and gemini_sig.get("action") == "hold"
+            and gemini_sig.get("confidence", 0) >= 7
+        ):
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": _action_reason(analysis, "Gemini: pidä positio"),
                     "analysis": analysis,
                 }
             )
@@ -268,13 +362,21 @@ def make_trading_decisions(
             if available_cash > 15 and deficit > 10:
                 buy_amount = min(deficit, available_cash - 2)
                 if buy_amount >= 10:
+                    gemini_sig = _gemini_signal(gemini_insights, symbol)
+                    default = (
+                        f"Gemini valitsee salkkuun — {analysis['reasons'][0]}"
+                        if gemini_active
+                        else f"Uusi positio top {target_count}:een — {analysis['reasons'][0]}"
+                    )
+                    if gemini_sig and gemini_sig.get("action") == "buy":
+                        default = f"Gemini ({gemini_sig.get('confidence', 0)}/10): {gemini_sig.get('reason', default)}"
                     decisions.append(
                         {
                             "type": "buy",
                             "symbol": symbol,
                             "eurAmount": buy_amount,
                             "amount": buy_amount / analysis["currentPrice"],
-                            "reason": f"Uusi positio top {target_count}:een — {analysis['reasons'][0]}",
+                            "reason": _action_reason(analysis, default),
                             "analysis": analysis,
                         }
                     )
@@ -288,7 +390,10 @@ def make_trading_decisions(
                         "symbol": symbol,
                         "eurAmount": buy_amount,
                         "amount": buy_amount / analysis["currentPrice"],
-                        "reason": f"Tasapainotus — lisätään {label_fn(symbol)}",
+                        "reason": _action_reason(
+                            analysis,
+                            f"Tasapainotus — lisätään {label_fn(symbol)}",
+                        ),
                         "analysis": analysis,
                     }
                 )
@@ -302,11 +407,42 @@ def make_trading_decisions(
                         "symbol": symbol,
                         "eurAmount": buy_amount,
                         "amount": buy_amount / analysis["currentPrice"],
-                        "reason": f"Ostosignaali — {analysis['reasons'][0]}",
+                        "reason": _action_reason(
+                            analysis,
+                            f"Ostosignaali — {analysis['reasons'][0]}",
+                        ),
                         "analysis": analysis,
                     }
                 )
                 available_cash -= buy_amount
+
+    if gemini_insights and available_cash > 20 and len(holdings) < target_count:
+        for sym, signal in (gemini_insights.get("signals") or {}).items():
+            sym = normalize_symbol(sym)
+            if sym in holdings or sym in symbols_to_sell or sym not in analyses:
+                continue
+            if signal.get("action") != "buy" or signal.get("confidence", 0) < 7:
+                continue
+            analysis = analyses[sym]
+            buy_amount = min(target_per_crypto, available_cash - 2)
+            if buy_amount < 10:
+                continue
+            if any(d["type"] == "buy" and d["symbol"] == sym for d in decisions):
+                continue
+            decisions.append(
+                {
+                    "type": "buy",
+                    "symbol": sym,
+                    "eurAmount": buy_amount,
+                    "amount": buy_amount / analysis["currentPrice"],
+                    "reason": f"Gemini ({signal.get('confidence', 0)}/10): {signal.get('reason', 'Ostosuositus')}",
+                    "analysis": analysis,
+                }
+            )
+            available_cash -= buy_amount
+            top_symbols.add(sym)
+            if len(holdings) + len([d for d in decisions if d["type"] == "buy"]) >= target_count:
+                break
 
     if available_cash > 15:
         underweight = []
@@ -334,7 +470,10 @@ def make_trading_decisions(
                         "type": "buy",
                         "symbol": symbol,
                         "eurAmount": buy_amount,
-                        "reason": f"Käteinen sijoitetaan — {analysis['reasons'][0]}",
+                        "reason": _action_reason(
+                            analysis,
+                            f"Käteinen sijoitetaan — {analysis['reasons'][0]}",
+                        ),
                         "analysis": analysis,
                         "amount": buy_amount / analysis["currentPrice"],
                     }
@@ -345,7 +484,23 @@ def make_trading_decisions(
         "decisions": decisions,
         "targetCount": target_count,
         "topSymbols": list(top_symbols),
+        "geminiActive": gemini_active,
     }
+
+
+def format_initial_buy_reason(
+    analysis: dict[str, Any],
+    label: str,
+    index: int,
+    total: int,
+    gemini_active: bool,
+) -> str:
+    if gemini_active:
+        gemini = _gemini_reason(analysis)
+        if gemini:
+            return gemini
+        return f"Gemini: avaa salkku — {label} ({index}/{total})"
+    return f"Alkuallokaatio — {label} ({index}/{total})"
 
 
 def apply_gemini_insights(
@@ -386,27 +541,33 @@ def apply_gemini_insights(
                 "reasons", []
             )
         analysis["gemini"] = True
+        analysis["geminiSignal"] = {
+            "action": action,
+            "confidence": confidence,
+            "reason": reason,
+        }
 
 
 def build_decision_report(
     decisions: list[dict[str, Any]],
     label_fn: Callable[[str], str],
+    gemini_active: bool = False,
 ) -> dict[str, Any]:
     buys = [d for d in decisions if d["type"] == "buy"]
     sells = [d for d in decisions if d["type"] == "sell"]
     holds = [d for d in decisions if d["type"] == "hold"]
 
-    title = "AI-analyysi valmis"
+    title = "Gemini-analyysi valmis" if gemini_active else "AI-analyysi valmis"
     subtitle = f"{len(buys)} ostoa · {len(sells)} myyntiä · {len(holds)} pidossa"
 
     if buys and sells:
-        title = "Ostoja ja myyntejä"
+        title = "Gemini: ostoja ja myyntejä" if gemini_active else "Ostoja ja myyntejä"
     elif buys:
-        title = f"Ostetaan {len(buys)} kryptoa"
+        title = f"Gemini: {len(buys)} ostoa" if gemini_active else f"Ostetaan {len(buys)} kryptoa"
     elif sells:
-        title = f"Myydään {len(sells)} kryptoa"
+        title = f"Gemini: {len(sells)} myyntiä" if gemini_active else f"Myydään {len(sells)} kryptoa"
     elif holds:
-        title = "Pidetään positioita"
+        title = "Gemini: pidetään positioita" if gemini_active else "Pidetään positioita"
         subtitle = "Ei uusia kauppoja tällä kierroksella"
     else:
         title = "Ei toimenpiteitä"
