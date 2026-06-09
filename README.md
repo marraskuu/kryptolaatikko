@@ -35,6 +35,8 @@ Avaa: **http://127.0.0.1:8000**
 | `SECRET_KEY` | Satunnainen pitkä merkkijono |
 | `DEBUG` | `false` |
 | `ALLOWED_HOSTS` | `*` (tai Railway-domain) |
+| `GEMINI_API_KEY` | Google AI Studio -avain (`AIzaSy…` tai `AQ.…`) |
+| `GEMINI_MODEL` | `gemini-3.5-flash` (älä käytä vanhentunutta `gemini-2.0-flash`) |
 
 Railway asettaa automaattisesti `PORT` ja `RAILWAY_PUBLIC_DOMAIN`.
 

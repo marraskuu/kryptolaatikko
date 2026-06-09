@@ -18,15 +18,33 @@ logger = logging.getLogger(__name__)
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
 
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+
+# Tuettuja malleja — ei vanhentuneita (esim. gemini-2.0-flash)
+SUPPORTED_GEMINI_MODELS = (
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+)
+
+
+def _normalize_model(name: str) -> str:
+    name = name.strip().strip('"').strip("'")
+    if name.startswith("models/"):
+        name = name[len("models/") :]
+    return name
+
+
 def _read_model() -> str:
-    return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
+    raw = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    model = _normalize_model(raw)
+    return model or DEFAULT_GEMINI_MODEL
 
 
 def _model_candidates() -> list[str]:
     primary = _read_model()
-    fallbacks = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
     models = [primary]
-    for model in fallbacks:
+    for model in SUPPORTED_GEMINI_MODELS:
         if model not in models:
             models.append(model)
     return models
@@ -174,11 +192,12 @@ def get_status() -> dict[str, Any]:
 def log_startup_status() -> None:
     status = get_status()
     logger.info(
-        "Gemini startup: present=%s len=%s format=%s configured=%s",
+        "Gemini startup: present=%s len=%s format=%s configured=%s model=%s",
         status["keyPresent"],
         status["keyLength"],
         status["keyFormat"],
         status["configured"],
+        _read_model(),
     )
 
 
@@ -271,7 +290,8 @@ signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä).
 Priorisoi: myy tappiolliset, osta momentum-nousuja. Voitolla olevia positioita pidä nousussa — älä suosittele myyntiä ennen tasaantumista. confidence 8-10 = vahva toimenpide."""
 
     api_key = _read_api_key()
-    last_error = ""
+    errors: list[str] = []
+    configured_model = _read_model()
 
     for model in _model_candidates():
         url = (
@@ -333,24 +353,30 @@ Priorisoi: myy tappiolliset, osta momentum-nousuja. Voitolla olevia positioita p
             if hasattr(exc, "response") and exc.response is not None:
                 try:
                     err_body = exc.response.json()
-                    detail = err_body.get("error", {}).get("message", "")[:120]
+                    detail = err_body.get("error", {}).get("message", "")[:160]
                 except (ValueError, AttributeError):
-                    detail = exc.response.text[:120] if exc.response.text else ""
-            last_error = detail or type(exc).__name__
-            logger.warning("Gemini API error (%s): %s", model, last_error)
+                    detail = exc.response.text[:160] if exc.response.text else ""
+            err_msg = detail or type(exc).__name__
+            errors.append(f"{model}: {err_msg}")
+            logger.warning("Gemini API error (%s): %s", model, err_msg)
             continue
         except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
-            last_error = type(exc).__name__
-            logger.warning("Gemini parse error (%s): %s", model, last_error)
+            err_msg = type(exc).__name__
+            errors.append(f"{model}: {err_msg}")
+            logger.warning("Gemini parse error (%s): %s", model, err_msg)
             continue
 
-    msg = "Gemini-yhteys epäonnistui — käytetään teknistä analyysiä"
-    if last_error:
-        msg = f"{msg} ({last_error})"
+    primary_err = next((e for e in errors if e.startswith(f"{configured_model}:")), None)
+    fallback_err = errors[0] if errors else ""
+    detail = (primary_err or fallback_err).split(": ", 1)[-1] if (primary_err or fallback_err) else ""
+    msg = f"Gemini-yhteys epäonnistui ({configured_model}) — käytetään teknistä analyysiä"
+    if detail:
+        msg = f"{msg} ({detail})"
     return None, {
         "ok": False,
         "status": "error",
         "message": msg,
         "provider": "gemini",
+        "model": configured_model,
         "configured": True,
     }
