@@ -366,7 +366,74 @@ h1 {
   font-size: 0.8rem;
   font-weight: 600;
   text-align: right;
-  min-width: 72px;
+  min-width: 88px;
+}
+
+.market-row-head {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.market-row-head:hover {
+  background: transparent;
+}
+
+.market-head-price,
+.market-head-change {
+  text-align: right;
+}
+
+.market-change-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.market-pct-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-width: 64px;
+  text-align: center;
+}
+
+.market-pct-pill.up {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.market-pct-pill.down {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.market-pct-sub {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.market-pct-sub.up {
+  color: var(--green);
+}
+
+.market-pct-sub.down {
+  color: var(--red);
+}
+
+.market-row-change.up {
+  color: var(--green);
+}
+
+.market-row-change.down {
+  color: var(--red);
 }
 
 .market-row-badge {

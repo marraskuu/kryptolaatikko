@@ -1,4 +1,4 @@
-const POLL_INTERVAL = 8000;
+const POLL_INTERVAL = 5000;
 const AI_EVENT_LIMIT = 20;
 const INITIAL_CAPITAL = 1000;
 
@@ -83,11 +83,28 @@ function formatVolumeEur(value) {
 }
 
 function getCryptoLabel(symbol) {
-  const body = symbol.replace(/^t/, "");
+  const normalized = normalizeSymbol(symbol);
+  const body = normalized.replace(/^t/, "");
   for (const quote of ["USD", "UST", "EUR"]) {
     if (body.endsWith(quote)) return body.slice(0, -quote.length);
   }
-  return body;
+  return body.replace(/:/g, "");
+}
+
+function normalizeSymbol(symbol) {
+  if (!symbol) return symbol;
+  if (symbol.startsWith("t") && symbol.includes(":")) {
+    return "t" + symbol.slice(1).replace(/:/g, "");
+  }
+  return symbol;
+}
+
+function getPositionPct(symbol) {
+  const key = normalizeSymbol(symbol);
+  const holding = state.portfolio.holdings?.[key] || state.portfolio.holdings?.[symbol];
+  const ticker = state.tickers[key] || state.tickers[symbol];
+  if (!holding || !ticker?.last || !holding.avgPrice) return null;
+  return ((ticker.last - holding.avgPrice) / holding.avgPrice) * 100;
 }
 
 function applyPayload(data) {
@@ -198,14 +215,38 @@ function renderMarketList() {
     return;
   }
 
-  els.marketList.innerHTML = entries
+  els.marketList.innerHTML = `
+    <div class="market-row market-row-head">
+      <div>Krypto</div>
+      <div class="market-head-price">Kurssi</div>
+      <div class="market-head-change">Muutos</div>
+    </div>
+  ${entries
     .map(([symbol, ticker]) => {
-      const label = getCryptoLabel(symbol);
-      const analysis = state.analyses[symbol];
-      const changeClass = ticker.changePct >= 0 ? "up" : "down";
-      const isHeld = activeSet.has(symbol);
-      const watch = state.profitWatch[symbol];
+      const sym = normalizeSymbol(symbol);
+      const label = getCryptoLabel(sym);
+      const analysis = state.analyses[sym] || state.analyses[symbol];
+      const change24Class = ticker.changePct >= 0 ? "up" : "down";
+      const isHeld = activeSet.has(sym) || activeSet.has(symbol);
+      const watch = state.profitWatch[sym] || state.profitWatch[symbol];
       const signal = analysis?.action === "buy" ? "▲" : analysis?.action === "sell" ? "▼" : "●";
+      const positionPct = getPositionPct(sym);
+
+      let changeHtml;
+      if (isHeld && positionPct != null) {
+        const pnlClass = positionPct >= 0 ? "up" : "down";
+        changeHtml = `
+          <div class="market-change-stack">
+            <span class="market-pct-pill ${pnlClass}" title="Voitto/tappio ostohintaan">${formatPct(positionPct)}</span>
+            <span class="market-pct-sub ${change24Class}" title="24 h muutos">24h ${formatPct(ticker.changePct)}</span>
+          </div>`;
+      } else {
+        changeHtml = `
+          <div class="market-change-stack">
+            <span class="market-pct-pill ${change24Class}" title="24 h muutos Bitfinex">${formatPct(ticker.changePct)}</span>
+            <span class="market-pct-sub">24h</span>
+          </div>`;
+      }
 
       let badge = "";
       if (isHeld && watch) {
@@ -218,14 +259,14 @@ function renderMarketList() {
         <div class="market-row ${isHeld ? "selected" : ""}">
           <div>
             <div class="market-row-id">${label}</div>
-            <div class="market-row-pair">${symbol.replace(/^t/, "")} · vol ${formatVolumeEur(ticker.volumeEur)}</div>
+            <div class="market-row-pair">${sym.replace(/^t/, "")} · vol ${formatVolumeEur(ticker.volumeEur)}</div>
           </div>
           <div class="market-row-price">${formatEur(ticker.last)}</div>
-          <div class="market-row-change ${changeClass}">${formatPct(ticker.changePct)}</div>
+          ${changeHtml}
           ${badge}
         </div>`;
     })
-    .join("");
+    .join("")}`;
 }
 
 function renderPortfolio() {
@@ -236,7 +277,7 @@ function renderPortfolio() {
 
   if (!hasHoldings && (portfolio.cash ?? INITIAL_CAPITAL) >= INITIAL_CAPITAL - 1) {
     els.portfolioBody.innerHTML = `
-      <tr><td colspan="6" style="color:var(--muted);padding:20px 8px">
+      <tr><td colspan="7" style="color:var(--muted);padding:20px 8px">
         Botti valitsee parhaat kryptot automaattisesti — odota seuraavaa kaupankäyntikierrosta.
       </td></tr>`;
     return;
@@ -250,6 +291,8 @@ function renderPortfolio() {
     const value = holding.amount * ticker.last;
     const share = totalValue > 0 ? (value / totalValue) * 100 : 0;
     const changeClass = ticker.changePct >= 0 ? "up" : "down";
+    const positionPct = getPositionPct(symbol);
+    const pnlClass = positionPct != null && positionPct >= 0 ? "up" : "down";
     const watch = state.profitWatch[symbol];
     const watchNote = watch
       ? `<br><span style="font-size:0.75rem;color:var(--muted)">${watch.statusText}</span>`
@@ -262,6 +305,7 @@ function renderPortfolio() {
         <td>${formatEur(ticker.last)}</td>
         <td>${formatEur(value)}</td>
         <td>${share.toFixed(1)} %</td>
+        <td class="crypto-change ${pnlClass}">${positionPct != null ? formatPct(positionPct) : "—"}</td>
         <td class="crypto-change ${changeClass}">${formatPct(ticker.changePct)}</td>
       </tr>
     `);
@@ -276,6 +320,7 @@ function renderPortfolio() {
         <td>—</td>
         <td>${formatEur(portfolio.cash)}</td>
         <td>${share.toFixed(1)} %</td>
+        <td>—</td>
         <td>—</td>
       </tr>
     `);
