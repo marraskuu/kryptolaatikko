@@ -31,6 +31,16 @@ def _fmt_pnl(value: float | None) -> str:
     return "0,00"
 
 
+def _sell_profit_loss(trade: dict) -> float:
+    profit_loss = trade.get("profitLoss")
+    if profit_loss is None:
+        profit_loss = trade.get("profit")
+    if profit_loss is None:
+        cost_basis = trade.get("costBasis", 0)
+        profit_loss = trade["eurTotal"] - cost_basis
+    return float(profit_loss)
+
+
 def _autosize_columns(ws, widths: list[int]) -> None:
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
@@ -49,41 +59,36 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
     sells = [t for t in trades if t["type"] == "sell"]
 
     wb = Workbook()
-    ws_buys = wb.active
-    ws_buys.title = "Ostot"
-    ws_buys.append(["Päivämäärä", "Krypto", "Ostohinta (EUR)", "Voitto (+) / Tappio (-) (EUR)"])
-    for t in buys:
-        ws_buys.append(
-            [
-                _fmt_date(t["timestamp"]),
-                get_crypto_label(t["symbol"]),
-                _round2(t["price"]),
-                "",
-            ]
-        )
+    ws = wb.active
+    ws.title = "Kaupat"
+    ws.append(
+        [
+            "Päivämäärä",
+            "Krypto",
+            "Ostohinta (EUR)",
+            "Myyntihinta (EUR)",
+            "Voitto (+) / Tappio (-) (EUR)",
+        ]
+    )
 
-    ws_sells = wb.create_sheet("Myynnit")
-    ws_sells.append(["Päivämäärä", "Krypto", "Myyntihinta (EUR)", "Voitto (+) / Tappio (-) (EUR)"])
-    for t in sells:
-        profit_loss = t.get("profitLoss")
-        if profit_loss is None:
-            profit_loss = t.get("profit")
-        if profit_loss is None:
-            cost_basis = t.get("costBasis", 0)
-            profit_loss = t["eurTotal"] - cost_basis
-        ws_sells.append(
-            [
-                _fmt_date(t["timestamp"]),
-                get_crypto_label(t["symbol"]),
-                _round2(t["price"]),
-                _fmt_pnl(profit_loss),
-            ]
-        )
+    for t in trades:
+        label = get_crypto_label(t["symbol"])
+        date = _fmt_date(t["timestamp"])
+        if t["type"] == "buy":
+            ws.append([date, label, _round2(t["price"]), "", ""])
+        else:
+            ws.append(
+                [
+                    date,
+                    label,
+                    "",
+                    _round2(t["price"]),
+                    _fmt_pnl(_sell_profit_loss(t)),
+                ]
+            )
 
     ws_summary = wb.create_sheet("Yhteenveto")
-    total_profit = sum(
-        t.get("profitLoss", t.get("profit", 0)) for t in sells
-    )
+    total_profit = sum(_sell_profit_loss(t) for t in sells)
     ws_summary.append(["Raportin luontipäivä", _fmt_date(datetime.now(timezone.utc).isoformat())])
     ws_summary.append(["Ostoja (kpl)", len(buys)])
     ws_summary.append(["Myyntejä (kpl)", len(sells)])
@@ -97,8 +102,7 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
         ]
     )
 
-    _autosize_columns(ws_buys, [14, 14, 18, 28])
-    _autosize_columns(ws_sells, [14, 14, 18, 28])
+    _autosize_columns(ws, [14, 14, 18, 18, 28])
     _autosize_columns(ws_summary, [32, 48])
 
     buffer = BytesIO()
