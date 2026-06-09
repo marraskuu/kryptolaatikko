@@ -363,7 +363,7 @@ Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin
                     continue
                 allocations_map[normalize_symbol(str(sym))] = max(
                     0.0, min(100.0, float(item["alloc_pct"]))
-                ))
+                )
 
             insights = {
                 "top_picks": top_picks,
