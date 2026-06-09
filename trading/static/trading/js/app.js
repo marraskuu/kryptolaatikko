@@ -100,11 +100,46 @@ function normalizeSymbol(symbol) {
 }
 
 function getPositionPct(symbol) {
+  const pnl = getPositionPnl(symbol);
+  return pnl ? pnl.pnlPct : null;
+}
+
+function getPositionPnl(symbol) {
   const key = normalizeSymbol(symbol);
   const holding = state.portfolio.holdings?.[key] || state.portfolio.holdings?.[symbol];
   const ticker = state.tickers[key] || state.tickers[symbol];
   if (!holding || !ticker?.last || !holding.avgPrice) return null;
-  return ((ticker.last - holding.avgPrice) / holding.avgPrice) * 100;
+  const costBasis = holding.amount * holding.avgPrice;
+  const currentValue = holding.amount * ticker.last;
+  const pnlEur = currentValue - costBasis;
+  const pnlPct = ((ticker.last - holding.avgPrice) / holding.avgPrice) * 100;
+  return { pnlEur, pnlPct, costBasis, currentValue };
+}
+
+function getPortfolioUnrealizedPnl() {
+  let costBasis = 0;
+  let holdingsValue = 0;
+  for (const [symbol, holding] of Object.entries(state.portfolio.holdings || {})) {
+    const key = normalizeSymbol(symbol);
+    const ticker = state.tickers[key] || state.tickers[symbol];
+    if (!ticker?.last) continue;
+    costBasis += holding.amount * holding.avgPrice;
+    holdingsValue += holding.amount * ticker.last;
+  }
+  if (costBasis <= 0) return null;
+  const pnlEur = holdingsValue - costBasis;
+  const pnlPct = (pnlEur / costBasis) * 100;
+  return { pnlEur, pnlPct, costBasis, holdingsValue };
+}
+
+function formatPnlBadge(pnlEur, pnlPct) {
+  const cls = pnlEur >= 0 ? "up" : "down";
+  const sign = pnlEur >= 0 ? "+" : "";
+  return {
+    cls,
+    pct: formatPct(pnlPct),
+    eur: `${sign}${formatEur(pnlEur).replace("€", "").trim()} €`,
+  };
 }
 
 function applyPayload(data) {
@@ -185,6 +220,7 @@ const els = {
   marketSearch: document.getElementById("market-search"),
   aiDecision: document.getElementById("ai-decision"),
   portfolioBody: document.getElementById("portfolio-body"),
+  portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
   errorBanner: document.getElementById("error-banner"),
 };
@@ -323,6 +359,23 @@ function renderPortfolio() {
   const totalValue = state.stats.totalValue ?? portfolio.cash;
   const hasHoldings = Object.keys(portfolio.holdings || {}).length > 0;
 
+  const unrealized = getPortfolioUnrealizedPnl();
+  if (els.portfolioLivePnl) {
+    if (unrealized) {
+      const badge = formatPnlBadge(unrealized.pnlEur, unrealized.pnlPct);
+      els.portfolioLivePnl.textContent = `Avoin P/L: ${badge.pct} (${badge.eur})`;
+      els.portfolioLivePnl.className = `portfolio-live-pnl ${badge.cls === "up" ? "positive" : "negative"}`;
+    } else if (state.stats.pnlPct != null) {
+      const pnl = state.stats.pnl ?? 0;
+      const sign = pnl >= 0 ? "+" : "";
+      els.portfolioLivePnl.textContent = `Salkku: ${formatPct(state.stats.pnlPct)} (${sign}${formatEur(pnl).replace("€", "").trim()} €)`;
+      els.portfolioLivePnl.className = `portfolio-live-pnl ${pnl >= 0 ? "positive" : pnl < 0 ? "negative" : "neutral"}`;
+    } else {
+      els.portfolioLivePnl.textContent = "—";
+      els.portfolioLivePnl.className = "portfolio-live-pnl neutral";
+    }
+  }
+
   if (!hasHoldings && (portfolio.cash ?? INITIAL_CAPITAL) >= INITIAL_CAPITAL - 1) {
     els.portfolioBody.innerHTML = `
       <tr><td colspan="7" style="color:var(--muted);padding:20px 8px">
@@ -339,8 +392,8 @@ function renderPortfolio() {
     const value = holding.amount * ticker.last;
     const share = totalValue > 0 ? (value / totalValue) * 100 : 0;
     const changeClass = ticker.changePct >= 0 ? "up" : "down";
-    const positionPct = getPositionPct(symbol);
-    const pnlClass = positionPct != null && positionPct >= 0 ? "up" : "down";
+    const position = getPositionPnl(symbol);
+    const pnlClass = position && position.pnlEur >= 0 ? "up" : "down";
     const watch = state.profitWatch[symbol];
     const watchNote = watch
       ? `<br><span style="font-size:0.75rem;color:var(--muted)">${watch.statusText}</span>`
@@ -353,8 +406,40 @@ function renderPortfolio() {
         <td>${formatEur(ticker.last)}</td>
         <td>${formatEur(value)}</td>
         <td>${share.toFixed(1)} %</td>
-        <td class="crypto-change ${pnlClass}">${positionPct != null ? formatPct(positionPct) : "—"}</td>
+        <td>
+          ${
+            position
+              ? (() => {
+                  const badge = formatPnlBadge(position.pnlEur, position.pnlPct);
+                  return `<div class="portfolio-pnl-stack">
+            <span class="market-pct-pill ${badge.cls}">${badge.pct}</span>
+            <span class="market-pct-sub ${badge.cls}">${badge.eur}</span>
+          </div>`;
+                })()
+              : "—"
+          }
+        </td>
         <td class="crypto-change ${changeClass}">${formatPct(ticker.changePct)}</td>
+      </tr>
+    `);
+  }
+
+  if (unrealized && rows.length > 0) {
+    const badge = formatPnlBadge(unrealized.pnlEur, unrealized.pnlPct);
+    rows.push(`
+      <tr class="portfolio-summary-row">
+        <td><strong>Yhteensä (kryptot)</strong></td>
+        <td>—</td>
+        <td>—</td>
+        <td>${formatEur(unrealized.holdingsValue)}</td>
+        <td>—</td>
+        <td>
+          <div class="portfolio-pnl-stack">
+            <span class="market-pct-pill ${badge.cls}">${badge.pct}</span>
+            <span class="market-pct-sub ${badge.cls}">${badge.eur}</span>
+          </div>
+        </td>
+        <td>—</td>
       </tr>
     `);
   }

@@ -1,8 +1,8 @@
 import time
 from typing import Any
 
-PROFIT_TRIGGER_PCT = 3
-WAIT_MS = 180 * 1000
+PROFIT_TRIGGER_PCT = 2.0
+WAIT_MS = 120 * 1000
 
 
 def default_watch_state() -> dict[str, Any]:
@@ -35,7 +35,7 @@ def update_profit_sell(
             "shouldSell": False,
             "profitPct": profit_pct,
             "status": "alle_3",
-            "statusText": f"Voitto {profit_pct:.1f} % — odotetaan +3 %",
+            "statusText": f"Voitto {profit_pct:.1f} % — odotetaan +{PROFIT_TRIGGER_PCT:.0f} %",
             "state": state,
             "secondsLeft": 0,
         }

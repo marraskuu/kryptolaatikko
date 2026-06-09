@@ -2,6 +2,10 @@ from typing import Any, Callable
 
 from .bitfinex import normalize_symbol
 
+STOP_LOSS_PCT = -2.0
+ROTATE_LOSS_PCT = -1.0
+PROFIT_TAKE_TRIGGER_PCT = 2.0
+
 
 def calc_rsi(closes: list[float], period: int = 14) -> float:
     if len(closes) < period + 1:
@@ -51,28 +55,38 @@ def analyze_ticker_quick(ticker: dict[str, Any]) -> dict[str, Any]:
     score = 0
     reasons: list[str] = []
 
-    if change_pct < -10:
+    # Voitto-orientoitunut: momentum ja nousu > laskuun ostaminen
+    if 2 <= change_pct <= 8:
         score += 3
-        reasons.append(f"24h {change_pct:.1f} % — voimakas lasku, ostomahdollisuus")
-    elif change_pct < -4:
-        score += 2
-        reasons.append(f"24h {change_pct:.1f} % — lasku, mahdollinen osto")
-    elif change_pct > 10:
-        score -= 2
-        reasons.append(f"24h +{change_pct:.1f} % — voitto otettu")
-    elif change_pct > 4:
+        reasons.append(f"24h +{change_pct:.1f} % — nousumomentum, voittopotentiaali")
+    elif 0 <= change_pct < 2:
         score += 1
-        reasons.append(f"24h +{change_pct:.1f} % — nousussa")
+        reasons.append(f"24h +{change_pct:.1f} % — lievä nousu")
+    elif -4 <= change_pct < 0:
+        score += 0
+        reasons.append(f"24h {change_pct:.1f} % — pieni dip, varovainen")
+    elif change_pct < -6:
+        score -= 3
+        reasons.append(f"24h {change_pct:.1f} % — voimakas lasku, vältä")
+    elif change_pct < -4:
+        score -= 1
+        reasons.append(f"24h {change_pct:.1f} % — laskussa")
+    elif change_pct > 12:
+        score -= 2
+        reasons.append(f"24h +{change_pct:.1f} % — yliextended, voitto talteen")
     else:
         score += 1
-        reasons.append(f"24h {change_pct:.1f} % — vakaa")
+        reasons.append(f"24h +{change_pct:.1f} % — vakaa nousu")
 
     if ticker["volumeEur"] > 500_000:
         score += 1
         reasons.append("Hyvä likviditeetti")
+    if ticker["volumeEur"] > 2_000_000 and change_pct > 0:
+        score += 1
+        reasons.append("Vahva volyymi nousussa")
 
     action = "hold"
-    if score >= 2:
+    if score >= 3:
         action = "buy"
     elif score <= -2:
         action = "sell"
@@ -84,6 +98,7 @@ def analyze_ticker_quick(ticker: dict[str, Any]) -> dict[str, Any]:
         "ema9": ticker["last"],
         "ema21": ticker["last"],
         "momentum": change_pct,
+        "changePct": change_pct,
         "currentPrice": ticker["last"],
         "volumeEur": ticker["volumeEur"],
         "reasons": reasons,
@@ -235,7 +250,11 @@ def make_trading_decisions(
         if analysis.get("currentPrice", 0) > 0
     ]
     ranked.sort(
-        key=lambda x: (-x["rank"], -(x["analysis"].get("volumeEur") or 0))
+        key=lambda x: (
+            -x["rank"],
+            -(x["analysis"].get("changePct") or x["analysis"].get("momentum") or 0),
+            -(x["analysis"].get("volumeEur") or 0),
+        )
     )
 
     target_count = 4 if len(holdings) < 4 else min(4, len(holdings))
@@ -276,20 +295,38 @@ def make_trading_decisions(
             else 0
         )
 
-        if profit_pct >= 3:
+        if profit_pct >= PROFIT_TAKE_TRIGGER_PCT:
             decisions.append(
                 {
                     "type": "hold",
                     "symbol": symbol,
-                    "reason": "Voitto-Myyntistrategia: +3 % saavutettu — odotetaan 180 s ja kurssin kääntymistä",
+                    "reason": (
+                        f"Voitto-Myyntistrategia: +{PROFIT_TAKE_TRIGGER_PCT:.0f} % saavutettu "
+                        f"— odotetaan huippua ja myydään nousussa"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+            continue
+
+        if profit_pct <= STOP_LOSS_PCT:
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": f"Stop-loss {profit_pct:.1f} % — rajataan tappio, pääoma parempaan",
                     "analysis": analysis,
                 }
             )
             continue
 
         gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
+        change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
-        if gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= 6:
+        sell_conf = 5 if profit_pct < 0 else 6
+        if gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= sell_conf:
             decisions.append(
                 {
                     "type": "sell",
@@ -308,12 +345,29 @@ def make_trading_decisions(
             and gemini_sig
             and gemini_sig.get("action") == "hold"
             and gemini_sig.get("confidence", 0) >= 7
+            and profit_pct >= ROTATE_LOSS_PCT
         ):
             decisions.append(
                 {
                     "type": "hold",
                     "symbol": symbol,
                     "reason": _action_reason(analysis, "Gemini: pidä positio"),
+                    "analysis": analysis,
+                }
+            )
+        elif (
+            profit_pct < ROTATE_LOSS_PCT
+            and (symbol not in top_symbols or change_24h < -2)
+        ):
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": (
+                        f"Tappiolla {profit_pct:.1f} % — myydään ja siirretään vahvempaan kohteeseen"
+                    ),
                     "analysis": analysis,
                 }
             )
@@ -528,13 +582,15 @@ def apply_gemini_insights(
         confidence = int(signal.get("confidence", 5))
         reason = signal.get("reason", "")
 
-        analysis["score"] = analysis.get("score", 0) + (confidence - 5)
+        analysis["score"] = analysis.get("score", 0) + (confidence - 5) + (2 if action == "buy" else 0)
 
-        if confidence >= 7:
+        if confidence >= 6:
             if action == "buy":
                 analysis["action"] = "buy"
             elif action == "sell":
                 analysis["action"] = "sell"
+        elif confidence >= 5 and action == "sell":
+            analysis["action"] = "sell"
 
         if reason:
             analysis["reasons"] = [f"Gemini ({confidence}/10): {reason}"] + analysis.get(

@@ -107,6 +107,14 @@ def _build_market_summary(
                 "technical_score": analysis.get("score", 0),
                 "held": bool(holding),
                 "avg_buy_eur": round(holding["avgPrice"], 4) if holding else None,
+                "position_pnl_pct": (
+                    round(
+                        ((ticker.get("last", 0) - holding["avgPrice"]) / holding["avgPrice"]) * 100,
+                        2,
+                    )
+                    if holding and holding.get("avgPrice")
+                    else None
+                ),
             }
         )
 
@@ -116,6 +124,7 @@ def _build_market_summary(
         ticker = tickers[symbol]
         analysis = analyses.get(symbol, {})
         holding = holdings[symbol]
+        avg = holding["avgPrice"]
         rows.append(
             {
                 "symbol": symbol,
@@ -128,7 +137,8 @@ def _build_market_summary(
                 "technical_action": analysis.get("action", "hold"),
                 "technical_score": analysis.get("score", 0),
                 "held": True,
-                "avg_buy_eur": round(holding["avgPrice"], 4),
+                "avg_buy_eur": round(avg, 4),
+                "position_pnl_pct": round(((ticker.get("last", 0) - avg) / avg) * 100, 2) if avg else None,
             }
         )
 
@@ -196,26 +206,49 @@ def advise_portfolio(
         return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini", "configured": True}
 
     cash = round(portfolio.get("cash", 0), 2)
+    initial = float(portfolio.get("initialCapital", 1000))
     holdings = portfolio.get("holdings", {})
+    holdings_value = sum(
+        h["amount"] * analyses.get(sym, {}).get("currentPrice", 0)
+        for sym, h in holdings.items()
+    )
+    total_value = round(cash + holdings_value, 2)
+    portfolio_pnl_pct = round(((total_value - initial) / initial) * 100, 2) if initial else 0
+
     held = [
         {
             "symbol": sym,
             "label": label_fn(sym),
             "value_eur": round(h["amount"] * analyses.get(sym, {}).get("currentPrice", 0), 2),
+            "position_pnl_pct": round(
+                (
+                    (analyses.get(sym, {}).get("currentPrice", 0) - h["avgPrice"])
+                    / h["avgPrice"]
+                )
+                * 100,
+                2,
+            )
+            if h.get("avgPrice")
+            else None,
         }
         for sym, h in holdings.items()
     ]
-    prompt = f"""Olet kryptovaluutta-simulaattorin kaupankäyntiavustaja (paper trading, ei oikeaa rahaa).
-Analysoi markkinaa ja tee AKTIIVISIA kauppapäätöksiä — älä vain listaa parhaita kolikoita.
+    prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
 
-Säännöt:
-- Salkussa max 3–4 kryptoa, alkupääoma 1000 EUR, käteinen nyt {cash} EUR
-- 30 % vero vain voitoista; voitto-Myyntistrategia (+3 %) hoidetaan erikseen — älä myy voitolla vain signaalin takia
-- Valitse likvidit parit (korkea volume_eur)
-- Perustele jokainen signaali: trendi, dip-osto, momentum, riski, diversifiointi
-- Jos positio on heikko mutta ei vielä myyntikelpoinen, anna hold korkealla confidence-arvolla
+Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
 
-Nykyiset positiot: {json.dumps(held, ensure_ascii=False)}
+Salkun tila nyt:
+- Arvo yhteensä: {total_value} EUR (P/L {portfolio_pnl_pct:+.2f} % vs alkupääoma)
+- Käteinen: {cash} EUR
+- Positiot: {json.dumps(held, ensure_ascii=False)}
+
+Kaupankäyntisäännöt (voitto edellä):
+1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
+2. Osta nousussa olevia, korkean volyymin kohteita (change_24h_pct > 0)
+3. Älä pidä tappiollisia pitkään — rotaatio nopeasti
+4. Max 3–4 kryptoa kerrallaan
+5. 30 % vero vain voitoista; automaattinen voitto-myynti +2 %:sta — älä myy voitolla liian aikaisin
+6. Stop-loss noin -2 %: älä anna tappioiden kasvaa
 
 Markkinadata (JSON):
 {json.dumps(market, ensure_ascii=False)}
@@ -228,14 +261,14 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
       "symbol": "tSYM1",
       "action": "buy|sell|hold",
       "confidence": 1-10,
-      "reason": "konkreettinen perustelu suomeksi (ei 'top 4 signaalia')"
+      "reason": "konkreettinen voitto-orientoitunut perustelu suomeksi"
     }}
   ]
 }}
 
-top_picks = 3-4 parasta kohdetta nyt (symbol täsmälleen datasta).
-signals = jokainen held-positio + kaikki top_picks + muut vahvat buy/sell-kohteet (max 15 riviä).
-confidence 8-10 = vahva toimenpide, 5-7 = maltillinen, alle 5 = hold."""
+top_picks = 3-4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta).
+signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä).
+Priorisoi: myy tappiolliset, osta momentum-nousuja. confidence 8-10 = vahva toimenpide."""
 
     api_key = _read_api_key()
     last_error = ""
@@ -255,7 +288,7 @@ confidence 8-10 = vahva toimenpide, 5-7 = maltillinen, alle 5 = hold."""
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "temperature": 0.3,
+                        "temperature": 0.2,
                         "responseMimeType": "application/json",
                     },
                 },
