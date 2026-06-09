@@ -67,12 +67,42 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+
+def _database_url() -> str:
+    """Railway MySQL: MYSQL_URL, DATABASE_URL tai MYSQLHOST/MYSQLUSER/..."""
+    for key in ("DATABASE_URL", "MYSQL_URL", "MYSQL_PUBLIC_URL"):
+        value = os.environ.get(key)
+        if value:
+            return value
+
+    host = os.environ.get("MYSQLHOST") or os.environ.get("MYSQL_HOST")
+    if host:
+        user = os.environ.get("MYSQLUSER") or os.environ.get("MYSQL_USER", "root")
+        password = os.environ.get("MYSQLPASSWORD") or os.environ.get("MYSQL_PASSWORD", "")
+        database = os.environ.get("MYSQLDATABASE") or os.environ.get("MYSQL_DATABASE", "railway")
+        port = os.environ.get("MYSQLPORT") or os.environ.get("MYSQL_PORT", "3306")
+        return f"mysql://{user}:{password}@{host}:{port}/{database}"
+
+    return f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+
+
+_db_url = _database_url()
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=_db_url,
         conn_max_age=600,
+        conn_health_checks=True,
     )
 }
+
+if DATABASES["default"]["ENGINE"] == "django.db.backends.mysql":
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"].update(
+        {
+            "charset": "utf8mb4",
+            "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
+    )
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

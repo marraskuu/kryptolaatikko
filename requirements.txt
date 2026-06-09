@@ -4,4 +4,4 @@ whitenoise>=6.6
 requests>=2.31
 openpyxl>=3.1
 dj-database-url>=2.1
-psycopg2-binary>=2.9
+PyMySQL>=1.1

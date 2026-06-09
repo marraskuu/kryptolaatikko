@@ -38,9 +38,17 @@ Avaa: **http://127.0.0.1:8000**
 
 Railway asettaa automaattisesti `PORT` ja `RAILWAY_PUBLIC_DOMAIN`.
 
-5. (Valinnainen) Lisää **PostgreSQL**-palvelu — Django käyttää `DATABASE_URL`-muuttujaa automaattisesti.
+5. Lisää **MySQL**-palvelu projektiin (Railway Dashboard → **+ New** → **Database** → **MySQL**).
+6. Linkitä MySQL web-palveluun: web-palvelun **Variables** → **Add Reference** → valitse MySQL → `MYSQL_URL` tai `DATABASE_URL`.
 
-Deploy käynnistää: `migrate` + `gunicorn`.
+   Vaihtoehto: lisää muuttuja käsin:
+   ```
+   DATABASE_URL=${{MySQL.MYSQL_URL}}
+   ```
+
+Django lukee yhteyden `DATABASE_URL`-, `MYSQL_URL`- tai `MYSQLHOST`-muuttujista. Sessiot (bottitila) tallentuvat MySQL:ään `migrate`-komennon jälkeen.
+
+Deploy käynnistää: `migrate` + `collectstatic` + `gunicorn`.
 
 ## Käyttö
 
