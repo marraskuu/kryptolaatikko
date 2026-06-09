@@ -87,6 +87,21 @@ class Portfolio:
         return True
 
     def allocate_initial(self, slots: list[dict[str, Any]]) -> None:
+        """Sijoittaa käteisen slotteihin. Jos eur_amount on annettu, käytetään sitä — muuten tasajaot."""
+        if not slots:
+            return
+
+        has_amounts = all(
+            (slot.get("eur_amount") or slot.get("eurAmount") or 0) >= 1 for slot in slots
+        )
+        if has_amounts:
+            for slot in slots:
+                if self.cash < 5:
+                    break
+                amount = slot.get("eur_amount") or slot.get("eurAmount") or 0
+                self.buy(slot["symbol"], min(amount, self.cash / 1.001), slot["price"], slot["reason"])
+            return
+
         count = min(4, len(slots))
         for i in range(count):
             if self.cash < 5:

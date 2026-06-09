@@ -175,12 +175,15 @@ def execute_trading_cycle() -> dict[str, Any]:
             {
                 "symbol": item["symbol"],
                 "price": item["analysis"]["currentPrice"],
+                "eur_amount": item.get("eurAmount"),
                 "reason": format_initial_buy_reason(
                     item["analysis"],
                     get_crypto_label(item["symbol"]),
                     i + 1,
                     len(initial_allocation),
                     gemini_active,
+                    alloc_pct=item.get("allocPct"),
+                    eur_amount=item.get("eurAmount"),
                 ),
             }
             for i, item in enumerate(initial_allocation)
@@ -189,21 +192,22 @@ def execute_trading_cycle() -> dict[str, Any]:
         for i, item in enumerate(initial_allocation):
             symbol = item["symbol"]
             label = get_crypto_label(symbol)
-            holding = portfolio.holdings.get(symbol)
-            amount = holding["amount"] * item["analysis"]["currentPrice"] if holding else None
+            eur_amount = item.get("eurAmount")
             reason = format_initial_buy_reason(
                 item["analysis"],
                 label,
                 i + 1,
                 len(initial_allocation),
                 gemini_active,
+                alloc_pct=item.get("allocPct"),
+                eur_amount=eur_amount,
             )
-            log_ai_event(state, "buy", label, reason, amount)
+            log_ai_event(state, "buy", label, reason, eur_amount)
             executed_buys.append(
                 {
                     "symbol": symbol,
                     "label": label,
-                    "amount": amount,
+                    "amount": eur_amount,
                     "reason": reason,
                     "analysis": item["analysis"],
                 }

@@ -208,6 +208,103 @@ def _gemini_signal(
     return signals.get(sym) or signals.get(symbol)
 
 
+def _compute_allocation_weights(
+    gemini_insights: dict[str, Any] | None,
+    symbols: list[str],
+    analyses: dict[str, dict[str, Any]],
+    gemini_active: bool,
+) -> dict[str, float]:
+    """Palauttaa symbol -> osuus (0–1), summa 1 valituille symboleille."""
+    if not symbols:
+        return {}
+
+    raw: dict[str, float] = {}
+    if gemini_insights:
+        allocs = gemini_insights.get("allocations") or {}
+        for sym in symbols:
+            norm = normalize_symbol(sym)
+            pct = allocs.get(sym) or allocs.get(norm)
+            if pct is not None and pct > 0:
+                raw[norm] = float(pct)
+                continue
+            sig = _gemini_signal(gemini_insights, sym)
+            if sig and sig.get("alloc_pct") is not None and sig.get("alloc_pct") > 0:
+                raw[norm] = float(sig["alloc_pct"])
+
+    if not raw and gemini_active and gemini_insights:
+        for sym in symbols:
+            norm = normalize_symbol(sym)
+            sig = _gemini_signal(gemini_insights, norm)
+            picks = {normalize_symbol(s) for s in (gemini_insights.get("top_picks") or [])}
+            if sig and sig.get("action") == "buy":
+                raw[norm] = float(sig.get("confidence", 5))
+            elif norm in picks:
+                raw[norm] = float(sig.get("confidence", 6) if sig else 6)
+
+    if not raw:
+        ranked_scores = []
+        for sym in symbols:
+            norm = normalize_symbol(sym)
+            analysis = analyses.get(norm) or analyses.get(sym) or {}
+            ranked_scores.append((max(analysis.get("score", 1), 1), norm))
+        total_score = sum(s for s, _ in ranked_scores)
+        if total_score > 0:
+            return {norm: score / total_score for score, norm in ranked_scores}
+        equal = 1.0 / len(symbols)
+        return {normalize_symbol(s): equal for s in symbols}
+
+    normalized: dict[str, float] = {}
+    for sym in symbols:
+        norm = normalize_symbol(sym)
+        normalized[norm] = raw.get(norm, 0.0)
+
+    missing = [s for s, w in normalized.items() if w <= 0]
+    if missing:
+        for sym in missing:
+            sig = _gemini_signal(gemini_insights, sym) if gemini_insights else None
+            normalized[sym] = float(sig.get("confidence", 3)) if sig else 3.0
+
+    total = sum(normalized.values())
+    if total <= 0:
+        equal = 1.0 / len(symbols)
+        return {normalize_symbol(s): equal for s in symbols}
+    return {sym: weight / total for sym, weight in normalized.items()}
+
+
+def _target_holding_value(
+    symbol: str,
+    total_value: float,
+    weights: dict[str, float],
+) -> float:
+    norm = normalize_symbol(symbol)
+    return total_value * weights.get(norm, 0.0)
+
+
+def _plan_initial_allocation(
+    picks: list[dict[str, Any]],
+    cash: float,
+    gemini_insights: dict[str, Any] | None,
+    gemini_active: bool,
+    analyses: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    symbols = [item["symbol"] for item in picks]
+    weights = _compute_allocation_weights(gemini_insights, symbols, analyses, gemini_active)
+    investable = max(0.0, cash - 5)
+    planned: list[dict[str, Any]] = []
+    remaining = investable
+
+    for i, item in enumerate(picks):
+        sym = item["symbol"]
+        w = weights.get(normalize_symbol(sym), 0.0)
+        if i == len(picks) - 1:
+            eur = round(remaining, 2)
+        else:
+            eur = round(investable * w, 2)
+            remaining -= eur
+        planned.append({**item, "eurAmount": max(eur, 0.0), "allocPct": round(w * 100, 1)})
+    return planned
+
+
 def _build_top_cryptos(
     ranked: list[dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
@@ -284,11 +381,14 @@ def make_trading_decisions(
     decisions: list[dict[str, Any]] = []
 
     if len(holdings) == 0 and cash > 100 and top_cryptos:
+        picks = top_cryptos[: min(target_count, len(top_cryptos))]
         return {
             "decisions": [],
             "targetCount": target_count,
             "topSymbols": list(top_symbols),
-            "initialAllocation": top_cryptos[: min(target_count, len(top_cryptos))],
+            "initialAllocation": _plan_initial_allocation(
+                picks, cash, gemini_insights, gemini_active, analyses
+            ),
             "geminiActive": gemini_active,
         }
 
@@ -422,8 +522,16 @@ def make_trading_decisions(
     sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
     symbols_to_sell = {d["symbol"] for d in decisions if d["type"] == "sell"}
     available_cash = cash + sell_proceeds
-    # Kohde-omistus perustuu koko salkun arvoon — ei pelkkään käteiseen (muuten käteinen jää roikkumaan).
-    target_per_crypto = total_value / target_count if target_count else 0
+
+    alloc_symbols = list(
+        dict.fromkeys(
+            [c["symbol"] for c in top_cryptos]
+            + [normalize_symbol(s) for s in (gemini_insights or {}).get("top_picks") or []]
+        )
+    )[:target_count]
+    weights = _compute_allocation_weights(
+        gemini_insights, alloc_symbols, analyses, gemini_active
+    )
 
     for item in top_cryptos:
         symbol = item["symbol"]
@@ -433,20 +541,22 @@ def make_trading_decisions(
             holding_value = 0.0
         else:
             holding_value = holding["amount"] * analysis["currentPrice"] if holding else 0.0
-        deficit = target_per_crypto - holding_value
+        target_value = _target_holding_value(symbol, total_value, weights)
+        deficit = target_value - holding_value
 
         if not holding or symbol in symbols_to_sell:
             if available_cash > 15 and deficit > 10:
                 buy_amount = min(deficit, available_cash - 2)
                 if buy_amount >= 10:
                     gemini_sig = _gemini_signal(gemini_insights, symbol)
+                    alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
                     default = (
-                        f"Gemini valitsee salkkuun — {analysis['reasons'][0]}"
+                        f"Gemini sijoittaa {alloc_pct} % — {analysis['reasons'][0]}"
                         if gemini_active
-                        else f"Uusi positio top {target_count}:een — {analysis['reasons'][0]}"
+                        else f"Uusi positio ({alloc_pct} %) — {analysis['reasons'][0]}"
                     )
                     if gemini_sig and gemini_sig.get("action") == "buy":
-                        default = f"Gemini ({gemini_sig.get('confidence', 0)}/10): {gemini_sig.get('reason', default)}"
+                        default = f"Gemini ({gemini_sig.get('confidence', 0)}/10, {alloc_pct} %): {gemini_sig.get('reason', default)}"
                     decisions.append(
                         {
                             "type": "buy",
@@ -461,6 +571,7 @@ def make_trading_decisions(
         elif deficit > 10 and available_cash > 15:
             buy_amount = min(deficit, available_cash - 2)
             if buy_amount >= 10:
+                alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
                 decisions.append(
                     {
                         "type": "buy",
@@ -469,7 +580,7 @@ def make_trading_decisions(
                         "amount": buy_amount / analysis["currentPrice"],
                         "reason": _action_reason(
                             analysis,
-                            f"Tasapainotus — lisätään {label_fn(symbol)}",
+                            f"Gemini-tavoite {alloc_pct} % — lisätään {label_fn(symbol)}",
                         ),
                         "analysis": analysis,
                     }
@@ -501,18 +612,22 @@ def make_trading_decisions(
             if signal.get("action") != "buy" or signal.get("confidence", 0) < 7:
                 continue
             analysis = analyses[sym]
-            buy_amount = min(target_per_crypto, available_cash - 2)
+            target_value = _target_holding_value(sym, total_value, weights)
+            holding = holdings.get(sym)
+            hv = holding["amount"] * analysis["currentPrice"] if holding else 0.0
+            buy_amount = min(max(target_value - hv, 0), available_cash - 2)
             if buy_amount < 10:
                 continue
             if any(d["type"] == "buy" and d["symbol"] == sym for d in decisions):
                 continue
+            alloc_pct = round(weights.get(sym, 0) * 100, 1)
             decisions.append(
                 {
                     "type": "buy",
                     "symbol": sym,
                     "eurAmount": buy_amount,
                     "amount": buy_amount / analysis["currentPrice"],
-                    "reason": f"Gemini ({signal.get('confidence', 0)}/10): {signal.get('reason', 'Ostosuositus')}",
+                    "reason": f"Gemini ({signal.get('confidence', 0)}/10, {alloc_pct} %): {signal.get('reason', 'Ostosuositus')}",
                     "analysis": analysis,
                 }
             )
@@ -531,7 +646,8 @@ def make_trading_decisions(
                 hv = 0.0
             else:
                 hv = holding["amount"] * analysis["currentPrice"] if holding else 0.0
-            gap = target_per_crypto - hv
+            target_value = _target_holding_value(symbol, total_value, weights)
+            gap = target_value - hv
             if gap > 5:
                 underweight.append((gap, symbol, analysis))
         underweight.sort(reverse=True)
@@ -542,6 +658,7 @@ def make_trading_decisions(
                 continue
             buy_amount = min(gap, available_cash - 2)
             if buy_amount >= 10:
+                alloc_pct = round(weights.get(normalize_symbol(symbol), 0) * 100, 1)
                 decisions.append(
                     {
                         "type": "buy",
@@ -549,7 +666,7 @@ def make_trading_decisions(
                         "eurAmount": buy_amount,
                         "reason": _action_reason(
                             analysis,
-                            f"Käteinen sijoitetaan — {analysis['reasons'][0]}",
+                            f"Käteinen Geminin tavoiteosuuteen ({alloc_pct} %) — {analysis['reasons'][0]}",
                         ),
                         "analysis": analysis,
                         "amount": buy_amount / analysis["currentPrice"],
@@ -571,13 +688,17 @@ def format_initial_buy_reason(
     index: int,
     total: int,
     gemini_active: bool,
+    alloc_pct: float | None = None,
+    eur_amount: float | None = None,
 ) -> str:
+    pct_note = f" ({alloc_pct:.0f} %)" if alloc_pct is not None else ""
+    eur_note = f" · {eur_amount:.0f} €" if eur_amount is not None else ""
     if gemini_active:
         gemini = _gemini_reason(analysis)
         if gemini:
-            return gemini
-        return f"Gemini: avaa salkku — {label} ({index}/{total})"
-    return f"Alkuallokaatio — {label} ({index}/{total})"
+            return f"{gemini}{pct_note}{eur_note}"
+        return f"Gemini: avaa salkku — {label}{pct_note}{eur_note} ({index}/{total})"
+    return f"Alkuallokaatio — {label}{pct_note}{eur_note} ({index}/{total})"
 
 
 def apply_gemini_insights(
@@ -625,6 +746,14 @@ def apply_gemini_insights(
             "confidence": confidence,
             "reason": reason,
         }
+        if signal.get("alloc_pct") is not None:
+            analysis["geminiSignal"]["alloc_pct"] = signal["alloc_pct"]
+            analysis["geminiAllocPct"] = signal["alloc_pct"]
+
+    for symbol, pct in (insights.get("allocations") or {}).items():
+        symbol = normalize_symbol(symbol)
+        if symbol in analyses:
+            analyses[symbol]["geminiAllocPct"] = pct
 
 
 def build_decision_report(

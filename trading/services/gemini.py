@@ -275,19 +275,29 @@ Markkinadata (JSON):
 Vastaa VAIN validilla JSON:lla (ei markdownia):
 {{
   "top_picks": ["tSYM1", "tSYM2", "tSYM3", "tSYM4"],
+  "allocations": [
+    {{
+      "symbol": "tSYM1",
+      "alloc_pct": 40,
+      "reason": "miksi juuri tämä osuus — vahvin voittopotentiaali"
+    }}
+  ],
   "signals": [
     {{
       "symbol": "tSYM1",
       "action": "buy|sell|hold",
       "confidence": 1-10,
+      "alloc_pct": 40,
       "reason": "konkreettinen voitto-orientoitunut perustelu suomeksi"
     }}
   ]
 }}
 
 top_picks = 3-4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta).
-signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä).
-Priorisoi: myy tappiolliset, osta momentum-nousuja. Voitolla olevia positioita pidä nousussa — älä suosittele myyntiä ennen tasaantumista. confidence 8-10 = vahva toimenpide."""
+allocations = sijoitusosuudet käteisestä/salkusta (alloc_pct, summa ≈ 100). EI tasajaot — enemmän parhaisiin, vähemmän heikompiin.
+Esim. vahva momentum 40-50 %, keskivahva 25-30 %, täydennys 15-20 %. Min 10 % per valittu kohde.
+signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille.
+Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa."""
 
     api_key = _read_api_key()
     errors: list[str] = []
@@ -329,15 +339,29 @@ Priorisoi: myy tappiolliset, osta momentum-nousuja. Voitolla olevia positioita p
                 if action not in ("buy", "sell", "hold"):
                     action = "hold"
                 confidence = max(1, min(10, int(item.get("confidence", 5))))
-                signals_map[sym] = {
+                signal: dict[str, Any] = {
                     "action": action,
                     "confidence": confidence,
                     "reason": str(item.get("reason", "")).strip()[:240],
                 }
+                if item.get("alloc_pct") is not None:
+                    signal["alloc_pct"] = max(0.0, min(100.0, float(item["alloc_pct"])))
+                signals_map[sym] = signal
 
             top_picks = [s for s in (parsed.get("top_picks") or []) if isinstance(s, str)][:4]
 
-            insights = {"top_picks": top_picks, "signals": signals_map}
+            allocations_map: dict[str, float] = {}
+            for item in parsed.get("allocations") or []:
+                sym = item.get("symbol")
+                if not sym or item.get("alloc_pct") is None:
+                    continue
+                allocations_map[str(sym)] = max(0.0, min(100.0, float(item["alloc_pct"])))
+
+            insights = {
+                "top_picks": top_picks,
+                "signals": signals_map,
+                "allocations": allocations_map,
+            }
             return insights, {
                 "ok": True,
                 "status": "ok",
