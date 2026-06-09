@@ -2,9 +2,8 @@
 # Kaytto: .\setup-github.ps1 -Username KAYTTAJANIMI [-RepoName crypto-trader-sim] [-Public]
 
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$Username,
-  [string]$RepoName = "crypto-trader-sim",
+  [string]$Username = "marraskuu",
+  [string]$RepoName = "kryptolaatikko",
   [switch]$Public
 )
 

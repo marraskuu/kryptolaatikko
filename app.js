@@ -12,7 +12,7 @@ import {
   analyzeMarket,
   analyzeTickerQuick,
   makeTradingDecisions,
-  summarizeDecision,
+  buildDecisionReport,
 } from "./ai-trader.js";
 import { portfolio } from "./portfolio.js";
 import { downloadTaxExcel } from "./export.js";
@@ -22,6 +22,13 @@ const INITIAL_CAPITAL = 1000;
 const PRICE_INTERVAL = 15000;
 const TRADE_INTERVAL = 60000;
 const DEEP_ANALYSIS_COUNT = 30;
+const AI_EVENT_LIMIT = 20;
+
+/** @type {{ id: number, timestamp: Date, type: string, label: string, reason: string, amount?: number }[]} */
+let aiEvents = [];
+let aiEventId = 0;
+/** @type {Map<string, string>} */
+let watchLogKeys = new Map();
 
 let running = false;
 let priceTimer = null;
@@ -39,7 +46,54 @@ let profitWatch = new Map();
 /** @type {Set<string>} */
 let activeSymbols = new Set();
 
+/** @type {ReturnType<typeof buildDecisionReport> | null} */
+let lastAIReport = null;
+
+function formatDateTime(date) {
+  return date.toLocaleString("fi-FI", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function logAIEvent(type, label, reason, amount = null) {
+  aiEvents.unshift({
+    id: ++aiEventId,
+    timestamp: new Date(),
+    type,
+    label,
+    reason,
+    amount,
+  });
+  while (aiEvents.length > AI_EVENT_LIMIT) aiEvents.pop();
+}
+
+function logWatchEvent(symbol, watch) {
+  if (!watch || watch.status === "alle_3") return;
+  const key = `${symbol}:${watch.status}:${watch.secondsLeft > 0 ? Math.ceil(watch.secondsLeft / 30) : "armed"}`;
+  if (watchLogKeys.get(symbol) === key) return;
+  watchLogKeys.set(symbol, key);
+  logAIEvent("watch", getCryptoLabel(symbol), watch.statusText);
+}
+
+function recordCycleEvents(decisions) {
+  for (const d of decisions) {
+    if (d.type === "hold") {
+      logAIEvent("hold", getCryptoLabel(d.symbol), d.reason);
+    } else if (d.type === "buy") {
+      logAIEvent("buy", getCryptoLabel(d.symbol), `[Suunnitelma] ${d.reason}`, d.eurAmount);
+    } else if (d.type === "sell") {
+      logAIEvent("sell", getCryptoLabel(d.symbol), `[Suunnitelma] ${d.reason}`, d.eurAmount);
+    }
+  }
+}
+
 function checkProfitSells() {
+  /** @type {{ type: 'sell', symbol: string, label: string, amount: number, reason: string }[]} */
+  const executed = [];
   let sold = false;
 
   for (const [symbol, holding] of portfolio.holdings) {
@@ -50,7 +104,16 @@ function checkProfitSells() {
     profitWatch.set(symbol, result);
 
     if (result.shouldSell) {
+      const eurTotal = holding.amount * ticker.last;
       portfolio.sell(symbol, holding.amount, ticker.last, result.reason);
+      logAIEvent("sell", getCryptoLabel(symbol), result.reason, eurTotal);
+      executed.push({
+        type: "sell",
+        symbol,
+        label: getCryptoLabel(symbol),
+        amount: eurTotal,
+        reason: result.reason,
+      });
       resetWatch(symbol);
       profitWatch.delete(symbol);
       sold = true;
@@ -62,7 +125,10 @@ function checkProfitSells() {
     renderPortfolio();
     renderStats();
     renderMarketList();
+    renderAIDecision(lastAIReport);
   }
+
+  return executed;
 }
 
 const els = {
@@ -125,9 +191,27 @@ async function refreshPrices() {
     renderMarketList();
     renderPortfolio();
     renderStats();
+    if (portfolio.trades.length > 0) renderTradeLog();
 
     if (running) {
       checkProfitSells();
+      if (lastAIReport) {
+        const watches = [];
+        for (const [symbol] of portfolio.holdings) {
+          const watch = profitWatch.get(symbol);
+          if (watch?.status === "waiting" || watch?.status === "armed") {
+            watches.push({
+              symbol,
+              label: getCryptoLabel(symbol),
+              reason: watch.statusText,
+              profitPct: watch.profitPct,
+            });
+          }
+        }
+        lastAIReport = { ...lastAIReport, watches, timestamp: new Date() };
+        for (const w of watches) logWatchEvent(w.symbol, profitWatch.get(w.symbol));
+        renderAIDecision(lastAIReport);
+      }
     }
   } catch (err) {
     console.error("Hintojen haku epaonnistui:", err);
@@ -188,7 +272,7 @@ async function executeTradingCycle() {
   await refreshPrices();
   await refreshAnalyses();
 
-  checkProfitSells();
+  const profitSells = checkProfitSells();
 
   const totalValue = portfolio.getTotalValue(tickers);
   const { decisions, topSymbols, initialAllocation } = makeTradingDecisions(
@@ -199,6 +283,11 @@ async function executeTradingCycle() {
   );
   activeSymbols = topSymbols;
 
+  /** @type {{ symbol: string, label: string, amount?: number, reason: string, analysis?: object }[]} */
+  const executedBuys = [];
+  /** @type {{ symbol: string, label: string, amount?: number, reason: string, analysis?: object }[]} */
+  const executedSells = [...profitSells.map((s) => ({ ...s, analysis: analyses.get(s.symbol) }))];
+
   if (initialAllocation?.length) {
     portfolio.allocateInitial(
       initialAllocation.map(({ symbol, analysis }, i) => ({
@@ -207,24 +296,82 @@ async function executeTradingCycle() {
         reason: `Alkuallokaatio — ${getCryptoLabel(symbol)} (${i + 1}/${initialAllocation.length})`,
       }))
     );
+    for (const { symbol, analysis } of initialAllocation) {
+      const holding = portfolio.holdings.get(symbol);
+      const amount = holding ? holding.amount * analysis.currentPrice : undefined;
+      logAIEvent(
+        "buy",
+        getCryptoLabel(symbol),
+        `Alkuallokaatio — top ${initialAllocation.length} parasta signaalia`,
+        amount
+      );
+      executedBuys.push({
+        symbol,
+        label: getCryptoLabel(symbol),
+        amount: holding ? holding.amount * analysis.currentPrice : undefined,
+        reason: `Top ${initialAllocation.length} parasta signaalia — jaetaan pääoma tasaisesti`,
+        analysis,
+      });
+    }
   }
 
   const sells = decisions.filter((d) => d.type === "sell");
   for (const d of sells) {
     portfolio.sell(d.symbol, d.amount, d.analysis.currentPrice, d.reason);
+    logAIEvent("sell", getCryptoLabel(d.symbol), d.reason, d.eurAmount);
+    executedSells.push({
+      symbol: d.symbol,
+      label: getCryptoLabel(d.symbol),
+      amount: d.eurAmount,
+      reason: d.reason,
+      analysis: d.analysis,
+    });
   }
 
   const buys = decisions.filter((d) => d.type === "buy");
   for (const d of buys) {
     const ok = portfolio.buy(d.symbol, d.eurAmount, d.analysis.currentPrice, d.reason);
-    if (!ok) {
+    if (ok) {
+      logAIEvent("buy", getCryptoLabel(d.symbol), d.reason, d.eurAmount);
+      executedBuys.push({
+        symbol: d.symbol,
+        label: getCryptoLabel(d.symbol),
+        amount: d.eurAmount,
+        reason: d.reason,
+        analysis: d.analysis,
+      });
+    } else {
       console.warn(`Osto epaonnistui ${d.symbol}`, d.eurAmount);
     }
   }
 
+  const watches = [];
+  for (const [symbol, holding] of portfolio.holdings) {
+    const watch = profitWatch.get(symbol);
+    if (watch?.status === "waiting" || watch?.status === "armed") {
+      watches.push({
+        symbol,
+        label: getCryptoLabel(symbol),
+        reason: watch.statusText,
+        profitPct: watch.profitPct,
+      });
+    }
+  }
+
+  lastAIReport = {
+    ...buildDecisionReport(decisions, getCryptoLabel),
+    executedBuys,
+    executedSells,
+    watches,
+    timestamp: new Date(),
+  };
+
+  recordCycleEvents(decisions.filter((d) => d.type === "hold"));
+  for (const w of watches) logWatchEvent(w.symbol, profitWatch.get(w.symbol));
+
   els.marketCount.textContent = `${tickers.size} kryptoparia Bitfinexissä · salkussa ${activeSymbols.size}/4`;
 
-  renderAIDecision(decisions);
+  renderAIDecision(lastAIReport);
   renderMarketList();
   renderPortfolio();
   renderStats();
@@ -356,45 +503,96 @@ function renderPortfolio() {
   els.portfolioBody.innerHTML = rows.join("");
 }
 
-function renderAIDecision(decisions) {
-  const summary = summarizeDecision(decisions, getCryptoLabel);
-  const iconMap = { buy: "📈", sell: "📉", hold: "⏳" };
+function renderAIEventLog() {
+  if (aiEvents.length === 0) {
+    return `<p class="ai-placeholder">Ei tapahtumia viela.</p>`;
+  }
 
-  const detailsHtml = summary.details
+  const typeLabels = {
+    buy: "OSTO",
+    sell: "MYYNTI",
+    hold: "PIDA",
+    watch: "SEURANTA",
+    info: "INFO",
+  };
+
+  return aiEvents
+    .slice(0, AI_EVENT_LIMIT)
     .map(
-      (d) => `
-      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
-        <strong>${d.symbol}</strong>${d.amount ? ` · ${formatEur(d.amount)}` : ""}
-        <br><span style="font-size:0.8rem">${d.reason}</span>
-      </div>`
+      (ev) => `
+    <div class="ai-event-item ${ev.type}">
+      <div class="ai-event-head">
+        <span class="ai-decision-type ${ev.type === "info" ? "hold" : ev.type}">${typeLabels[ev.type] || ev.type.toUpperCase()}</span>
+        <strong>${ev.label}</strong>
+        ${ev.amount != null ? `<span class="ai-decision-amount">${formatEur(ev.amount)}</span>` : ""}
+        <span class="ai-event-time">${formatDateTime(ev.timestamp)}</span>
+      </div>
+      <p class="ai-decision-reason">${ev.reason}</p>
+    </div>`
     )
     .join("");
+}
 
-  const metrics = decisions.find((d) => d.analysis && !d.analysis.quick)?.analysis;
-  const metricsHtml = metrics
+function renderAIDecision(report) {
+  if (!report && aiEvents.length === 0) {
+    els.aiDecision.innerHTML =
+      '<p class="ai-placeholder">Kaynnista botti nayttaaksesi AI:n osto- ja myyntipaatokset.</p>';
+    return;
+  }
+
+  const iconMap = { buy: "📈", sell: "📉", hold: "⏳", mixed: "⚖️" };
+  const action = report?.action || "hold";
+  const icon = iconMap[action] || "⏳";
+
+  const headerHtml = report
     ? `
-    <div class="ai-metrics">
-      <span class="metric-chip">RSI ${metrics.rsi.toFixed(1)}</span>
-      <span class="metric-chip">Momentum ${metrics.momentum.toFixed(2)} %</span>
-      <span class="metric-chip">EMA9 ${formatEur(metrics.ema9)}</span>
-      <span class="metric-chip">EMA21 ${formatEur(metrics.ema21)}</span>
+    <div class="ai-action">
+      <div class="ai-action-icon ${action === "mixed" ? "hold" : action}">${icon}</div>
+      <div class="ai-action-text">
+        <h3>${report.title}</h3>
+        <p>${report.subtitle}</p>
+      </div>
     </div>`
-    : `<p style="font-size:0.8rem;color:var(--muted);margin-top:8px">Analysoitu ${tickers.size} kryptoparia · syva analyysi ${DEEP_ANALYSIS_COUNT} likvideimmalle</p>`;
+    : "";
 
   els.aiDecision.innerHTML = `
-    <div class="ai-action">
-      <div class="ai-action-icon ${summary.action}">${iconMap[summary.action]}</div>
-      <div class="ai-action-text">
-        <h3>${summary.title}</h3>
-        <p>${summary.subtitle}</p>
-      </div>
-    </div>
+    ${headerHtml}
     <div class="ai-reasoning">
-      <strong>AI:n perustelut:</strong>
-      ${detailsHtml || "<p>Ei toimenpiteita talla kierroksella.</p>"}
-      ${metricsHtml}
+      <div class="ai-section ai-event-section">
+        <h4 class="ai-section-title">Viimeiset ${AI_EVENT_LIMIT} tapahtumaa</h4>
+        <div class="ai-event-log">${renderAIEventLog()}</div>
+      </div>
+      ${
+        report
+          ? `<p class="ai-decision-meta">Analysoitu ${tickers.size} kryptoparia · ${report.timestamp ? `Paivitetty ${formatTime(report.timestamp)}` : ""}</p>`
+          : ""
+      }
     </div>
   `;
+}
+
+function getTradePnlBadge(trade) {
+  if (trade.type === "tax") return "";
+
+  if (trade.type === "sell") {
+    const costBasis = trade.costBasis ?? trade.eurTotal - (trade.profitLoss ?? trade.profit ?? 0);
+    const profitLoss = trade.profitLoss ?? trade.profit ?? trade.eurTotal - costBasis;
+    if (!costBasis) return "";
+    const pct = (profitLoss / costBasis) * 100;
+    const cls = pct >= 0 ? "up" : "down";
+    const sign = pct >= 0 ? "+" : "";
+    return `<span class="trade-pnl ${cls}" title="Myyntihetkellä">Myynti ${sign}${pct.toFixed(2)} %</span>`;
+  }
+
+  const ticker = tickers.get(trade.symbol);
+  if (!ticker || !trade.price) return "";
+
+  const stillHeld = portfolio.holdings.has(trade.symbol);
+  const pct = ((ticker.last - trade.price) / trade.price) * 100;
+  const cls = pct >= 0 ? "up" : "down";
+  const sign = pct >= 0 ? "+" : "";
+  const note = stillHeld ? "" : " · myyty";
+  return `<span class="trade-pnl ${cls}" title="Ostohintaan verrattuna">Nyt ${sign}${pct.toFixed(2)} %${note}</span>`;
 }
 
 function renderTradeLog() {
@@ -420,12 +618,21 @@ function renderTradeLog() {
       }
       const typeLabel = trade.type === "buy" ? "OSTO" : "MYYNTI";
       const taxNote = trade.tax > 0 ? ` · vero ${formatEur(trade.tax)}` : "";
+      const pnlBadge = getTradePnlBadge(trade);
+      let pnlSub = "";
+      if (trade.type === "sell") {
+        const pl = trade.profitLoss ?? trade.profit ?? 0;
+        if (pl !== 0) {
+          const sign = pl >= 0 ? "+" : "";
+          pnlSub = ` · ${sign}${formatEur(pl)}`;
+        }
+      }
       return `
         <div class="trade-item">
           <span class="trade-type ${trade.type}">${typeLabel}</span>
           <div class="trade-details">
-            <div class="main">${label} · ${formatEur(trade.eurTotal)}${taxNote}</div>
-            <div class="sub">${formatCrypto(trade.amount, 6)} @ ${formatEur(trade.price)} — ${trade.reason}</div>
+            <div class="main">${label} · ${formatEur(trade.eurTotal)}${taxNote}${pnlBadge ? ` ${pnlBadge}` : ""}</div>
+            <div class="sub">${formatCrypto(trade.amount, 6)} @ ${formatEur(trade.price)}${pnlSub} — ${trade.reason}</div>
           </div>
           <span class="trade-time">${formatTime(trade.timestamp)}</span>
         </div>`;
@@ -451,6 +658,8 @@ function startBot() {
   running = true;
   els.btnStart.disabled = true;
   els.btnStop.disabled = false;
+
+  logAIEvent("info", "Botti", "Automaattinen kaupankaynti kaynnistetty — analysoidaan kaikkia Bitfinex-markkinoita");
 
   refreshPrices().then(() => executeTradingCycle());
   startCountdown();
@@ -480,9 +689,14 @@ function resetBot() {
   resetAllWatches();
   activeSymbols.clear();
   profitWatch.clear();
+  lastAIReport = null;
+  aiEvents = [];
+  aiEventId = 0;
+  watchLogKeys.clear();
   analyses.clear();
   tickers.clear();
-    '<p class="ai-placeholder">Kaynnista botti aloittaaksesi automaattisen kaupankaynnin.</p>';
+
+  renderAIDecision(null);
   els.tradeLog.innerHTML = '<p class="empty-log">Ei kauppoja viela.</p>';
   els.lastUpdate.textContent = "Paivitetaan…";
   els.marketCount.textContent = "0 kryptoparia";

@@ -319,52 +319,55 @@ export function makeTradingDecisions(analyses, portfolio, totalValue, labelFn = 
 }
 
 /**
- * Yhteenveto AI:n päätöksestä käyttöliittymää varten
  * @param {ReturnType<typeof makeTradingDecisions>['decisions']} decisions
  * @param {(symbol: string) => string} labelFn
  */
-export function summarizeDecision(decisions, labelFn = (s) => s) {
+export function buildDecisionReport(decisions, labelFn = (s) => s) {
   const label = labelFn;
-
   const buys = decisions.filter((d) => d.type === "buy");
   const sells = decisions.filter((d) => d.type === "sell");
   const holds = decisions.filter((d) => d.type === "hold");
 
-  if (buys.length > 0) {
-    const total = buys.reduce((s, d) => s + (d.eurAmount || 0), 0);
-    return {
-      action: "buy",
-      title: `Ostetaan ${buys.length} kryptoa`,
-      subtitle: `Yhteensä ${total.toFixed(2)} € uusiin positioihin`,
-      details: buys.map((b) => ({
-        symbol: label(b.symbol),
-        amount: b.eurAmount,
-        reason: b.reason,
-      })),
-    };
+  let title = "AI-analyysi valmis";
+  let subtitle = `${buys.length} ostoa · ${sells.length} myyntiä · ${holds.length} pidossa`;
+
+  if (buys.length && sells.length) {
+    title = "Ostoja ja myyntejä";
+  } else if (buys.length) {
+    title = `Ostetaan ${buys.length} kryptoa`;
+  } else if (sells.length) {
+    title = `Myydään ${sells.length} kryptoa`;
+  } else if (holds.length) {
+    title = "Pidetään positioita";
+    subtitle = "Ei uusia kauppoja tällä kierroksella";
+  } else {
+    title = "Ei toimenpiteitä";
+    subtitle = "Odotetaan parempaa signaalia";
   }
 
-  if (sells.length > 0) {
-    const total = sells.reduce((s, d) => s + (d.eurAmount || 0), 0);
-    return {
-      action: "sell",
-      title: `Myydään ${sells.length} kryptoa`,
-      subtitle: `Vapautetaan ${total.toFixed(2)} € uudelleen sijoitukseen`,
-      details: sells.map((s) => ({
-        symbol: label(s.symbol),
-        amount: s.eurAmount,
-        reason: s.reason,
-      })),
-    };
-  }
+  const action =
+    buys.length && sells.length ? "mixed" : buys.length ? "buy" : sells.length ? "sell" : "hold";
 
   return {
-    action: "hold",
-    title: "Pidetään positioita",
-    subtitle: `${holds.length} kryptoa — odotetaan parempaa signaalia`,
-    details: holds.map((h) => ({
+    action,
+    title,
+    subtitle,
+    buys: buys.map((b) => ({
+      symbol: label(b.symbol),
+      amount: b.eurAmount,
+      reason: b.reason,
+      analysis: b.analysis,
+    })),
+    sells: sells.map((s) => ({
+      symbol: label(s.symbol),
+      amount: s.eurAmount,
+      reason: s.reason,
+      analysis: s.analysis,
+    })),
+    holds: holds.map((h) => ({
       symbol: label(h.symbol),
       reason: h.reason,
+      analysis: h.analysis,
     })),
   };
 }
