@@ -15,13 +15,20 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
+
+
+def _read_model() -> str:
+    return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
 
 
 def _read_api_key() -> str:
     """Luetaan aina tuoreena — Railway/inject voi tulla käyttöön importin jälkeen."""
-    return os.environ.get("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY"):
+        value = os.environ.get(name, "").strip().strip('"').strip("'")
+        if value:
+            return value
+    return ""
 
 
 def is_configured() -> bool:
@@ -205,7 +212,7 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent"
+        f"{_read_model()}:generateContent"
     )
     api_key = _read_api_key()
 
@@ -253,7 +260,7 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
             "ok": True,
             "message": f"Gemini analysoi {len(signals_map)} signaalia",
             "provider": "gemini",
-            "model": GEMINI_MODEL,
+            "model": _read_model(),
             "configured": True,
             "keyFormat": _key_format(),
         }

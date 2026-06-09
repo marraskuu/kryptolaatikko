@@ -72,6 +72,15 @@ def log_watch_event(state: dict[str, Any], symbol: str, watch: dict[str, Any] | 
     log_ai_event(state, "watch", get_crypto_label(symbol), watch["statusText"])
 
 
+def _resolve_gemini_status(state: dict[str, Any]) -> dict[str, Any]:
+    """Yhdistä live-ympäristötarkistus + viimeisin onnistunut Gemini-analyysi."""
+    live = gemini_status_snapshot()
+    saved = state.get("geminiStatus") or {}
+    if saved.get("ok") and live.get("configured"):
+        return {**live, **saved, "provider": "gemini"}
+    return live
+
+
 def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     portfolio = Portfolio(state["portfolio"])
     tickers = state["tickers"]
@@ -91,6 +100,8 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         next_trade_in = max(0, trade_interval - elapsed)
     else:
         next_trade_in = trade_interval
+
+    gemini_status = _resolve_gemini_status(state)
 
     return {
         "running": state.get("running", True),
@@ -115,6 +126,6 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "tradeIntervalSec": trade_interval,
         "nextTradeInSec": next_trade_in,
         "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
-        "aiProvider": state.get("geminiStatus", {}).get("provider", "technical"),
-        "geminiStatus": state.get("geminiStatus") or gemini_status_snapshot(),
+        "aiProvider": gemini_status.get("provider", "technical"),
+        "geminiStatus": gemini_status,
     }
