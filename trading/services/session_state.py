@@ -113,4 +113,6 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "tradeIntervalSec": trade_interval,
         "nextTradeInSec": next_trade_in,
         "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
+        "aiProvider": state.get("geminiStatus", {}).get("provider", "technical"),
+        "geminiStatus": state.get("geminiStatus"),
     }

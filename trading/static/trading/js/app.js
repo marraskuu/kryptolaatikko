@@ -105,6 +105,10 @@ function applyPayload(data) {
   };
 
   if (data.nextTradeInSec != null) countdown = data.nextTradeInSec;
+  if (data.geminiStatus?.ok) {
+    const badge = document.getElementById("gemini-badge");
+    if (badge) badge.classList.remove("hidden");
+  }
   if (data.error) showError(data.error);
   else clearError();
   renderAll(data.lastUpdate);

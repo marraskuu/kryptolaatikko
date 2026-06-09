@@ -183,6 +183,10 @@ h1 {
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border);

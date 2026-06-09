@@ -6,10 +6,12 @@ from typing import Any
 from .ai_trader import (
     analyze_market,
     analyze_ticker_quick,
+    apply_gemini_insights,
     build_decision_report,
     make_trading_decisions,
 )
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
+from .gemini import advise_portfolio, is_configured as gemini_configured
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -152,15 +154,41 @@ def execute_trading_cycle() -> dict[str, Any]:
         return build_api_payload(state)
 
     _refresh_analyses(state)
+
+    gemini_insights = None
+    gemini_status = state.get("geminiStatus") or {
+        "ok": False,
+        "message": "Gemini ei käytössä",
+        "provider": "gemini" if gemini_configured() else "technical",
+    }
+    if gemini_configured():
+        gemini_insights, gemini_status = advise_portfolio(
+            state["tickers"],
+            state["analyses"],
+            state["portfolio"],
+            get_crypto_label,
+        )
+        apply_gemini_insights(state["analyses"], gemini_insights)
+        state["geminiStatus"] = gemini_status
+        if gemini_insights and gemini_status.get("ok"):
+            log_ai_event(
+                state,
+                "info",
+                "Gemini",
+                gemini_status.get("message", "Analyysi valmis"),
+            )
+
     portfolio = Portfolio(state["portfolio"])
     profit_sells = _check_profit_sells(state, portfolio)
 
     total_value = portfolio.get_total_value(state["tickers"])
+    gemini_picks = (gemini_insights or {}).get("top_picks") if gemini_insights else None
     decision_result = make_trading_decisions(
         state["analyses"],
         portfolio.to_dict(),
         total_value,
         get_crypto_label,
+        gemini_picks=gemini_picks,
     )
     decisions = decision_result["decisions"]
     state["activeSymbols"] = decision_result.get("topSymbols", [])

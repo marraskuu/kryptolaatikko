@@ -162,6 +162,7 @@ def make_trading_decisions(
     portfolio_data: dict[str, Any],
     total_value: float,
     label_fn: Callable[[str], str],
+    gemini_picks: list[str] | None = None,
 ) -> dict[str, Any]:
     holdings = portfolio_data["holdings"]
     cash = portfolio_data["cash"]
@@ -180,7 +181,19 @@ def make_trading_decisions(
         if len(holdings) == 0
         else min(4, max(3, len(holdings)))
     )
-    top_cryptos = ranked[:target_count]
+
+    if gemini_picks:
+        gemini_top = [
+            {"symbol": s, "analysis": analyses[s], "rank": analyses[s].get("score", 0) + 10}
+            for s in gemini_picks
+            if s in analyses
+        ]
+        if len(gemini_top) >= 3:
+            top_cryptos = gemini_top[:target_count]
+        else:
+            top_cryptos = ranked[:target_count]
+    else:
+        top_cryptos = ranked[:target_count]
     top_symbols = {c["symbol"] for c in top_cryptos}
 
     decisions: list[dict[str, Any]] = []
@@ -315,6 +328,44 @@ def make_trading_decisions(
         "targetCount": target_count,
         "topSymbols": list(top_symbols),
     }
+
+
+def apply_gemini_insights(
+    analyses: dict[str, dict[str, Any]],
+    insights: dict[str, Any] | None,
+) -> None:
+    if not insights:
+        return
+
+    for symbol in insights.get("top_picks") or []:
+        if symbol in analyses:
+            analyses[symbol]["score"] = analyses[symbol].get("score", 0) + 4
+            analyses[symbol]["reasons"] = ["Gemini: top-valinta"] + analyses[symbol].get(
+                "reasons", []
+            )
+            analyses[symbol]["geminiPick"] = True
+
+    for symbol, signal in (insights.get("signals") or {}).items():
+        if symbol not in analyses:
+            continue
+        analysis = analyses[symbol]
+        action = signal.get("action", "hold")
+        confidence = int(signal.get("confidence", 5))
+        reason = signal.get("reason", "")
+
+        analysis["score"] = analysis.get("score", 0) + (confidence - 5)
+
+        if confidence >= 7:
+            if action == "buy":
+                analysis["action"] = "buy"
+            elif action == "sell":
+                analysis["action"] = "sell"
+
+        if reason:
+            analysis["reasons"] = [f"Gemini ({confidence}/10): {reason}"] + analysis.get(
+                "reasons", []
+            )
+        analysis["gemini"] = True
 
 
 def build_decision_report(
