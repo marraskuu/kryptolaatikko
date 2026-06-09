@@ -9,7 +9,9 @@ import json
 import logging
 import os
 import re
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import requests
 
@@ -18,6 +20,9 @@ from .bitfinex import is_stablecoin, normalize_symbol
 logger = logging.getLogger(__name__)
 
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
+FEE_RATE = 0.001
+TAX_RATE = 0.30
+MIN_ROTATION_INTERVAL_MIN = 30
 
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
@@ -114,17 +119,30 @@ def _build_market_summary(
         seen.add(symbol)
         analysis = analyses.get(symbol, {})
         holding = holdings.get(symbol)
+        ema9 = analysis.get("ema9")
+        ema21 = analysis.get("ema21")
+        ema_trend = None
+        if ema9 is not None and ema21 is not None:
+            ema_trend = "bullish" if ema9 > ema21 else "bearish"
         rows.append(
             {
                 "symbol": symbol,
                 "label": label_fn(symbol),
                 "price_eur": round(ticker.get("last", 0), 4),
+                "change_1h_pct": round(analysis["change1hPct"], 2)
+                if analysis.get("change1hPct") is not None
+                else None,
+                "change_4h_pct": round(analysis["change4hPct"], 2)
+                if analysis.get("change4hPct") is not None
+                else None,
                 "change_24h_pct": round(ticker.get("changePct", 0), 2),
                 "volume_eur": round(ticker.get("volumeEur", 0), 0),
                 "rsi": round(analysis.get("rsi", 50), 1),
+                "ema_trend": ema_trend,
                 "momentum_pct": round(analysis.get("momentum", 0), 2),
                 "technical_action": analysis.get("action", "hold"),
                 "technical_score": analysis.get("score", 0),
+                "deep_analysis": not analysis.get("quick", True),
                 "held": bool(holding),
                 "avg_buy_eur": round(holding["avgPrice"], 4) if holding else None,
                 "position_pnl_pct": (
@@ -145,17 +163,30 @@ def _build_market_summary(
         analysis = analyses.get(symbol, {})
         holding = holdings[symbol]
         avg = holding["avgPrice"]
+        ema9 = analysis.get("ema9")
+        ema21 = analysis.get("ema21")
+        ema_trend = None
+        if ema9 is not None and ema21 is not None:
+            ema_trend = "bullish" if ema9 > ema21 else "bearish"
         rows.append(
             {
                 "symbol": symbol,
                 "label": label_fn(symbol),
                 "price_eur": round(ticker.get("last", 0), 4),
+                "change_1h_pct": round(analysis["change1hPct"], 2)
+                if analysis.get("change1hPct") is not None
+                else None,
+                "change_4h_pct": round(analysis["change4hPct"], 2)
+                if analysis.get("change4hPct") is not None
+                else None,
                 "change_24h_pct": round(ticker.get("changePct", 0), 2),
                 "volume_eur": round(ticker.get("volumeEur", 0), 0),
                 "rsi": round(analysis.get("rsi", 50), 1),
+                "ema_trend": ema_trend,
                 "momentum_pct": round(analysis.get("momentum", 0), 2),
                 "technical_action": analysis.get("action", "hold"),
                 "technical_score": analysis.get("score", 0),
+                "deep_analysis": not analysis.get("quick", True),
                 "held": True,
                 "avg_buy_eur": round(avg, 4),
                 "position_pnl_pct": round(((ticker.get("last", 0) - avg) / avg) * 100, 2) if avg else None,
@@ -199,9 +230,207 @@ def _summarize_sells(sells: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _estimate_fees(trades: list[dict[str, Any]]) -> float:
+    total = 0.0
+    for t in trades:
+        if t.get("type") in ("buy", "sell"):
+            total += float(t.get("fee") or 0)
+            if not t.get("fee") and t.get("eurTotal"):
+                total += float(t["eurTotal"]) * FEE_RATE
+    return round(total, 2)
+
+
+def _build_symbol_performance(
+    trades: list[dict[str, Any]],
+    label_fn,
+) -> list[dict[str, Any]]:
+    """Symbolikohtainen voitto/tappio ja keskimääräinen pitoaika."""
+    chronological = sorted(
+        [t for t in trades if t.get("type") in ("buy", "sell")],
+        key=lambda t: t.get("timestamp", ""),
+    )
+    open_lots: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    stats: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "wins": 0,
+            "losses": 0,
+            "net_eur": 0.0,
+            "hold_hours_win": [],
+            "hold_hours_loss": [],
+            "buys": 0,
+            "sells": 0,
+        }
+    )
+
+    for trade in chronological:
+        sym = trade.get("symbol")
+        if not sym:
+            continue
+        if trade["type"] == "buy":
+            stats[sym]["buys"] += 1
+            try:
+                open_lots[sym].append(
+                    {
+                        "time": _parse_trade_time(trade["timestamp"]),
+                        "amount": float(trade.get("amount") or 0),
+                    }
+                )
+            except (ValueError, TypeError, KeyError):
+                continue
+            continue
+
+        stats[sym]["sells"] += 1
+        pl = _sell_profit_eur(trade)
+        stats[sym]["net_eur"] += pl
+        try:
+            sell_time = _parse_trade_time(trade["timestamp"])
+        except (ValueError, TypeError, KeyError):
+            sell_time = None
+
+        sell_amount = float(trade.get("amount") or 0)
+        hold_hours: list[float] = []
+        while sell_amount > 1e-12 and open_lots[sym]:
+            lot = open_lots[sym][0]
+            take = min(sell_amount, lot["amount"])
+            if sell_time:
+                hold_hours.append((sell_time - lot["time"]).total_seconds() / 3600)
+            lot["amount"] -= take
+            sell_amount -= take
+            if lot["amount"] <= 1e-12:
+                open_lots[sym].pop(0)
+
+        if pl > 0.01:
+            stats[sym]["wins"] += 1
+            stats[sym]["hold_hours_win"].extend(hold_hours)
+        elif pl < -0.01:
+            stats[sym]["losses"] += 1
+            stats[sym]["hold_hours_loss"].extend(hold_hours)
+
+    rows: list[dict[str, Any]] = []
+    for sym, data in stats.items():
+        if data["sells"] == 0 and data["buys"] == 0:
+            continue
+        avg_win_h = (
+            round(sum(data["hold_hours_win"]) / len(data["hold_hours_win"]), 1)
+            if data["hold_hours_win"]
+            else None
+        )
+        avg_loss_h = (
+            round(sum(data["hold_hours_loss"]) / len(data["hold_hours_loss"]), 1)
+            if data["hold_hours_loss"]
+            else None
+        )
+        net = round(data["net_eur"], 2)
+        note = ""
+        if data["losses"] >= 2 and net < -5:
+            note = "vältä uudelleenostoa ilman selkeää käännettä"
+        elif data["wins"] >= 2 and net > 5:
+            note = "toimiva linja — momentum/pitoaika ok"
+        rows.append(
+            {
+                "symbol": sym,
+                "label": label_fn(sym),
+                "sells": data["sells"],
+                "wins": data["wins"],
+                "losses": data["losses"],
+                "net_profit_eur": net,
+                "avg_hold_hours_on_wins": avg_win_h,
+                "avg_hold_hours_on_losses": avg_loss_h,
+                "note": note,
+            }
+        )
+
+    rows.sort(key=lambda r: r["net_profit_eur"])
+    return rows[:12]
+
+
+def _build_last_gemini_review(
+    last_snapshot: dict[str, Any] | None,
+    total_value: float,
+    label_fn,
+) -> dict[str, Any] | None:
+    if not last_snapshot or not last_snapshot.get("top_picks"):
+        return None
+    try:
+        snap_time = _parse_trade_time(last_snapshot["timestamp"])
+        minutes_ago = int((datetime.now(timezone.utc) - snap_time).total_seconds() / 60)
+    except (ValueError, TypeError, KeyError):
+        minutes_ago = None
+
+    snap_value = float(last_snapshot.get("total_value") or 0)
+    change_pct = None
+    if snap_value > 0:
+        change_pct = round(((total_value - snap_value) / snap_value) * 100, 2)
+
+    picks = [label_fn(str(s)) for s in last_snapshot.get("top_picks", [])[:4]]
+    lesson = ""
+    if change_pct is not None:
+        if change_pct >= 0.5:
+            lesson = "Viime valinnat toimivat — jatka samankaltaista linjaa"
+        elif change_pct <= -0.5:
+            lesson = "Viime valinnat heikensivät salkkua — harkitse rotaatiota varovaisemmin"
+        else:
+            lesson = "Viime valinnoilla vähäinen vaikutus — odota selkeämpää signaalia ennen churnia"
+
+    return {
+        "minutes_ago": minutes_ago,
+        "top_picks_labels": picks,
+        "portfolio_change_pct_since": change_pct,
+        "lesson": lesson,
+    }
+
+
+def _build_costs_and_churn(
+    all_trades: list[dict[str, Any]],
+    now: datetime,
+) -> dict[str, Any]:
+    week_ago = now - timedelta(days=7)
+    day_ago = now - timedelta(hours=24)
+
+    def in_period(trade: dict[str, Any], since: datetime) -> bool:
+        try:
+            return _parse_trade_time(trade["timestamp"]) >= since
+        except (ValueError, TypeError, KeyError):
+            return False
+
+    week_trades = [t for t in all_trades if in_period(t, week_ago)]
+    day_trades = [t for t in all_trades if in_period(t, day_ago)]
+    week_fees = _estimate_fees(week_trades)
+    day_fees = _estimate_fees(day_trades)
+    week_sells = _summarize_sells([t for t in week_trades if t["type"] == "sell"])
+
+    churn_warning = ""
+    week_count = len(week_trades)
+    if week_count >= 20:
+        churn_warning = (
+            f"Liikaa kauppoja ({week_count}/7 pv) — arvioitu kulut {week_fees} EUR syö reunaa"
+        )
+    elif week_count >= 10 and week_sells.get("net_profit_eur", 0) < week_fees:
+        churn_warning = f"Kaupankäyntikulut ({week_fees} EUR) ylittävät myyntivoitot — vähennä churnia"
+
+    return {
+        "fee_rate_pct": round(FEE_RATE * 100, 2),
+        "tax_on_realized_profits_pct": int(TAX_RATE * 100),
+        "min_minutes_between_rotations": MIN_ROTATION_INTERVAL_MIN,
+        "last_7_days": {
+            "trade_count": week_count,
+            "estimated_fees_eur": week_fees,
+            "sell_net_profit_eur": week_sells.get("net_profit_eur", 0),
+            "trades_per_day": round(week_count / 7, 1),
+        },
+        "last_24h": {
+            "trade_count": len(day_trades),
+            "estimated_fees_eur": day_fees,
+        },
+        "churn_warning": churn_warning or None,
+    }
+
+
 def _build_trade_history_summary(
     portfolio: dict[str, Any],
     label_fn,
+    total_value: float,
+    last_gemini_snapshot: dict[str, Any] | None = None,
     limit: int = 15,
 ) -> dict[str, Any]:
     """Palauttaa Geminille kauppahistorian ja suorituskyvyn — palautekierros."""
@@ -251,6 +480,11 @@ def _build_trade_history_summary(
         },
         "last_24h": _summarize_sells([t for t in sells if in_period(t, day_ago)]),
         "recent_trades_newest_first": recent_rows,
+        "by_symbol": _build_symbol_performance(all_trades, label_fn),
+        "costs_and_churn": _build_costs_and_churn(all_trades, now),
+        "last_gemini_review": _build_last_gemini_review(
+            last_gemini_snapshot, total_value, label_fn
+        ),
     }
 
 
@@ -297,6 +531,7 @@ def advise_portfolio(
     analyses: dict[str, dict[str, Any]],
     portfolio: dict[str, Any],
     label_fn,
+    last_gemini_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """
     Palauttaa (insights, status).
@@ -343,10 +578,19 @@ def advise_portfolio(
         }
         for sym, h in holdings.items()
     ]
-    trade_history = _build_trade_history_summary(portfolio, label_fn)
+    trade_history = _build_trade_history_summary(
+        portfolio, label_fn, total_value, last_gemini_snapshot
+    )
+    costs = trade_history.get("costs_and_churn") or {}
     prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
 
 Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
+
+Kustannukset (tärkeää — turha churn syö voiton):
+- Kaupankäyntikulu: {costs.get('fee_rate_pct', 0.1)} % per kauppa (osto ja myynti)
+- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista
+- Rotaatiota max kerran {costs.get('min_minutes_between_rotations', 30)} min (paitsi stop-loss / voitto-myynti)
+- Jos costs_and_churn.churn_warning on asetettu → VÄHENNÄ kauppoja merkittävästi
 
 Salkun tila nyt:
 - Arvo yhteensä: {total_value} EUR (P/L {portfolio_pnl_pct:+.2f} % vs alkupääoma)
@@ -357,22 +601,26 @@ Kauppahistoria ja palaute (opettele näistä — älä toista tappiollisia linja
 {json.dumps(trade_history, ensure_ascii=False)}
 
 Historian käyttö:
-- Katso recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
-- Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä
-- Jos momentum-ostot tuottivat voittoa → painota samanlaista strategiaa
-- last_7_days / last_24h kertovat lyhyen aikavälin onnistumisen — mukauta aggressiota
+- recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
+- by_symbol: symbolikohtainen netto, voitto/tappio-määrät, keskimääräinen pitoaika — vältä toistuvasti tappiollisia
+- last_gemini_review: arvioi edellisen päätöksesi onnistuminen ennen uutta rotaatiota
+- costs_and_churn: vertaa estimated_fees_eur vs sell_net_profit_eur — älä tee pieniä rotaatioita jos kulut > hyöty
+- Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä (RSI<40, EMA bullish)
+- Voittavilla symboleilla pidä pidempään (katso avg_hold_hours_on_wins)
 
 Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
-2. Osta nousussa olevia, korkean volyymin kohteita (change_24h_pct > 0)
-3. Älä pidä tappiollisia pitkään — rotaatio nopeasti
+2. Osta nousussa olevia, korkean volyymin kohteita — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend
+3. Älä pidä tappiollisia pitkään — rotaatio nopeasti MUTTA älä churnaa (max 1 rotaatio / 30 min)
 4. Salkussa 1–4 kryptoa — valitse ITSE montako (top_picks 1–4 kohdetta). EI pakko neljää; 1 vahva riittää. KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
 5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
 6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
 8. Stop-loss noin -2 %: älä anna tappioiden kasvaa
+9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa
+10. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
 
-Markkinadata (JSON):
+Markkinadata (JSON — change_1h/4h/24h, RSI, EMA-trendi, momentum):
 {json.dumps(market, ensure_ascii=False)}
 
 Vastaa VAIN validilla JSON:lla (ei markdownia):

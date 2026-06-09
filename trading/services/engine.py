@@ -7,10 +7,11 @@ from .ai_trader import (
     analyze_ticker_quick,
     apply_gemini_insights,
     build_decision_report,
+    enrich_analyses_for_gemini,
     format_initial_buy_reason,
     make_trading_decisions,
 )
-from .bitfinex import fetch_all_markets, get_crypto_label
+from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
@@ -128,11 +129,18 @@ def execute_trading_cycle() -> dict[str, Any]:
 
     gemini_insights = None
     if gemini_configured():
+        enrich_analyses_for_gemini(
+            state["tickers"],
+            state["analyses"],
+            state["portfolio"],
+            fetch_candles,
+        )
         gemini_insights, gemini_status = advise_portfolio(
             state["tickers"],
             state["analyses"],
             state["portfolio"],
             get_crypto_label,
+            last_gemini_snapshot=state.get("lastGeminiSnapshot"),
         )
         apply_gemini_insights(state["analyses"], gemini_insights)
         if gemini_insights and gemini_status.get("ok"):
@@ -142,6 +150,13 @@ def execute_trading_cycle() -> dict[str, Any]:
                 "Gemini",
                 gemini_status.get("message", "Analyysi valmis"),
             )
+            portfolio_for_snap = Portfolio(state["portfolio"])
+            snap_value = portfolio_for_snap.get_total_value(state["tickers"])
+            state["lastGeminiSnapshot"] = {
+                "timestamp": _now_iso(),
+                "top_picks": list(gemini_insights.get("top_picks") or []),
+                "total_value": round(snap_value, 2),
+            }
     else:
         gemini_status = gemini_status_snapshot()
     state["geminiStatus"] = gemini_status

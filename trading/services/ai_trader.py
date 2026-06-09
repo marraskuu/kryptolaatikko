@@ -1,6 +1,10 @@
+import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .bitfinex import is_stablecoin, normalize_symbol
+
+logger = logging.getLogger(__name__)
 
 STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
@@ -9,6 +13,9 @@ UPTREND_MIN_CHANGE_PCT = 0.3
 MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
 ROTATION_TRIM_FRACTION = 0.5
+MIN_ROTATION_INTERVAL_SEC = 30 * 60
+FEE_RATE = 0.001
+GEMINI_DEEP_ANALYSIS_LIMIT = 15
 
 
 def _in_uptrend(analysis: dict[str, Any]) -> bool:
@@ -117,6 +124,117 @@ def analyze_ticker_quick(ticker: dict[str, Any]) -> dict[str, Any]:
         "strength": min(abs(score) / 4, 1),
         "quick": True,
     }
+
+
+def calc_period_change_pct(closes: list[float], periods: int) -> float | None:
+    if len(closes) < periods + 1:
+        return None
+    old = closes[-(periods + 1)]
+    new = closes[-1]
+    if old <= 0:
+        return None
+    return ((new - old) / old) * 100
+
+
+def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(candles) >= 20:
+        analysis = analyze_market(candles)
+        closes = [c["close"] for c in candles]
+        analysis["changePct"] = ticker.get("changePct", 0)
+        change_1h = calc_period_change_pct(closes, 1)
+        change_4h = calc_period_change_pct(closes, 4)
+        if change_1h is not None:
+            analysis["change1hPct"] = change_1h
+        if change_4h is not None:
+            analysis["change4hPct"] = change_4h
+        analysis["volumeEur"] = ticker.get("volumeEur", 0)
+        analysis["currentPrice"] = ticker.get("last", analysis["currentPrice"])
+        analysis["emaBullish"] = analysis.get("ema9", 0) > analysis.get("ema21", 0)
+        analysis["quick"] = False
+        return analysis
+    quick = analyze_ticker_quick(ticker)
+    quick["change1hPct"] = None
+    quick["change4hPct"] = None
+    return quick
+
+
+def symbols_for_deep_analysis(
+    tickers: dict[str, dict[str, Any]],
+    portfolio: dict[str, Any],
+    limit: int = GEMINI_DEEP_ANALYSIS_LIMIT,
+) -> list[str]:
+    holdings = list(portfolio.get("holdings", {}).keys())
+    ranked = sorted(
+        [s for s in tickers if not is_stablecoin(s)],
+        key=lambda s: tickers[s].get("volumeEur", 0),
+        reverse=True,
+    )
+    result: list[str] = []
+    seen: set[str] = set()
+    for sym in holdings + ranked:
+        if sym in seen or sym not in tickers or is_stablecoin(sym):
+            continue
+        seen.add(sym)
+        result.append(sym)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def enrich_analyses_for_gemini(
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    portfolio: dict[str, Any],
+    fetch_candles_fn: Callable[..., list[dict[str, Any]]],
+    limit: int = GEMINI_DEEP_ANALYSIS_LIMIT,
+) -> None:
+    """Päivittää top-symboleille kynttiläpohjaisen RSI/EMA/momentum-analyysin."""
+    for symbol in symbols_for_deep_analysis(tickers, portfolio, limit):
+        ticker = tickers.get(symbol)
+        if not ticker:
+            continue
+        try:
+            candles = fetch_candles_fn(symbol, "1h", 50)
+            analyses[symbol] = build_deep_analysis(ticker, candles)
+        except Exception:
+            logger.warning("Deep analysis failed for %s", symbol, exc_info=True)
+            analyses[symbol] = analyze_ticker_quick(ticker)
+
+
+def _parse_trade_time(iso: str) -> datetime:
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _is_emergency_trade_reason(reason: str) -> bool:
+    keywords = ("Stop-loss", "Stablecoin", "realisoidaan voitto", "voitto +", "huipusta")
+    lower = reason.lower()
+    return any(k.lower() in lower for k in keywords)
+
+
+def seconds_since_last_discretionary_trade(portfolio_data: dict[str, Any]) -> float | None:
+    """Sekunteja viimeisestä rotaatio-/osto-myyntikaupasta (ei stop-loss / voitto-myynti)."""
+    for trade in portfolio_data.get("trades", []):
+        if trade.get("type") not in ("buy", "sell"):
+            continue
+        reason = trade.get("reason") or ""
+        if _is_emergency_trade_reason(reason):
+            continue
+        try:
+            last = _parse_trade_time(trade["timestamp"])
+            return (datetime.now(timezone.utc) - last).total_seconds()
+        except (ValueError, TypeError, KeyError):
+            continue
+    return None
+
+
+def in_churn_cooldown(portfolio_data: dict[str, Any]) -> bool:
+    elapsed = seconds_since_last_discretionary_trade(portfolio_data)
+    if elapsed is None:
+        return False
+    return elapsed < MIN_ROTATION_INTERVAL_SEC
 
 
 def analyze_market(candles: list[dict[str, Any]]) -> dict[str, Any]:
@@ -587,6 +705,7 @@ def make_trading_decisions(
     top_symbols = {c["symbol"] for c in top_cryptos}
 
     decisions: list[dict[str, Any]] = []
+    churn_cooldown = in_churn_cooldown(portfolio_data)
 
     if len(holdings) == 0 and cash > 100:
         picks: list[dict[str, Any]] = []
@@ -677,7 +796,16 @@ def make_trading_decisions(
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
         sell_conf = 5 if profit_pct < 0 else 6
-        if gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= sell_conf:
+        if churn_cooldown:
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": "Churn-tauko (30 min) — ei rotaatiota vielä",
+                    "analysis": analysis,
+                }
+            )
+        elif gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= sell_conf:
             sell_amount = holding["amount"] * _gemini_sell_fraction(
                 gemini_sig.get("confidence", 5)
             )
@@ -748,18 +876,19 @@ def make_trading_decisions(
     )
 
     skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
-    _deploy_cash_to_targets(
-        decisions,
-        holdings,
-        cash,
-        total_value,
-        weights,
-        alloc_symbols,
-        analyses,
-        label_fn,
-        gemini_active,
-        skip_sell_symbols,
-    )
+    if not churn_cooldown:
+        _deploy_cash_to_targets(
+            decisions,
+            holdings,
+            cash,
+            total_value,
+            weights,
+            alloc_symbols,
+            analyses,
+            label_fn,
+            gemini_active,
+            skip_sell_symbols,
+        )
 
     for d in decisions:
         if d["type"] == "buy" and is_stablecoin(d["symbol"]):
