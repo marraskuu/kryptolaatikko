@@ -26,21 +26,26 @@ def _read_api_key() -> str:
 
 def is_configured() -> bool:
     key = _read_api_key()
-    return bool(key) and key.startswith("AIza")
+    # AIzaSy… = perinteinen AI Studio -avain, AQ.… = uusi GCP service account -sidonnainen avain
+    return bool(key) and (key.startswith("AIza") or key.startswith("AQ."))
+
+
+def _key_format() -> str:
+    key = _read_api_key()
+    if key.startswith("AQ."):
+        return "gcp-bound"
+    if key.startswith("AIza"):
+        return "legacy"
+    return "unknown"
 
 
 def _key_hint() -> str:
     key = _read_api_key()
     if not key:
         return "GEMINI_API_KEY puuttuu Railway Variables / .env"
-    if key.startswith("AQ."):
-        return (
-            "Avain alkaa AQ. — se on väärä tyyppi. "
-            "Hae AI Studio -avain (alkaa AIzaSy): https://aistudio.google.com/apikey"
-        )
-    if not key.startswith("AIza"):
-        return "Avain ei näytä Google AI Studio -avaimelta (pitäisi alkaa AIzaSy)"
-    return "Avain asetettu"
+    if not (key.startswith("AIza") or key.startswith("AQ.")):
+        return "Avain ei tunnistettu — pitäisi alkaa AIzaSy tai AQ."
+    return f"Avain asetettu ({_key_format()})"
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -121,6 +126,7 @@ def get_status() -> dict[str, Any]:
             "message": "Gemini odottaa seuraavaa analyysikierrosta",
             "provider": "gemini",
             "configured": True,
+            "keyFormat": _key_format(),
         }
     return {
         "ok": False,
@@ -184,11 +190,15 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{GEMINI_MODEL}:generateContent"
     )
+    api_key = _read_api_key()
 
     try:
         response = requests.post(
             url,
-            params={"key": _read_api_key()},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -228,6 +238,7 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
             "provider": "gemini",
             "model": GEMINI_MODEL,
             "configured": True,
+            "keyFormat": _key_format(),
         }
 
     except requests.RequestException as exc:

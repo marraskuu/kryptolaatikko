@@ -127,6 +127,12 @@ function applyPayload(data) {
     if (badge) badge.classList.remove("hidden");
   } else if (data.geminiStatus?.message && data.geminiStatus?.configured === false) {
     showError(`Gemini: ${data.geminiStatus.message}`);
+  } else if (data.geminiStatus?.ok === false && data.geminiStatus?.configured) {
+    const badge = document.getElementById("gemini-badge");
+    if (badge) {
+      badge.classList.remove("hidden");
+      badge.textContent = data.geminiStatus.provider === "gemini" ? "Gemini AI" : "Gemini (virhe)";
+    }
   }
   if (data.error) showError(data.error);
   else clearError();
