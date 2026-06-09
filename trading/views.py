@@ -1,9 +1,7 @@
-import json
-
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .services.engine import (
     execute_trading_cycle,
@@ -16,11 +14,11 @@ from .services.export_excel import build_tax_excel
 from .services.session_state import build_api_payload, load_state
 
 
-@ensure_csrf_cookie
 def index(request):
     return render(request, "trading/index.html")
 
 
+@csrf_exempt
 @require_GET
 def api_state(request):
     state = load_state(request.session)
@@ -29,6 +27,7 @@ def api_state(request):
     return JsonResponse(payload)
 
 
+@csrf_exempt
 @require_POST
 def api_start(request):
     try:
@@ -38,19 +37,22 @@ def api_start(request):
         return JsonResponse({"error": str(exc)}, status=500)
 
 
+@csrf_exempt
 @require_POST
 def api_stop(request):
     payload = stop_bot(request.session)
     return JsonResponse(payload)
 
 
+@csrf_exempt
 @require_POST
 def api_reset(request):
     payload = reset_bot(request.session)
     return JsonResponse(payload)
 
 
-@require_POST
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def api_prices(request):
     try:
         payload = refresh_prices(request.session)
@@ -59,6 +61,7 @@ def api_prices(request):
         return JsonResponse({"error": str(exc)}, status=500)
 
 
+@csrf_exempt
 @require_POST
 def api_trade(request):
     try:
@@ -68,6 +71,7 @@ def api_trade(request):
         return JsonResponse({"error": str(exc)}, status=500)
 
 
+@csrf_exempt
 @require_GET
 def api_export(request):
     state = load_state(request.session)

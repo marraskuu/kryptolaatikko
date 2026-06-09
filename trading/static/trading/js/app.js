@@ -23,28 +23,28 @@ let state = {
 let marketSearch = "";
 const cryptoLabels = {};
 
-function getCsrfToken() {
-  const meta = document.querySelector('input[name="csrfmiddlewaretoken"]');
-  if (meta?.value) return meta.value;
-  const match = document.cookie.match(/csrftoken=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-async function apiPost(url) {
-  const token = getCsrfToken();
+async function apiGet(url) {
   const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-CSRFToken": token,
-      Accept: "application/json",
-    },
     credentials: "same-origin",
+    headers: { Accept: "application/json" },
   });
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    if (res.status === 403) {
-      throw new Error("Turvatarkistus epäonnistui — päivitä sivu (Ctrl+F5) ja yritä uudelleen.");
-    }
+    throw new Error(`Palvelinvirhe ${res.status} — odotettiin JSON-vastausta`);
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Virhe ${res.status}`);
+  return data;
+}
+
+async function apiPost(url) {
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
     throw new Error(`Palvelinvirhe ${res.status} — odotettiin JSON-vastausta`);
   }
   const data = await res.json();
@@ -458,7 +458,7 @@ function startCountdown() {
 
 async function refreshPrices() {
   try {
-    const data = await apiPost("/api/prices/");
+    const data = await apiGet("/api/prices/");
     applyPayload(data);
   } catch (err) {
     showError(err.message);
@@ -536,7 +536,12 @@ if (botUrlEl) {
 }
 
 fetch("/api/state/")
-  .then((r) => r.json())
+  .then((r) => {
+    if (!r.headers.get("content-type")?.includes("application/json")) {
+      throw new Error("API ei palauta JSONia — tarkista että uusin versio on deployattu");
+    }
+    return r.json();
+  })
   .then((data) => {
     applyPayload(data);
     refreshPrices();
