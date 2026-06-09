@@ -69,6 +69,7 @@ function formatDateTime(iso) {
   return new Date(iso).toLocaleString("fi-FI", {
     day: "2-digit",
     month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -563,7 +564,7 @@ function renderTradeLog() {
               <div class="main">${label} · ${formatEur(trade.eurTotal)}</div>
               <div class="sub">30 % voittovero · voitto ${formatEur(trade.profit)}</div>
             </div>
-            <span class="trade-time">${formatTime(trade.timestamp)}</span>
+            <span class="trade-time">${formatDateTime(trade.timestamp)}</span>
           </div>`;
       }
       const typeLabel = trade.type === "buy" ? "OSTO" : "MYYNTI";
@@ -576,7 +577,7 @@ function renderTradeLog() {
             <div class="main">${label} · ${formatEur(trade.eurTotal)}${taxNote}${pnlBadge ? ` ${pnlBadge}` : ""}</div>
             <div class="sub">${formatCrypto(trade.amount, 6)} @ ${formatEur(trade.price)} — ${trade.reason}</div>
           </div>
-          <span class="trade-time">${formatTime(trade.timestamp)}</span>
+          <span class="trade-time">${formatDateTime(trade.timestamp)}</span>
         </div>`;
     })
     .join("");
