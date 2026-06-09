@@ -102,6 +102,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "lastAIReport": state["lastAIReport"],
         "stats": {
             "totalValue": total_value,
+            "holdingsValue": max(0.0, total_value - portfolio.cash),
             "pnl": pnl["pnl"],
             "pnlPct": pnl["pnlPct"],
             "cash": portfolio.cash,

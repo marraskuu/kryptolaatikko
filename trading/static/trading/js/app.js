@@ -134,7 +134,9 @@ function applyPayload(data) {
 const els = {
   statPortfolio: document.getElementById("stat-portfolio"),
   statPnl: document.getElementById("stat-pnl"),
+  statBreakdown: document.getElementById("stat-breakdown"),
   statCash: document.getElementById("stat-cash"),
+  statCryptoHoldings: document.getElementById("stat-crypto-holdings"),
   statTaxPaid: document.getElementById("stat-tax-paid"),
   statTaxEstimate: document.getElementById("stat-tax-estimate"),
   statTrades: document.getElementById("stat-trades"),
@@ -174,8 +176,15 @@ function renderAll(lastUpdate) {
 
 function renderStats() {
   const s = state.stats;
-  els.statPortfolio.textContent = formatEur(s.totalValue ?? INITIAL_CAPITAL);
-  els.statCash.textContent = formatEur(s.cash ?? INITIAL_CAPITAL);
+  const total = s.totalValue ?? INITIAL_CAPITAL;
+  const cash = s.cash ?? INITIAL_CAPITAL;
+  const holdings =
+    s.holdingsValue != null ? s.holdingsValue : Math.max(0, total - cash);
+
+  els.statPortfolio.textContent = formatEur(total);
+  els.statCash.textContent = formatEur(cash);
+  els.statBreakdown.textContent = `${formatEur(cash)} käteistä + ${formatEur(holdings)} kryptoissa`;
+  els.statCryptoHoldings.textContent = `Osa salkusta — ei lisätä päälle`;
   els.statTrades.textContent = String(s.tradeCount ?? 0);
   els.statTaxPaid.textContent = formatEur(s.totalTaxPaid ?? 0);
   els.statTaxEstimate.textContent = `Arvio avoimista: ${formatEur(s.estimatedTax ?? 0)}`;
