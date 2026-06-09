@@ -8,10 +8,6 @@ from .bitfinex import get_crypto_label
 from .portfolio import Portfolio
 
 
-def _round2(value: float) -> float:
-    return round(value, 2)
-
-
 def _fmt_date(iso: str) -> str:
     dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
     if dt.tzinfo is None:
@@ -22,7 +18,7 @@ def _fmt_date(iso: str) -> str:
 def _fmt_pnl(value: float | None) -> str:
     if value is None:
         return ""
-    rounded = _round2(value)
+    rounded = round(value, 2)
     text = f"{abs(rounded):.2f}".replace(".", ",")
     if rounded > 0:
         return f"+{text}"
@@ -31,14 +27,39 @@ def _fmt_pnl(value: float | None) -> str:
     return "0,00"
 
 
+def _unit_price(trade: dict) -> float:
+    amount = trade.get("amount") or 0
+    if amount > 0 and trade.get("eurTotal") is not None:
+        return trade["eurTotal"] / amount
+    return float(trade.get("price") or 0)
+
+
+def _fmt_unit_price(price: float) -> float:
+    if price >= 1000:
+        return round(price, 2)
+    if price >= 1:
+        return round(price, 4)
+    if price >= 0.01:
+        return round(price, 6)
+    return round(price, 8)
+
+
+def _fmt_quantity(amount: float) -> float:
+    if amount >= 1:
+        return round(amount, 6)
+    if amount >= 0.0001:
+        return round(amount, 8)
+    return round(amount, 12)
+
+
 def _sell_profit_loss(trade: dict) -> float:
     profit_loss = trade.get("profitLoss")
-    if profit_loss is None:
-        profit_loss = trade.get("profit")
-    if profit_loss is None:
-        cost_basis = trade.get("costBasis", 0)
-        profit_loss = trade["eurTotal"] - cost_basis
-    return float(profit_loss)
+    if profit_loss is not None:
+        return float(profit_loss)
+    if trade.get("profit") is not None:
+        return float(trade["profit"])
+    cost_basis = trade.get("costBasis", 0)
+    return float(trade["eurTotal"]) - float(cost_basis)
 
 
 def _autosize_columns(ws, widths: list[int]) -> None:
@@ -65,8 +86,9 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
         [
             "Päivämäärä",
             "Krypto",
-            "Ostohinta (EUR)",
-            "Myyntihinta (EUR)",
+            "Kappalemäärä",
+            "Ostohinta (EUR/kpl)",
+            "Myyntihinta (EUR/kpl)",
             "Voitto (+) / Tappio (-) (EUR)",
         ]
     )
@@ -74,15 +96,19 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
     for t in trades:
         label = get_crypto_label(t["symbol"])
         date = _fmt_date(t["timestamp"])
+        qty = _fmt_quantity(float(t.get("amount") or 0))
+        unit = _fmt_unit_price(_unit_price(t))
+
         if t["type"] == "buy":
-            ws.append([date, label, _round2(t["price"]), "", ""])
+            ws.append([date, label, qty, unit, "", ""])
         else:
             ws.append(
                 [
                     date,
                     label,
+                    qty,
                     "",
-                    _round2(t["price"]),
+                    unit,
                     _fmt_pnl(_sell_profit_loss(t)),
                 ]
             )
@@ -93,16 +119,18 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
     ws_summary.append(["Ostoja (kpl)", len(buys)])
     ws_summary.append(["Myyntejä (kpl)", len(sells)])
     ws_summary.append(["Voitot ja tappiot yhteensä (EUR)", _fmt_pnl(total_profit) or "0,00"])
-    ws_summary.append(["Maksettu vero 30 % (EUR)", _round2(portfolio.data["totalTaxPaid"])])
+    ws_summary.append(
+        ["Maksettu vero 30 % (EUR)", round(portfolio.data["totalTaxPaid"], 2)]
+    )
     ws_summary.append(["", ""])
     ws_summary.append(
         [
             "Huomautus",
-            "Simulaatio Bitfinex-kursseilla. Tarkista tiedot ennen veroilmoitusta.",
+            "Simulaatio Bitfinex-kursseilla. Hinta = EUR/kpl (eurTotal ÷ kappalemäärä).",
         ]
     )
 
-    _autosize_columns(ws, [14, 14, 18, 18, 28])
+    _autosize_columns(ws, [14, 12, 18, 18, 18, 28])
     _autosize_columns(ws_summary, [32, 48])
 
     buffer = BytesIO()
