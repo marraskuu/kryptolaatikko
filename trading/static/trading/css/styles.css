@@ -294,10 +294,15 @@ h1 {
   padding: 16px;
 }
 
-.panel-markets {
+.panel-markets,
+.panel-ai {
   max-height: 520px;
+  min-height: 520px;
   display: flex;
   flex-direction: column;
+}
+
+.panel-markets {
 }
 
 .market-toolbar {
@@ -357,6 +362,15 @@ h1 {
 .market-row.selected {
   border-color: var(--accent);
   background: rgba(59, 130, 246, 0.08);
+}
+
+.market-row.target {
+  border-color: rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.market-row-badge-target {
+  color: #a78bfa;
 }
 
 .market-row-id {
@@ -511,11 +525,29 @@ h1 {
 
 .ai-decision {
   padding: 16px 20px;
-  min-height: 200px;
-  max-height: 520px;
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.panel-ai .ai-decision {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel-ai .ai-reasoning {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-ai .ai-decision-meta {
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .ai-placeholder {
@@ -639,10 +671,13 @@ h1 {
 .ai-event-section {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .ai-event-log {
-  max-height: 380px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }

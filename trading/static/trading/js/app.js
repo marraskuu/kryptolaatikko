@@ -304,6 +304,12 @@ function renderStats() {
   els.statPnl.className = `stat-change ${pnlClass}`;
 }
 
+function getHeldSymbolsSet() {
+  return new Set(
+    Object.keys(state.portfolio.holdings || {}).map((symbol) => normalizeSymbol(symbol))
+  );
+}
+
 function renderMarketList() {
   const query = marketSearch.trim().toLowerCase();
   let entries = Object.entries(state.tickers);
@@ -315,15 +321,18 @@ function renderMarketList() {
     });
   }
 
-  const activeSet = new Set(state.activeSymbols);
+  const heldSet = getHeldSymbolsSet();
+  const targetSet = new Set((state.activeSymbols || []).map((s) => normalizeSymbol(s)));
   entries.sort((a, b) => {
-    const aHeld = activeSet.has(a[0]) ? 1 : 0;
-    const bHeld = activeSet.has(b[0]) ? 1 : 0;
+    const aSym = normalizeSymbol(a[0]);
+    const bSym = normalizeSymbol(b[0]);
+    const aHeld = heldSet.has(aSym) ? 1 : 0;
+    const bHeld = heldSet.has(bSym) ? 1 : 0;
     if (aHeld !== bHeld) return bHeld - aHeld;
     return (b[1].volumeEur || 0) - (a[1].volumeEur || 0);
   });
 
-  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${activeSet.size} (max 4)`;
+  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${heldSet.size} (max 4)`;
 
   if (entries.length === 0) {
     els.marketList.innerHTML = '<p class="empty-log">Ladataan markkinoita…</p>';
@@ -341,25 +350,27 @@ function renderMarketList() {
       const sym = normalizeSymbol(symbol);
       const label = getCryptoLabel(sym);
       const analysis = state.analyses[sym] || state.analyses[symbol];
-      const change24Class = ticker.changePct >= 0 ? "up" : "down";
-      const isHeld = activeSet.has(sym) || activeSet.has(symbol);
+      const change24Class = (ticker.changePct ?? 0) >= 0 ? "up" : "down";
+      const isHeld = heldSet.has(sym);
+      const isTarget = !isHeld && targetSet.has(sym);
       const watch = state.profitWatch[sym] || state.profitWatch[symbol];
       const signal = analysis?.action === "buy" ? "▲" : analysis?.action === "sell" ? "▼" : "●";
-      const positionPct = getPositionPct(sym);
+      const positionPct = isHeld ? getPositionPct(sym) : null;
+      const change24Label = formatPct(ticker.changePct ?? 0);
 
       let changeHtml;
       if (isHeld && positionPct != null) {
         const pnlClass = positionPct >= 0 ? "up" : "down";
         changeHtml = `
           <div class="market-change-stack">
-            <span class="market-pct-pill ${pnlClass}" title="Voitto/tappio ostohintaan">${formatPct(positionPct)}</span>
-            <span class="market-pct-sub ${change24Class}" title="24 h muutos">24h ${formatPct(ticker.changePct)}</span>
+            <span class="market-pct-pill ${pnlClass}" title="Voitto/tappio ostohintaan">P/L ${formatPct(positionPct)}</span>
+            <span class="market-pct-sub ${change24Class}" title="24 h markkinamuutos">24h ${change24Label}</span>
           </div>`;
       } else {
         changeHtml = `
           <div class="market-change-stack">
-            <span class="market-pct-pill ${change24Class}" title="24 h muutos Bitfinex">${formatPct(ticker.changePct)}</span>
-            <span class="market-pct-sub">24h</span>
+            <span class="market-pct-pill ${change24Class}" title="24 h markkinamuutos">${change24Label}</span>
+            <span class="market-pct-sub ${change24Class}">24h</span>
           </div>`;
       }
 
@@ -368,10 +379,12 @@ function renderMarketList() {
         badge = `<span class="market-row-badge">${watch.statusText}</span>`;
       } else if (isHeld) {
         badge = `<span class="market-row-badge">${signal} Salkussa</span>`;
+      } else if (isTarget) {
+        badge = `<span class="market-row-badge market-row-badge-target">◎ Gemini-valinta</span>`;
       }
 
       return `
-        <div class="market-row ${isHeld ? "selected" : ""}">
+        <div class="market-row ${isHeld ? "selected" : isTarget ? "target" : ""}">
           <div>
             <div class="market-row-id">${label}</div>
             <div class="market-row-pair">${sym.replace(/^t/, "")} · vol ${formatVolumeEur(ticker.volumeEur)}</div>
