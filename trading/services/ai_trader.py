@@ -305,38 +305,60 @@ def _plan_initial_allocation(
     return planned
 
 
+MAX_POSITIONS = 4
+
+
+def _gemini_desired_symbols(gemini_insights: dict[str, Any] | None) -> list[str]:
+    """Gemini valitsee 1–4 kohdetta — ei pakota neljää."""
+    if not gemini_insights:
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in gemini_insights.get("top_picks") or []:
+        sym = normalize_symbol(str(raw))
+        if sym and sym not in seen and not is_stablecoin(sym):
+            seen.add(sym)
+            result.append(sym)
+    if result:
+        return result[:MAX_POSITIONS]
+    for raw, signal in (gemini_insights.get("signals") or {}).items():
+        if signal.get("action") != "buy" or signal.get("confidence", 0) < 6:
+            continue
+        sym = normalize_symbol(str(raw))
+        if sym and sym not in seen and not is_stablecoin(sym):
+            seen.add(sym)
+            result.append(sym)
+    return result[:MAX_POSITIONS]
+
+
+def _to_crypto_items(
+    symbols: list[str],
+    analyses: dict[str, dict[str, Any]],
+    gemini_boost: bool = False,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for raw in symbols:
+        sym = normalize_symbol(raw)
+        if sym not in analyses or is_stablecoin(sym):
+            continue
+        analysis = analyses[sym]
+        rank = analysis.get("score", 0) + (12 if gemini_boost else 0)
+        items.append({"symbol": sym, "analysis": analysis, "rank": rank})
+    return items
+
+
 def _build_top_cryptos(
     ranked: list[dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
     target_count: int,
     gemini_insights: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    gemini_picks = (gemini_insights or {}).get("top_picks") or []
-    if gemini_picks:
-        top: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for raw_sym in gemini_picks:
-            sym = normalize_symbol(raw_sym)
-            if sym in analyses and sym not in seen and not is_stablecoin(sym):
-                analysis = analyses[sym]
-                top.append(
-                    {
-                        "symbol": sym,
-                        "analysis": analysis,
-                        "rank": analysis.get("score", 0) + 12,
-                    }
-                )
-                seen.add(sym)
-        for item in ranked:
-            if len(top) >= target_count:
-                break
-            if item["symbol"] not in seen and not is_stablecoin(item["symbol"]):
-                top.append(item)
-                seen.add(item["symbol"])
-        if top:
-            return top[:target_count]
+    desired = _gemini_desired_symbols(gemini_insights)
+    if desired:
+        return _to_crypto_items(desired, analyses, gemini_boost=True)
 
-    return ranked[:target_count]
+    count = max(1, min(target_count, MAX_POSITIONS, len(ranked) or 1))
+    return ranked[:count]
 
 
 def make_trading_decisions(
@@ -363,41 +385,47 @@ def make_trading_decisions(
         )
     )
 
-    target_count = 4 if len(holdings) < 4 else min(4, len(holdings))
+    target_count = MAX_POSITIONS
     gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
+    desired = _gemini_desired_symbols(gemini_insights) if gemini_active else []
 
-    top_cryptos = _build_top_cryptos(ranked, analyses, target_count, gemini_insights)
+    if gemini_active and desired:
+        top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)
+    elif gemini_active:
+        # Gemini aktiivinen mutta ei uusia valintoja — pidä nykyiset, älä täytä neljään
+        top_cryptos = _to_crypto_items(list(holdings.keys()), analyses)
+    else:
+        fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
+        top_cryptos = _build_top_cryptos(ranked, analyses, fallback_n, gemini_insights)
+
     if not top_cryptos and gemini_picks:
-        gemini_top = [
-            {"symbol": normalize_symbol(s), "analysis": analyses[normalize_symbol(s)], "rank": 10}
-            for s in gemini_picks
-            if normalize_symbol(s) in analyses
-        ]
+        gemini_top = _to_crypto_items(gemini_picks, analyses, gemini_boost=True)
         if gemini_top:
-            top_cryptos = gemini_top[:target_count]
+            top_cryptos = gemini_top
+
+    target_count = max(1, len(top_cryptos)) if top_cryptos else 1
 
     top_symbols = {c["symbol"] for c in top_cryptos}
 
     decisions: list[dict[str, Any]] = []
 
-    if len(holdings) == 0 and cash > 100 and top_cryptos:
-        picks = [
-            c for c in top_cryptos[: min(target_count, len(top_cryptos))]
-            if not is_stablecoin(c["symbol"])
-        ]
-        if not picks:
-            picks = [c for c in ranked[:target_count] if not is_stablecoin(c["symbol"])]
-        return {
-            "decisions": [],
-            "targetCount": target_count,
-            "topSymbols": list(top_symbols),
-            "initialAllocation": _plan_initial_allocation(
-                picks, cash, gemini_insights, gemini_active, analyses
-            )
-            if picks
-            else [],
-            "geminiActive": gemini_active,
-        }
+    if len(holdings) == 0 and cash > 100:
+        if desired:
+            picks = _to_crypto_items(desired, analyses, gemini_boost=True)
+        elif not gemini_active and ranked:
+            picks = ranked[: min(2, len(ranked))]
+        else:
+            picks = []
+        if picks:
+            return {
+                "decisions": [],
+                "targetCount": len(picks),
+                "topSymbols": [c["symbol"] for c in picks],
+                "initialAllocation": _plan_initial_allocation(
+                    picks, cash, gemini_insights, gemini_active, analyses
+                ),
+                "geminiActive": gemini_active,
+            }
 
     for symbol, holding in holdings.items():
         analysis = analyses.get(symbol)
@@ -514,7 +542,7 @@ def make_trading_decisions(
                     "analysis": analysis,
                 }
             )
-        elif symbol not in top_symbols or analysis["action"] == "sell":
+        elif (desired and symbol not in top_symbols) or analysis["action"] == "sell":
             decisions.append(
                 {
                     "type": "sell",
@@ -522,8 +550,8 @@ def make_trading_decisions(
                     "amount": holding["amount"],
                     "eurAmount": holding_value,
                     "reason": (
-                        f"{label_fn(symbol)} putosi top {target_count}:sta — myydään ja siirretään parempiin"
-                        if symbol not in top_symbols
+                        f"{label_fn(symbol)} ei Geminin valinnoissa — myydään"
+                        if desired and symbol not in top_symbols
                         else "; ".join(analysis["reasons"])
                     ),
                     "analysis": analysis,
@@ -544,11 +572,8 @@ def make_trading_decisions(
     available_cash = cash + sell_proceeds
 
     alloc_symbols = list(
-        dict.fromkeys(
-            [c["symbol"] for c in top_cryptos]
-            + [normalize_symbol(s) for s in (gemini_insights or {}).get("top_picks") or []]
-        )
-    )[:target_count]
+        dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
+    )[:MAX_POSITIONS]
     weights = _compute_allocation_weights(
         gemini_insights, alloc_symbols, analyses, gemini_active
     )
@@ -624,12 +649,17 @@ def make_trading_decisions(
                 )
                 available_cash -= buy_amount
 
-    if gemini_insights and available_cash > 20 and len(holdings) < target_count:
-        for sym, signal in (gemini_insights.get("signals") or {}).items():
-            sym = normalize_symbol(sym)
-            if sym in holdings or sym in symbols_to_sell or sym not in analyses:
+    if gemini_insights and available_cash > 20 and desired:
+        held_after_sells = {
+            s for s in holdings if s not in symbols_to_sell
+        }
+        for sym in desired:
+            if sym in symbols_to_sell or sym not in analyses:
                 continue
-            if signal.get("action") != "buy" or signal.get("confidence", 0) < 7:
+            if sym not in held_after_sells and len(held_after_sells) >= len(desired):
+                continue
+            signal = _gemini_signal(gemini_insights, sym) or {}
+            if signal.get("action") == "sell" and signal.get("confidence", 0) >= 5:
                 continue
             analysis = analyses[sym]
             target_value = _target_holding_value(sym, total_value, weights)
@@ -652,11 +682,10 @@ def make_trading_decisions(
                 }
             )
             available_cash -= buy_amount
+            held_after_sells.add(sym)
             top_symbols.add(sym)
-            if len(holdings) + len([d for d in decisions if d["type"] == "buy"]) >= target_count:
-                break
 
-    if available_cash > 15:
+    if available_cash > 15 and (desired or not gemini_active):
         underweight = []
         for item in top_cryptos:
             symbol = item["symbol"]
@@ -701,7 +730,7 @@ def make_trading_decisions(
 
     return {
         "decisions": decisions,
-        "targetCount": target_count,
+        "targetCount": len(top_cryptos) or target_count,
         "topSymbols": list(top_symbols),
         "geminiActive": gemini_active,
     }

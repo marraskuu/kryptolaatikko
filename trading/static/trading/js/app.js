@@ -323,7 +323,7 @@ function renderMarketList() {
     return (b[1].volumeEur || 0) - (a[1].volumeEur || 0);
   });
 
-  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${activeSet.size}/4`;
+  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${activeSet.size} (max 4)`;
 
   if (entries.length === 0) {
     els.marketList.innerHTML = '<p class="empty-log">Ladataan markkinoita…</p>';
