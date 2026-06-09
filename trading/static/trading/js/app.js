@@ -122,19 +122,35 @@ function applyPayload(data) {
   };
 
   if (data.nextTradeInSec != null) countdown = data.nextTradeInSec;
+
+  const providerBadge = document.getElementById("ai-provider-badge");
+  const geminiBadge = document.getElementById("gemini-badge");
+  let geminiNotice = "";
+
   if (data.geminiStatus?.ok) {
-    const badge = document.getElementById("gemini-badge");
-    if (badge) badge.classList.remove("hidden");
-  } else if (data.geminiStatus?.message && data.geminiStatus?.configured === false) {
-    showError(`Gemini: ${data.geminiStatus.message}`);
-  } else if (data.geminiStatus?.ok === false && data.geminiStatus?.configured) {
-    const badge = document.getElementById("gemini-badge");
-    if (badge) {
-      badge.classList.remove("hidden");
-      badge.textContent = data.geminiStatus.provider === "gemini" ? "Gemini AI" : "Gemini (virhe)";
+    if (providerBadge) {
+      providerBadge.textContent = "Gemini AI";
+      providerBadge.classList.add("ai-badge-active");
+    }
+    if (geminiBadge) geminiBadge.classList.add("hidden");
+  } else if (data.geminiStatus?.configured) {
+    if (providerBadge) {
+      providerBadge.textContent = "Gemini (virhe)";
+      providerBadge.classList.remove("ai-badge-active");
+    }
+    geminiNotice = data.geminiStatus.message || "";
+  } else {
+    if (providerBadge) {
+      providerBadge.textContent = "Tekninen AI";
+      providerBadge.classList.remove("ai-badge-active");
+    }
+    if (data.geminiStatus?.message) {
+      geminiNotice = `Gemini: ${data.geminiStatus.message}`;
     }
   }
+
   if (data.error) showError(data.error);
+  else if (geminiNotice) showError(geminiNotice);
   else clearError();
   renderAll(data.lastUpdate);
 }
@@ -185,7 +201,7 @@ function renderAll(lastUpdate) {
 function renderStats() {
   const s = state.stats;
   const total = s.totalValue ?? INITIAL_CAPITAL;
-  const cash = s.cash ?? 0;
+  const cash = Math.max(0, s.cash ?? 0);
   const holdings =
     s.holdingsValue != null ? s.holdingsValue : Math.max(0, total - cash);
 
