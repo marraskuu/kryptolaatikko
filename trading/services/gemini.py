@@ -22,6 +22,16 @@ def _read_model() -> str:
     return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
 
 
+def _model_candidates() -> list[str]:
+    primary = _read_model()
+    fallbacks = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+    models = [primary]
+    for model in fallbacks:
+        if model not in models:
+            models.append(model)
+    return models
+
+
 def _read_api_key() -> str:
     """Luetaan aina tuoreena — Railway/inject voi tulla käyttöön importin jälkeen."""
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY"):
@@ -138,12 +148,14 @@ def get_status() -> dict[str, Any]:
         return {
             **base,
             "ok": False,
+            "status": "waiting",
             "message": "Gemini odottaa seuraavaa analyysikierrosta",
             "provider": "gemini",
         }
     return {
         **base,
         "ok": False,
+        "status": "unconfigured",
         "message": _key_hint(),
         "provider": "technical",
     }
@@ -225,84 +237,87 @@ top_picks = 3-4 parasta kohdetta nyt (symbol täsmälleen datasta).
 signals = jokainen held-positio + kaikki top_picks + muut vahvat buy/sell-kohteet (max 15 riviä).
 confidence 8-10 = vahva toimenpide, 5-7 = maltillinen, alle 5 = hold."""
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_read_model()}:generateContent"
-    )
     api_key = _read_api_key()
+    last_error = ""
 
-    try:
-        response = requests.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "responseMimeType": "application/json",
-                },
-            },
-            timeout=GEMINI_TIMEOUT,
+    for model in _model_candidates():
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent"
         )
-        response.raise_for_status()
-        body = response.json()
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = _extract_json(text)
+        try:
+            response = requests.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "responseMimeType": "application/json",
+                    },
+                },
+                timeout=GEMINI_TIMEOUT,
+            )
+            response.raise_for_status()
+            body = response.json()
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = _extract_json(text)
 
-        signals_list = parsed.get("signals") or []
-        signals_map = {}
-        for item in signals_list:
-            sym = item.get("symbol")
-            if not sym:
-                continue
-            action = str(item.get("action", "hold")).lower()
-            if action not in ("buy", "sell", "hold"):
-                action = "hold"
-            confidence = max(1, min(10, int(item.get("confidence", 5))))
-            signals_map[sym] = {
-                "action": action,
-                "confidence": confidence,
-                "reason": str(item.get("reason", "")).strip()[:240],
+            signals_list = parsed.get("signals") or []
+            signals_map = {}
+            for item in signals_list:
+                sym = item.get("symbol")
+                if not sym:
+                    continue
+                action = str(item.get("action", "hold")).lower()
+                if action not in ("buy", "sell", "hold"):
+                    action = "hold"
+                confidence = max(1, min(10, int(item.get("confidence", 5))))
+                signals_map[sym] = {
+                    "action": action,
+                    "confidence": confidence,
+                    "reason": str(item.get("reason", "")).strip()[:240],
+                }
+
+            top_picks = [s for s in (parsed.get("top_picks") or []) if isinstance(s, str)][:4]
+
+            insights = {"top_picks": top_picks, "signals": signals_map}
+            return insights, {
+                "ok": True,
+                "status": "ok",
+                "message": f"Gemini analysoi {len(signals_map)} signaalia",
+                "provider": "gemini",
+                "model": model,
+                "configured": True,
+                "keyFormat": _key_format(),
             }
 
-        top_picks = [s for s in (parsed.get("top_picks") or []) if isinstance(s, str)][:4]
+        except requests.RequestException as exc:
+            detail = ""
+            if hasattr(exc, "response") and exc.response is not None:
+                try:
+                    err_body = exc.response.json()
+                    detail = err_body.get("error", {}).get("message", "")[:120]
+                except (ValueError, AttributeError):
+                    detail = exc.response.text[:120] if exc.response.text else ""
+            last_error = detail or type(exc).__name__
+            logger.warning("Gemini API error (%s): %s", model, last_error)
+            continue
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            last_error = type(exc).__name__
+            logger.warning("Gemini parse error (%s): %s", model, last_error)
+            continue
 
-        insights = {"top_picks": top_picks, "signals": signals_map}
-        return insights, {
-            "ok": True,
-            "message": f"Gemini analysoi {len(signals_map)} signaalia",
-            "provider": "gemini",
-            "model": _read_model(),
-            "configured": True,
-            "keyFormat": _key_format(),
-        }
-
-    except requests.RequestException as exc:
-        detail = ""
-        if hasattr(exc, "response") and exc.response is not None:
-            try:
-                err_body = exc.response.json()
-                detail = err_body.get("error", {}).get("message", "")[:120]
-            except (ValueError, AttributeError):
-                detail = exc.response.text[:120] if exc.response.text else ""
-        logger.warning("Gemini API error: %s %s", type(exc).__name__, detail)
-        msg = "Gemini-yhteys epäonnistui — käytetään teknistä analyysiä"
-        if detail:
-            msg = f"{msg} ({detail})"
-        return None, {
-            "ok": False,
-            "message": msg,
-            "provider": "gemini",
-            "configured": True,
-        }
-    except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
-        logger.warning("Gemini parse error: %s", type(exc).__name__)
-        return None, {
-            "ok": False,
-            "message": "Gemini-vastaus virheellinen — käytetään teknistä analyysiä",
-            "provider": "gemini",
-            "configured": True,
-        }
+    msg = "Gemini-yhteys epäonnistui — käytetään teknistä analyysiä"
+    if last_error:
+        msg = f"{msg} ({last_error})"
+    return None, {
+        "ok": False,
+        "status": "error",
+        "message": msg,
+        "provider": "gemini",
+        "configured": True,
+    }

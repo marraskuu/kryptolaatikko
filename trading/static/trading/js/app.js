@@ -127,18 +127,32 @@ function applyPayload(data) {
   const geminiBadge = document.getElementById("gemini-badge");
   let geminiNotice = "";
 
-  if (data.geminiStatus?.ok) {
+  const gs = data.geminiStatus;
+  const geminiWaiting = gs?.status === "waiting";
+  const geminiError = gs?.status === "error";
+
+  if (gs?.ok || gs?.status === "ok") {
     if (providerBadge) {
       providerBadge.textContent = "Gemini AI";
       providerBadge.classList.add("ai-badge-active");
     }
     if (geminiBadge) geminiBadge.classList.add("hidden");
-  } else if (data.geminiStatus?.configured) {
+  } else if (gs?.configured && geminiWaiting) {
+    if (providerBadge) {
+      providerBadge.textContent = "Gemini AI";
+      providerBadge.classList.add("ai-badge-active");
+    }
+  } else if (gs?.configured && geminiError) {
     if (providerBadge) {
       providerBadge.textContent = "Gemini (virhe)";
       providerBadge.classList.remove("ai-badge-active");
     }
-    geminiNotice = data.geminiStatus.message || "";
+    geminiNotice = gs.message || "";
+  } else if (gs?.configured) {
+    if (providerBadge) {
+      providerBadge.textContent = "Gemini AI";
+      providerBadge.classList.add("ai-badge-active");
+    }
   } else {
     if (providerBadge) {
       providerBadge.textContent = "Tekninen AI";

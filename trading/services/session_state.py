@@ -73,11 +73,17 @@ def log_watch_event(state: dict[str, Any], symbol: str, watch: dict[str, Any] | 
 
 
 def _resolve_gemini_status(state: dict[str, Any]) -> dict[str, Any]:
-    """Yhdistä live-ympäristötarkistus + viimeisin onnistunut Gemini-analyysi."""
+    """Yhdistä live-ympäristötarkistus + viimeisin Gemini-yritys."""
     live = gemini_status_snapshot()
     saved = state.get("geminiStatus") or {}
-    if saved.get("ok") and live.get("configured"):
-        return {**live, **saved, "provider": "gemini"}
+    if not live.get("configured"):
+        return live
+    if saved.get("ok"):
+        return {**live, **saved, "provider": "gemini", "status": "ok"}
+    if saved.get("status") == "error" or (
+        saved.get("message") and "epäonnistui" in saved["message"]
+    ):
+        return {**live, **saved, "status": "error"}
     return live
 
 
