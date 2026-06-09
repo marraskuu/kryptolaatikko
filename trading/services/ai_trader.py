@@ -319,6 +319,36 @@ def _action_reason(analysis: dict[str, Any], fallback: str) -> str:
     return _gemini_reason(analysis) or fallback
 
 
+def _market_change_summary(analysis: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key, label in (("change1hPct", "1h"), ("change4hPct", "4h"), ("changePct", "24h")):
+        val = analysis.get(key)
+        if val is not None:
+            parts.append(f"{label} {val:+.1f} %")
+    return ", ".join(parts)
+
+
+def _format_trade_reason(
+    analysis: dict[str, Any],
+    *,
+    gemini_active: bool,
+    fallback: str,
+    alloc_pct: float | None = None,
+    eur_amount: float | None = None,
+) -> str:
+    """Perustelu selkeällä erottelulla: Gemini-teksti · hintamuutokset · salkun osuus · summa."""
+    main = (_gemini_reason(analysis) if gemini_active else None) or fallback
+    segments = [main]
+    changes = _market_change_summary(analysis)
+    if changes:
+        segments.append(f"Hinta {changes}")
+    if alloc_pct is not None:
+        segments.append(f"salkun osuus {alloc_pct:.0f} %")
+    if eur_amount is not None:
+        segments.append(f"{eur_amount:.0f} €")
+    return " · ".join(segments)
+
+
 def _gemini_signal(
     gemini_insights: dict[str, Any] | None, symbol: str
 ) -> dict[str, Any] | None:
@@ -559,10 +589,12 @@ def _deploy_cash_to_targets(
             remaining -= buy_eur
             continue
 
-        reason = (
-            f"Koko käteinen sijoitettu — tavoite {alloc_pct} %"
-            if gemini_active
-            else f"Käteinen kohteisiin — {alloc_pct} %"
+        reason = _format_trade_reason(
+            analysis,
+            gemini_active=gemini_active,
+            fallback="Käteinen sijoitettu",
+            alloc_pct=alloc_pct,
+            eur_amount=buy_eur,
         )
         decisions.append(
             {
@@ -570,7 +602,7 @@ def _deploy_cash_to_targets(
                 "symbol": sym,
                 "eurAmount": buy_eur,
                 "amount": buy_eur / price,
-                "reason": _action_reason(analysis, reason),
+                "reason": reason,
                 "analysis": analysis,
             }
         )
@@ -912,14 +944,26 @@ def format_initial_buy_reason(
     alloc_pct: float | None = None,
     eur_amount: float | None = None,
 ) -> str:
-    pct_note = f" ({alloc_pct:.0f} %)" if alloc_pct is not None else ""
-    eur_note = f" · {eur_amount:.0f} €" if eur_amount is not None else ""
-    if gemini_active:
-        gemini = _gemini_reason(analysis)
-        if gemini:
-            return f"{gemini}{pct_note}{eur_note}"
-        return f"Gemini: avaa salkku — {label}{pct_note}{eur_note} ({index}/{total})"
-    return f"Alkuallokaatio — {label}{pct_note}{eur_note} ({index}/{total})"
+    if gemini_active and _gemini_reason(analysis):
+        return _format_trade_reason(
+            analysis,
+            gemini_active=True,
+            fallback=f"Gemini: avaa salkku — {label}",
+            alloc_pct=alloc_pct,
+            eur_amount=eur_amount,
+        )
+    fallback = (
+        f"Gemini: avaa salkku — {label} ({index}/{total})"
+        if gemini_active
+        else f"Alkuallokaatio — {label} ({index}/{total})"
+    )
+    return _format_trade_reason(
+        analysis,
+        gemini_active=gemini_active,
+        fallback=fallback,
+        alloc_pct=alloc_pct,
+        eur_amount=eur_amount,
+    )
 
 
 def apply_gemini_insights(

@@ -619,6 +619,7 @@ Kaupankäyntisäännöt (voitto edellä):
 8. Stop-loss noin -2 %: älä anna tappioiden kasvaa
 9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa
 10. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
+11. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 
 Markkinadata (JSON — change_1h/4h/24h, RSI, EMA-trendi, momentum):
 {json.dumps(market, ensure_ascii=False)}
@@ -647,7 +648,7 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
 top_picks = 1–4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta). Valitse vain ne joihin oikeasti uskot — 1–2 riittää usein.
 allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
 Esim. vahva momentum 40-50 %, keskivahva 25-30 %, täydennys 15-20 %. Min 10 % per valittu kohde.
-signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille.
+signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
 Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.
 Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
