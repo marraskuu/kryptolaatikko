@@ -5,6 +5,15 @@ from .bitfinex import normalize_symbol
 STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
 PROFIT_TAKE_TRIGGER_PCT = 2.0
+UPTREND_MIN_CHANGE_PCT = 0.3
+
+
+def _in_uptrend(analysis: dict[str, Any]) -> bool:
+    """Position or market still rising — hold winners, don't sell early."""
+    change = analysis.get("changePct") if analysis.get("changePct") is not None else analysis.get("momentum")
+    if change is None:
+        return False
+    return change >= UPTREND_MIN_CHANGE_PCT
 
 
 def calc_rsi(closes: list[float], period: int = 14) -> float:
@@ -301,8 +310,8 @@ def make_trading_decisions(
                     "type": "hold",
                     "symbol": symbol,
                     "reason": (
-                        f"Voitto-Myyntistrategia: +{PROFIT_TAKE_TRIGGER_PCT:.0f} % saavutettu "
-                        f"— odotetaan huippua ja myydään nousussa"
+                        f"Voitto +{profit_pct:.1f} % — pidetään nousussa, "
+                        f"myydään vasta tasaantumisen tai pienen laskun jälkeen"
                     ),
                     "analysis": analysis,
                 }
@@ -317,6 +326,20 @@ def make_trading_decisions(
                     "amount": holding["amount"],
                     "eurAmount": holding_value,
                     "reason": f"Stop-loss {profit_pct:.1f} % — rajataan tappio, pääoma parempaan",
+                    "analysis": analysis,
+                }
+            )
+            continue
+
+        if profit_pct > 0 and _in_uptrend(analysis):
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": (
+                        f"Nousuputki jatkuu (+{profit_pct:.1f} % voitolla) — "
+                        f"pidetään kunnes tasaantuu tai tulee pieni lasku"
+                    ),
                     "analysis": analysis,
                 }
             )

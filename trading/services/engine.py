@@ -93,7 +93,7 @@ def refresh_prices() -> dict[str, Any]:
                 watches = []
                 for symbol in portfolio.holdings:
                     watch = state["profitWatch"].get(symbol)
-                    if watch and watch.get("status") in ("waiting", "armed"):
+                    if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
                         watches.append(
                             {
                                 "symbol": symbol,
@@ -244,7 +244,7 @@ def execute_trading_cycle() -> dict[str, Any]:
     watches = []
     for symbol in portfolio.holdings:
         watch = state["profitWatch"].get(symbol)
-        if watch and watch.get("status") in ("waiting", "armed"):
+        if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
             watches.append(
                 {
                     "symbol": symbol,

@@ -247,7 +247,7 @@ Kaupankäyntisäännöt (voitto edellä):
 2. Osta nousussa olevia, korkean volyymin kohteita (change_24h_pct > 0)
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti
 4. Max 3–4 kryptoa kerrallaan
-5. 30 % vero vain voitoista; automaattinen voitto-myynti +2 %:sta — älä myy voitolla liian aikaisin
+5. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
 6. Stop-loss noin -2 %: älä anna tappioiden kasvaa
 
 Markkinadata (JSON):
@@ -268,7 +268,7 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
 
 top_picks = 3-4 parasta VOITTOON tähtäävää kohdetta (symbol täsmälleen datasta).
 signals = jokainen held-positio + top_picks + vahvat buy/sell (max 15 riviä).
-Priorisoi: myy tappiolliset, osta momentum-nousuja. confidence 8-10 = vahva toimenpide."""
+Priorisoi: myy tappiolliset, osta momentum-nousuja. Voitolla olevia positioita pidä nousussa — älä suosittele myyntiä ennen tasaantumista. confidence 8-10 = vahva toimenpide."""
 
     api_key = _read_api_key()
     last_error = ""
