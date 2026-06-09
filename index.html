@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Krypto Simulaattori — Bitfinex</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">◈</div>
+        <div>
+          <h1>Krypto Simulaattori</h1>
+          <p class="subtitle">Bitfinex-kurssit · AI-kaupankäynti · 1000 € alku</p>
+          <p class="bot-url">Botti: <a id="bot-url" href="http://localhost:3000">http://localhost:3000</a></p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-start" class="btn btn-primary">▶ Käynnistä botti</button>
+        <button id="btn-stop" class="btn btn-secondary" disabled>⏸ Pysäytä</button>
+        <button id="btn-reset" class="btn btn-ghost">↺ Nollaa</button>
+      </div>
+    </header>
+
+    <section class="stats-grid">
+      <div id="error-banner" class="error-banner hidden"></div>
+      <div class="stat-card highlight">
+        <span class="stat-label">Salkun arvo</span>
+        <span class="stat-value" id="stat-portfolio">1 000,00 €</span>
+        <span class="stat-change" id="stat-pnl">+0,00 € (0,0 %)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Käteinen</span>
+        <span class="stat-value" id="stat-cash">1 000,00 €</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Maksettu vero (30 %)</span>
+        <span class="stat-value" id="stat-tax-paid">0,00 €</span>
+        <span class="stat-change neutral" id="stat-tax-estimate">Arvio avoimista: 0,00 €</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Kauppoja</span>
+        <span class="stat-value" id="stat-trades">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Seuraava analyysi</span>
+        <span class="stat-value" id="stat-next">—</span>
+      </div>
+    </section>
+
+    <div class="main-grid">
+      <section class="panel panel-markets">
+        <div class="panel-header">
+          <h2>Markkinat (Bitfinex)</h2>
+          <span class="badge" id="last-update">Päivitetään…</span>
+        </div>
+        <div class="market-toolbar">
+          <input type="search" id="market-search" class="market-search" placeholder="Hae kryptoa (esim. BTC, SOL)…" />
+          <span class="market-count" id="market-count">0 kryptoparia</span>
+        </div>
+        <div class="market-list" id="market-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>AI-päätökset</h2>
+          <span class="badge ai-badge">Automaattinen</span>
+        </div>
+        <div class="ai-decision" id="ai-decision">
+          <p class="ai-placeholder">Käynnistä botti aloittaaksesi automaattisen kaupankäynnin.</p>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="panel-header">
+          <h2>Salkku</h2>
+        </div>
+        <div class="portfolio-table-wrap">
+          <table class="portfolio-table">
+            <thead>
+              <tr>
+                <th>Krypto</th>
+                <th>Määrä</th>
+                <th>Kurssi</th>
+                <th>Arvo</th>
+                <th>Osuus</th>
+                <th>Muutos 24h</th>
+              </tr>
+            </thead>
+            <tbody id="portfolio-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="panel-header">
+          <h2>Kauppahistoria</h2>
+          <button id="btn-export" class="btn btn-secondary btn-sm" title="Lataa Excel verottajalle">
+            ⬇ Lataa Excel
+          </button>
+        </div>
+        <div class="trade-log" id="trade-log">
+          <p class="empty-log">Ei kauppoja vielä.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
