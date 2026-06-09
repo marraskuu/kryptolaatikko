@@ -220,6 +220,11 @@ h1 {
   font-weight: 600;
 }
 
+.stat-change.stat-subline {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
 .stat-change.positive { color: var(--green); }
 .stat-change.negative { color: var(--red); }
 .stat-change.neutral { color: var(--muted); }

@@ -143,7 +143,26 @@ function formatPnlBadge(pnlEur, pnlPct) {
   };
 }
 
-function applyPayload(data) {
+function countTradesSince(trades, sinceMs) {
+  return trades.filter((t) => {
+    if (t.type === "tax") return false;
+    const ts = new Date(t.timestamp).getTime();
+    return Number.isFinite(ts) && ts >= sinceMs;
+  }).length;
+}
+
+function getTradeCounts() {
+  const trades = state.portfolio?.trades || [];
+  const active = trades.filter((t) => t.type !== "tax");
+  const now = Date.now();
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  return {
+    total: active.length,
+    month: countTradesSince(active, monthStart),
+    last24h: countTradesSince(active, dayAgo),
+  };
+}
   state = {
     ...state,
     ...data,
@@ -214,6 +233,8 @@ const els = {
   statTaxPaid: document.getElementById("stat-tax-paid"),
   statTaxEstimate: document.getElementById("stat-tax-estimate"),
   statTrades: document.getElementById("stat-trades"),
+  statTradesMonth: document.getElementById("stat-trades-month"),
+  statTrades24h: document.getElementById("stat-trades-24h"),
   statNext: document.getElementById("stat-next"),
   lastUpdate: document.getElementById("last-update"),
   marketList: document.getElementById("market-list"),
@@ -261,7 +282,14 @@ function renderStats() {
   els.statCash.textContent =
     cash > 1 ? `Vapaa käteinen: ${formatEur(cash)}` : "Kaikki sijoitettu";
   els.statBreakdown.textContent = `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä = ${formatEur(total)}`;
-  els.statTrades.textContent = String(s.tradeCount ?? 0);
+  const tradeCounts = getTradeCounts();
+  els.statTrades.textContent = String(s.tradeCount ?? tradeCounts.total);
+  if (els.statTradesMonth) {
+    els.statTradesMonth.textContent = `Tässä kuussa: ${tradeCounts.month}`;
+  }
+  if (els.statTrades24h) {
+    els.statTrades24h.textContent = `Viime 24 h: ${tradeCounts.last24h}`;
+  }
   els.statTaxPaid.textContent = formatEur(s.totalTaxPaid ?? 0);
   els.statTaxEstimate.textContent = `Arvio avoimista: ${formatEur(s.estimatedTax ?? 0)}`;
 
