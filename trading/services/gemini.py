@@ -13,6 +13,8 @@ from typing import Any
 
 import requests
 
+from .bitfinex import is_stablecoin, normalize_symbol
+
 logger = logging.getLogger(__name__)
 
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
@@ -265,7 +267,7 @@ Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
 2. Osta nousussa olevia, korkean volyymin kohteita (change_24h_pct > 0)
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti
-4. Max 3–4 kryptoa kerrallaan
+4. Max 3–4 kryptoa kerrallaan — ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 5. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
 6. Stop-loss noin -2 %: älä anna tappioiden kasvaa
 
@@ -333,7 +335,7 @@ Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin
             signals_map = {}
             for item in signals_list:
                 sym = item.get("symbol")
-                if not sym:
+                if not sym or is_stablecoin(str(sym)):
                     continue
                 action = str(item.get("action", "hold")).lower()
                 if action not in ("buy", "sell", "hold"):
@@ -348,14 +350,20 @@ Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin
                     signal["alloc_pct"] = max(0.0, min(100.0, float(item["alloc_pct"])))
                 signals_map[sym] = signal
 
-            top_picks = [s for s in (parsed.get("top_picks") or []) if isinstance(s, str)][:4]
+            top_picks = [
+                s
+                for s in (parsed.get("top_picks") or [])
+                if isinstance(s, str) and not is_stablecoin(s)
+            ][:4]
 
             allocations_map: dict[str, float] = {}
             for item in parsed.get("allocations") or []:
                 sym = item.get("symbol")
-                if not sym or item.get("alloc_pct") is None:
+                if not sym or item.get("alloc_pct") is None or is_stablecoin(str(sym)):
                     continue
-                allocations_map[str(sym)] = max(0.0, min(100.0, float(item["alloc_pct"])))
+                allocations_map[normalize_symbol(str(sym))] = max(
+                    0.0, min(100.0, float(item["alloc_pct"]))
+                ))
 
             insights = {
                 "top_picks": top_picks,

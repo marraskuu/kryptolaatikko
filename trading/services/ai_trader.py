@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from .bitfinex import normalize_symbol
+from .bitfinex import is_stablecoin, normalize_symbol
 
 STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
@@ -317,7 +317,7 @@ def _build_top_cryptos(
         seen: set[str] = set()
         for raw_sym in gemini_picks:
             sym = normalize_symbol(raw_sym)
-            if sym in analyses and sym not in seen:
+            if sym in analyses and sym not in seen and not is_stablecoin(sym):
                 analysis = analyses[sym]
                 top.append(
                     {
@@ -330,7 +330,7 @@ def _build_top_cryptos(
         for item in ranked:
             if len(top) >= target_count:
                 break
-            if item["symbol"] not in seen:
+            if item["symbol"] not in seen and not is_stablecoin(item["symbol"]):
                 top.append(item)
                 seen.add(item["symbol"])
         if top:
@@ -353,7 +353,7 @@ def make_trading_decisions(
     ranked = [
         {"symbol": symbol, "analysis": analysis, "rank": analysis["score"]}
         for symbol, analysis in analyses.items()
-        if analysis.get("currentPrice", 0) > 0
+        if analysis.get("currentPrice", 0) > 0 and not is_stablecoin(symbol)
     ]
     ranked.sort(
         key=lambda x: (
@@ -381,20 +381,40 @@ def make_trading_decisions(
     decisions: list[dict[str, Any]] = []
 
     if len(holdings) == 0 and cash > 100 and top_cryptos:
-        picks = top_cryptos[: min(target_count, len(top_cryptos))]
+        picks = [
+            c for c in top_cryptos[: min(target_count, len(top_cryptos))]
+            if not is_stablecoin(c["symbol"])
+        ]
+        if not picks:
+            picks = [c for c in ranked[:target_count] if not is_stablecoin(c["symbol"])]
         return {
             "decisions": [],
             "targetCount": target_count,
             "topSymbols": list(top_symbols),
             "initialAllocation": _plan_initial_allocation(
                 picks, cash, gemini_insights, gemini_active, analyses
-            ),
+            )
+            if picks
+            else [],
             "geminiActive": gemini_active,
         }
 
     for symbol, holding in holdings.items():
         analysis = analyses.get(symbol)
         if not analysis:
+            continue
+
+        if is_stablecoin(symbol):
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding["amount"] * analysis["currentPrice"],
+                    "reason": "Stablecoin — myydään, ei sijoituskohte",
+                    "analysis": analysis,
+                }
+            )
             continue
 
         holding_value = holding["amount"] * analysis["currentPrice"]
@@ -674,6 +694,11 @@ def make_trading_decisions(
                 )
                 available_cash -= buy_amount
 
+    for d in decisions:
+        if d["type"] == "buy" and is_stablecoin(d["symbol"]):
+            d["type"] = "hold"
+            d["reason"] = "Stablecoin — ei osteta"
+
     return {
         "decisions": decisions,
         "targetCount": target_count,
@@ -710,7 +735,7 @@ def apply_gemini_insights(
 
     for symbol in insights.get("top_picks") or []:
         symbol = normalize_symbol(symbol)
-        if symbol in analyses:
+        if symbol in analyses and not is_stablecoin(symbol):
             analyses[symbol]["score"] = analyses[symbol].get("score", 0) + 4
             analyses[symbol]["reasons"] = ["Gemini: top-valinta"] + analyses[symbol].get(
                 "reasons", []

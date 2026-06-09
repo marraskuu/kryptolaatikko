@@ -45,6 +45,10 @@ class Portfolio:
         self.data = default_portfolio()
 
     def buy(self, symbol: str, eur_amount: float, price: float, reason: str) -> bool:
+        from .bitfinex import is_stablecoin
+
+        if is_stablecoin(symbol):
+            return False
         if eur_amount < 1 or self.cash < 1:
             return False
 

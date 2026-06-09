@@ -6,10 +6,12 @@ import requests
 BITFINEX_DIRECT = "https://api-pub.bitfinex.com/v2"
 
 QUOTE_CURRENCIES = ["UST", "USD", "EUR"]
-EXCLUDED_BASES = {
-    "UST", "EUT", "EUR", "USD", "TEST", "TESTUSD", "USDT", "USDC",
-    "DAI", "TUSD", "USDD", "USDR", "EURQ", "USDQ", "XAUT", "CNHT",
+STABLECOIN_BASES = {
+    "USDT", "USDC", "UDC", "DAI", "TUSD", "USDD", "USDR", "EURQ", "USDQ",
+    "STABLE", "USAT", "PYUSD", "FRAX", "LUSD", "GUSD", "BUSD", "USDP",
+    "CNHT", "XAUT", "EUT", "UST", "EUR", "USD",
 }
+EXCLUDED_BASES = STABLECOIN_BASES | {"TEST", "TESTUSD"}
 QUOTE_PRIORITY = {"USD": 0, "UST": 1, "EUR": 2}
 
 _crypto_meta: dict[str, dict[str, str]] = {}
@@ -38,6 +40,16 @@ def normalize_symbol(symbol: str) -> str:
     if s.startswith("t") and ":" in s:
         s = "t" + s[1:].replace(":", "")
     return s
+
+
+def is_stablecoin(symbol: str) -> bool:
+    """Stablecoinit ja fiat-pegatut tokenit — ei osteta voittoa varten."""
+    symbol = normalize_symbol(symbol)
+    parsed = parse_pair_symbol(symbol)
+    if parsed:
+        return parsed["base"] in STABLECOIN_BASES
+    label = get_crypto_label(symbol).upper()
+    return label in STABLECOIN_BASES
 
 
 def is_valid_trading_symbol(symbol: str) -> bool:
