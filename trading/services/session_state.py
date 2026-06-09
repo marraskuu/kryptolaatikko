@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from .gemini import get_status as gemini_status_snapshot
 from .portfolio import Portfolio, default_portfolio
 
 AI_EVENT_LIMIT = 20
@@ -115,5 +116,5 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "nextTradeInSec": next_trade_in,
         "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
         "aiProvider": state.get("geminiStatus", {}).get("provider", "technical"),
-        "geminiStatus": state.get("geminiStatus"),
+        "geminiStatus": state.get("geminiStatus") or gemini_status_snapshot(),
     }

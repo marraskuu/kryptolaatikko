@@ -15,13 +15,32 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
 
 
+def _read_api_key() -> str:
+    """Luetaan aina tuoreena — Railway/inject voi tulla käyttöön importin jälkeen."""
+    return os.environ.get("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+
+
 def is_configured() -> bool:
-    return bool(GEMINI_API_KEY)
+    key = _read_api_key()
+    return bool(key) and key.startswith("AIza")
+
+
+def _key_hint() -> str:
+    key = _read_api_key()
+    if not key:
+        return "GEMINI_API_KEY puuttuu Railway Variables / .env"
+    if key.startswith("AQ."):
+        return (
+            "Avain alkaa AQ. — se on väärä tyyppi. "
+            "Hae AI Studio -avain (alkaa AIzaSy): https://aistudio.google.com/apikey"
+        )
+    if not key.startswith("AIza"):
+        return "Avain ei näytä Google AI Studio -avaimelta (pitäisi alkaa AIzaSy)"
+    return "Avain asetettu"
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -94,6 +113,23 @@ def _build_market_summary(
     return rows
 
 
+def get_status() -> dict[str, Any]:
+    """Turvallinen tila UI:lle — ei koskaan paljasta avainta."""
+    if is_configured():
+        return {
+            "ok": False,
+            "message": "Gemini odottaa seuraavaa analyysikierrosta",
+            "provider": "gemini",
+            "configured": True,
+        }
+    return {
+        "ok": False,
+        "message": _key_hint(),
+        "provider": "technical",
+        "configured": False,
+    }
+
+
 def advise_portfolio(
     tickers: dict[str, dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
@@ -106,11 +142,16 @@ def advise_portfolio(
     status: { ok, message, provider } — turvallinen UI:lle, ei avainta.
     """
     if not is_configured():
-        return None, {"ok": False, "message": "Gemini ei käytössä", "provider": "technical"}
+        return None, {
+            "ok": False,
+            "message": _key_hint(),
+            "provider": "technical",
+            "configured": False,
+        }
 
     market = _build_market_summary(tickers, analyses, portfolio, label_fn)
     if not market:
-        return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini"}
+        return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini", "configured": True}
 
     cash = round(portfolio.get("cash", 0), 2)
     prompt = f"""Olet kryptovaluutta-simulaattorin kaupankäyntiavustaja (paper trading, ei oikeaa rahaa).
@@ -147,7 +188,7 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
     try:
         response = requests.post(
             url,
-            params={"key": GEMINI_API_KEY},
+            params={"key": _read_api_key()},
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -186,14 +227,26 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
             "message": f"Gemini analysoi {len(signals_map)} signaalia",
             "provider": "gemini",
             "model": GEMINI_MODEL,
+            "configured": True,
         }
 
     except requests.RequestException as exc:
-        logger.warning("Gemini API error: %s", type(exc).__name__)
+        detail = ""
+        if hasattr(exc, "response") and exc.response is not None:
+            try:
+                err_body = exc.response.json()
+                detail = err_body.get("error", {}).get("message", "")[:120]
+            except (ValueError, AttributeError):
+                detail = exc.response.text[:120] if exc.response.text else ""
+        logger.warning("Gemini API error: %s %s", type(exc).__name__, detail)
+        msg = "Gemini-yhteys epäonnistui — käytetään teknistä analyysiä"
+        if detail:
+            msg = f"{msg} ({detail})"
         return None, {
             "ok": False,
-            "message": "Gemini-yhteys epäonnistui — käytetään teknistä analyysiä",
+            "message": msg,
             "provider": "gemini",
+            "configured": True,
         }
     except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning("Gemini parse error: %s", type(exc).__name__)
@@ -201,4 +254,5 @@ signals = kaikki held=true positiot + top_picks (max 12 riviä)."""
             "ok": False,
             "message": "Gemini-vastaus virheellinen — käytetään teknistä analyysiä",
             "provider": "gemini",
+            "configured": True,
         }

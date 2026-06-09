@@ -125,6 +125,8 @@ function applyPayload(data) {
   if (data.geminiStatus?.ok) {
     const badge = document.getElementById("gemini-badge");
     if (badge) badge.classList.remove("hidden");
+  } else if (data.geminiStatus?.message && data.geminiStatus?.configured === false) {
+    showError(`Gemini: ${data.geminiStatus.message}`);
   }
   if (data.error) showError(data.error);
   else clearError();

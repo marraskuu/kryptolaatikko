@@ -10,7 +10,7 @@ from .ai_trader import (
     make_trading_decisions,
 )
 from .bitfinex import fetch_all_markets, get_crypto_label
-from .gemini import advise_portfolio, is_configured as gemini_configured
+from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -126,11 +126,6 @@ def execute_trading_cycle() -> dict[str, Any]:
     _refresh_analyses(state)
 
     gemini_insights = None
-    gemini_status = state.get("geminiStatus") or {
-        "ok": False,
-        "message": "Gemini ei käytössä",
-        "provider": "gemini" if gemini_configured() else "technical",
-    }
     if gemini_configured():
         gemini_insights, gemini_status = advise_portfolio(
             state["tickers"],
@@ -139,7 +134,6 @@ def execute_trading_cycle() -> dict[str, Any]:
             get_crypto_label,
         )
         apply_gemini_insights(state["analyses"], gemini_insights)
-        state["geminiStatus"] = gemini_status
         if gemini_insights and gemini_status.get("ok"):
             log_ai_event(
                 state,
@@ -147,6 +141,9 @@ def execute_trading_cycle() -> dict[str, Any]:
                 "Gemini",
                 gemini_status.get("message", "Analyysi valmis"),
             )
+    else:
+        gemini_status = gemini_status_snapshot()
+    state["geminiStatus"] = gemini_status
 
     portfolio = Portfolio(state["portfolio"])
     profit_sells = _check_profit_sells(state, portfolio)
