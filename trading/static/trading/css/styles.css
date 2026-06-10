@@ -109,7 +109,17 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 10px;
+}
+
+.header-regime {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-regime:empty {
+  display: none;
 }
 
 .btn {

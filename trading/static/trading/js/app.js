@@ -243,6 +243,7 @@ const els = {
   marketCount: document.getElementById("market-count"),
   marketSearch: document.getElementById("market-search"),
   aiDecision: document.getElementById("ai-decision"),
+  headerRegime: document.getElementById("header-regime"),
   portfolioBody: document.getElementById("portfolio-body"),
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
@@ -270,6 +271,9 @@ function renderAll(lastUpdate) {
   renderPortfolio();
   renderTradeLog();
   renderAIDecision(state.lastAIReport);
+  if (els.headerRegime) {
+    els.headerRegime.innerHTML = renderRegimeLearning();
+  }
 }
 
 function renderStats() {
@@ -545,7 +549,7 @@ function renderRegimeLearning() {
     bear: { label: "Laskeva markkina", cls: "down" },
     neutral: { label: "Neutraali markkina", cls: "neutral" },
   };
-  let html = '<div class="ai-metrics">';
+  let html = "";
   if (regime?.regime) {
     const r = regimeMap[regime.regime] || regimeMap.neutral;
     const btc = regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
@@ -555,7 +559,6 @@ function renderRegimeLearning() {
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
-  html += "</div>";
   return html;
 }
 
@@ -582,7 +585,6 @@ function renderAIDecision(report) {
         <h4 class="ai-section-title">Viimeiset ${AI_EVENT_LIMIT} tapahtumaa</h4>
         <div class="ai-event-log">${renderAIEventLog()}</div>
       </div>
-      ${renderRegimeLearning()}
       ${
         report
           ? `<p class="ai-decision-meta">Analysoitu ${Object.keys(state.tickers).length} kryptoparia · ${report.timestamp ? `Päivitetty ${formatTime(report.timestamp)}` : ""}</p>`
