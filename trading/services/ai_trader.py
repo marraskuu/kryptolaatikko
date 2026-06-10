@@ -639,9 +639,14 @@ def _deploy_cash_to_targets(
     label_fn: Callable[[str], str],
     gemini_active: bool,
     skip_sell_symbols: set[str],
+    blocked_buys: set[str] | None = None,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
+    blocked_buys = blocked_buys or set()
+    # D: älä sijoita käteistä kolikkoon, joka on tappio-cooldownissa (vältä keskihinnan
+    # alaspäin keskiarvoistamista häviäjään).
+    buy_targets = [s for s in target_symbols if normalize_symbol(s) not in blocked_buys]
 
     for symbol in list(holdings.keys()):
         if symbol in skip_sell_symbols or is_stablecoin(symbol):
@@ -686,11 +691,11 @@ def _deploy_cash_to_targets(
     buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "buy")
     available = cash + sell_proceeds - buy_spent - CASH_BUFFER_EUR
 
-    if available < MIN_TRADE_EUR or not target_symbols:
+    if available < MIN_TRADE_EUR or not buy_targets:
         return
 
     deficits: list[tuple[float, str, dict[str, Any]]] = []
-    for sym in target_symbols:
+    for sym in buy_targets:
         analysis = analyses.get(sym)
         if not analysis or analysis["currentPrice"] <= 0:
             continue
@@ -704,7 +709,7 @@ def _deploy_cash_to_targets(
 
     if not deficits:
         best = max(
-            target_symbols,
+            buy_targets,
             key=lambda s: weights.get(normalize_symbol(s), 0),
         )
         analysis = analyses.get(best)
@@ -876,8 +881,22 @@ def make_trading_decisions(
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
 
+    # D: symbolimuisti — opi omista onnistumisista/epäonnistumisista per kolikko
+    symbol_memory = learning.get("symbol_memory") or {}
+    blocked_buys = {normalize_symbol(s) for s in (learning.get("blocked_buys") or [])}
+    entry_score_min = int(learning.get("entry_score_min", 1))
+    max_new_positions = max(1, int(learning.get("max_new_positions", MAX_POSITIONS)))
+
+    def _mem_adjust(symbol: str) -> float:
+        m = symbol_memory.get(symbol) or symbol_memory.get(normalize_symbol(symbol))
+        return float(m.get("score_adjust", 0.0)) if m else 0.0
+
     ranked = [
-        {"symbol": symbol, "analysis": analysis, "rank": analysis["score"]}
+        {
+            "symbol": symbol,
+            "analysis": analysis,
+            "rank": analysis["score"] + _mem_adjust(symbol),
+        }
         for symbol, analysis in analyses.items()
         if analysis.get("currentPrice", 0) > 0 and not is_stablecoin(symbol)
     ]
@@ -888,8 +907,20 @@ def make_trading_decisions(
             -(x["analysis"].get("volumeEur") or 0),
         )
     )
-    # B + C: tekniseen sisäänostoon vain regiimin/aikajänteiden sallimat — varalla koko lista
-    ranked_buyable = [r for r in ranked if _entry_ok(r["analysis"], regime)] or ranked
+    # B + C + D: sisäänostoon vain regiimin/aikajänteiden sallimat, ei cooldownissa
+    # olevia häviäjiä, ja vähintään valikoivuuskynnyksen score. Varalla kevyemmät suotimet.
+    buyable = [
+        r
+        for r in ranked
+        if _entry_ok(r["analysis"], regime)
+        and normalize_symbol(r["symbol"]) not in blocked_buys
+        and r["rank"] >= entry_score_min
+    ]
+    ranked_buyable = (
+        buyable
+        or [r for r in ranked if normalize_symbol(r["symbol"]) not in blocked_buys]
+        or ranked
+    )
 
     target_count = MAX_POSITIONS
     gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
@@ -922,7 +953,7 @@ def make_trading_decisions(
         if desired:
             picks = _to_crypto_items(desired, analyses, gemini_boost=True)
         elif not gemini_active and ranked_buyable:
-            picks = ranked_buyable[: min(2, len(ranked_buyable))]
+            picks = ranked_buyable[: min(2, max_new_positions, len(ranked_buyable))]
         elif ranked_buyable:
             picks = ranked_buyable[:1]
         if picks:
@@ -1115,6 +1146,7 @@ def make_trading_decisions(
             label_fn,
             gemini_active,
             skip_sell_symbols,
+            blocked_buys,
         )
 
     for d in decisions:
