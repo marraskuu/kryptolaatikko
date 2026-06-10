@@ -600,6 +600,8 @@ def advise_portfolio(
     portfolio: dict[str, Any],
     label_fn,
     last_gemini_snapshot: dict[str, Any] | None = None,
+    regime: dict[str, Any] | None = None,
+    learning: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """
     Palauttaa (insights, status).
@@ -656,9 +658,22 @@ def advise_portfolio(
         portfolio, label_fn, total_value, last_gemini_snapshot
     )
     costs = trade_history.get("costs_and_churn") or {}
+    regime_json = json.dumps(regime or {}, ensure_ascii=False)
+    learning_json = json.dumps(learning or {}, ensure_ascii=False)
     prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
 
 Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
+
+Markkinaregiimi (BTC-trendi & markkinaleveys):
+{regime_json}
+- bull → voit olla aggressiivinen momentumissa
+- neutral → valikoi vahvimmat, vältä heikkoja
+- bear → defensiivinen: vain vahvimmat aikajänteet linjassa (mtfAlign=1), ei putoavia veitsiä, pienempi positiomäärä
+
+Oppiminen omasta historiasta (expectancy per kauppatyyppi):
+{learning_json}
+- Jos rotation-expectancy negatiivinen → ÄLÄ rotatoi pienistä syistä, pidä voittajia
+- Painota kauppatyyppejä joilla positiivinen expectancy
 
 Kustannukset (tärkeää — turha churn syö voiton):
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0.1)} % per kauppa (osto ja myynti)

@@ -7,6 +7,13 @@ STABILIZE_WAIT_MS = 180 * 1000
 # Myy vasta kun hinta laskee tämän verran huipusta (pieni lasku, ei jokainen tick)
 PULLBACK_FROM_PEAK_PCT = 0.35
 
+# A + E: ATR-pohjainen trailing take-profit
+PROFIT_TRIGGER_ATR_MULT = 1.3   # arming-kynnys = 1.3 x ATR%
+PROFIT_TRIGGER_FLOOR_PCT = 1.5  # mutta vähintään tämä (kattaa kulut + veron)
+PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
+PULLBACK_FLOOR_PCT = 0.35
+ROUND_TRIP_COST_PCT = 0.2       # 2 x 0.1 % kaupankäyntikulu
+
 
 def default_watch_state() -> dict[str, Any]:
     return {
@@ -18,19 +25,34 @@ def default_watch_state() -> dict[str, Any]:
     }
 
 
+def _trigger_pct(atr_pct: float | None) -> float:
+    if atr_pct and atr_pct > 0:
+        return max(PROFIT_TRIGGER_FLOOR_PCT, PROFIT_TRIGGER_ATR_MULT * atr_pct)
+    return PROFIT_TRIGGER_PCT
+
+
+def _pullback_threshold_pct(atr_pct: float | None) -> float:
+    if atr_pct and atr_pct > 0:
+        return max(PULLBACK_FLOOR_PCT, PULLBACK_ATR_MULT * atr_pct)
+    return PULLBACK_FROM_PEAK_PCT
+
+
 def update_profit_sell(
     states: dict[str, dict[str, Any]],
     symbol: str,
     current_price: float,
     avg_price: float,
     now_ms: int | None = None,
+    atr_pct: float | None = None,
 ) -> dict[str, Any]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     state = dict(states.get(symbol) or default_watch_state())
     profit_pct = ((current_price - avg_price) / avg_price) * 100 if avg_price else 0
     wait_sec = STABILIZE_WAIT_MS // 1000
+    trigger_pct = _trigger_pct(atr_pct)
+    pullback_threshold = _pullback_threshold_pct(atr_pct)
 
-    if profit_pct < PROFIT_TRIGGER_PCT:
+    if profit_pct < trigger_pct:
         if state["active"] and not state["armed"]:
             state = default_watch_state()
         state["prevPrice"] = current_price
@@ -39,7 +61,7 @@ def update_profit_sell(
             "shouldSell": False,
             "profitPct": profit_pct,
             "status": "below_trigger",
-            "statusText": f"Voitto {profit_pct:.1f} % — odotetaan +{PROFIT_TRIGGER_PCT:.0f} %",
+            "statusText": f"Voitto {profit_pct:.1f} % — odotetaan +{trigger_pct:.1f} %",
             "state": state,
             "secondsLeft": 0,
         }
@@ -63,13 +85,16 @@ def update_profit_sell(
     if elapsed >= STABILIZE_WAIT_MS:
         state["armed"] = True
 
+    # E: realisoidaan vain jos voitto kattaa edestakaiset kulut
+    covers_cost = profit_pct > ROUND_TRIP_COST_PCT
     should_sell = False
     reason = ""
-    if state["armed"] and peak > 0 and pullback_pct >= PULLBACK_FROM_PEAK_PCT:
+    if state["armed"] and peak > 0 and pullback_pct >= pullback_threshold and covers_cost:
         should_sell = True
         reason = (
             f"Voitto +{profit_pct:.1f} % — nousu tasaantui (huippu {peak:.2f} €), "
-            f"pieni lasku -{pullback_pct:.2f} % huipusta → realisoidaan voitto"
+            f"trailing-stop -{pullback_pct:.2f} % huipusta (raja {pullback_threshold:.2f} %) "
+            f"→ realisoidaan voitto"
         )
 
     state["prevPrice"] = current_price
@@ -86,10 +111,10 @@ def update_profit_sell(
             f"(huippu {peak:.2f} €)"
         )
         status = "waiting"
-    elif pullback_pct < PULLBACK_FROM_PEAK_PCT:
+    elif pullback_pct < pullback_threshold:
         status_text = (
-            f"+{profit_pct:.1f} % — tasaantunut, odotetaan pientä laskua "
-            f"(-{PULLBACK_FROM_PEAK_PCT:.1f} % huipusta, nyt -{pullback_pct:.2f} %)"
+            f"+{profit_pct:.1f} % — tasaantunut, trailing-stop "
+            f"-{pullback_threshold:.2f} % huipusta (nyt -{pullback_pct:.2f} %)"
         )
         status = "armed"
     else:

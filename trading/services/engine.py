@@ -8,12 +8,15 @@ from .ai_trader import (
     analyze_ticker_quick,
     apply_gemini_insights,
     build_decision_report,
+    build_deep_analysis,
+    compute_market_regime,
     enrich_analyses_for_gemini,
     format_initial_buy_reason,
     make_trading_decisions,
 )
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
+from .learning import compute_tuning
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -34,9 +37,33 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Hitaasti muuttuvat tekniset mittarit kannetaan eteenpäin Gemini-kutsujen välillä,
+# mutta hinta ja 24h-muutos päivittyvät joka kierroksella tuoreesta tickeristä.
+_CARRY_FORWARD_KEYS = ("atrPct", "mtfAlign", "ema9", "ema21", "rsi", "change1hPct", "change4hPct")
+
+
 def _refresh_analyses(state: dict[str, Any]) -> None:
     for symbol, ticker in state["tickers"].items():
-        state["analyses"][symbol] = analyze_ticker_quick(ticker)
+        prev = state["analyses"].get(symbol) or {}
+        fresh = analyze_ticker_quick(ticker)
+        for key in _CARRY_FORWARD_KEYS:
+            if prev.get(key) is not None:
+                fresh[key] = prev[key]
+        state["analyses"][symbol] = fresh
+
+
+def _enrich_holdings(state: dict[str, Any]) -> None:
+    """Päivitä omistettujen kolikoiden ATR/EMA/momentum tuoreesta candle-datasta joka kierros."""
+    for symbol in list(state["portfolio"].get("holdings", {}).keys()):
+        ticker = state["tickers"].get(symbol)
+        if not ticker:
+            continue
+        try:
+            candles = fetch_candles(symbol, "1h", 50)
+            deep = build_deep_analysis(ticker, candles)
+            state["analyses"][symbol] = deep
+        except Exception:
+            logger.warning("Holding enrich failed for %s", symbol, exc_info=True)
 
 
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:
@@ -51,6 +78,7 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
             symbol,
             ticker["last"],
             holding["avgPrice"],
+            atr_pct=(state["analyses"].get(symbol) or {}).get("atrPct"),
         )
         state["profitWatch"][symbol] = result
 
@@ -131,6 +159,14 @@ def execute_trading_cycle() -> dict[str, Any]:
         return build_api_payload(state)
 
     _refresh_analyses(state)
+    _enrich_holdings(state)
+
+    # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
+    regime_info = compute_market_regime(state["tickers"], state["analyses"])
+    regime = regime_info["regime"]
+    state["regime"] = regime_info
+    learning = compute_tuning(state["portfolio"])
+    state["learning"] = learning
 
     gemini_insights = None
     now_ms = int(time.time() * 1000)
@@ -150,6 +186,8 @@ def execute_trading_cycle() -> dict[str, Any]:
             state["portfolio"],
             get_crypto_label,
             last_gemini_snapshot=state.get("lastGeminiSnapshot"),
+            regime=regime_info,
+            learning=learning,
         )
         if gemini_insights and gemini_status.get("ok"):
             apply_gemini_insights(state["analyses"], gemini_insights)
@@ -195,6 +233,8 @@ def execute_trading_cycle() -> dict[str, Any]:
         get_crypto_label,
         gemini_insights=gemini_insights,
         gemini_picks=gemini_picks,
+        regime=regime,
+        learning=learning,
     )
     decisions = decision_result["decisions"]
     state["activeSymbols"] = decision_result.get("topSymbols", [])

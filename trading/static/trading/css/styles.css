@@ -726,6 +726,10 @@ h1 {
   border: 1px solid var(--border);
 }
 
+.metric-chip.up { color: var(--green); border-color: rgba(34, 197, 94, 0.4); }
+.metric-chip.down { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
+.metric-chip.neutral { color: var(--muted); }
+
 .portfolio-table-wrap {
   overflow-x: auto;
   padding: 0 20px 16px;

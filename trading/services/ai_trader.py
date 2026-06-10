@@ -17,6 +17,113 @@ MIN_ROTATION_INTERVAL_SEC = 30 * 60
 FEE_RATE = 0.001
 GEMINI_DEEP_ANALYSIS_LIMIT = 25
 
+# A: ATR-pohjainen riski (tasapainoinen taso)
+ATR_STOP_MULT = 1.5          # stop = entry - 1.5 * ATR%
+STOP_FLOOR_PCT = -1.5        # stop ei tiukempi kuin -1.5 %
+STOP_CAP_PCT = -8.0          # stop ei löysempi kuin -8 %
+DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
+ROUND_TRIP_COST_PCT = 0.2    # 2 x 0.1 % kaupankäyntikulu
+
+# E: rotaation pitää tuottaa vähintään tämän verran odotusarvoa kuluja vastaan
+ROTATION_EDGE_PCT = 1.0
+
+
+def _atr_pct(analysis: dict[str, Any]) -> float:
+    val = analysis.get("atrPct")
+    if val is None or val <= 0:
+        return DEFAULT_ATR_PCT
+    return float(val)
+
+
+def dynamic_stop_pct(analysis: dict[str, Any]) -> float:
+    """ATR-pohjainen stop-loss-prosentti (negatiivinen), tasapainoisin rajoin."""
+    stop = -ATR_STOP_MULT * _atr_pct(analysis)
+    return max(STOP_CAP_PCT, min(STOP_FLOOR_PCT, stop))
+
+
+def _find_btc_symbol(tickers: dict[str, dict[str, Any]]) -> str | None:
+    for sym in tickers:
+        if normalize_symbol(sym).upper().startswith("TBTC"):
+            return sym
+    return None
+
+
+def compute_market_regime(
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """B: bull / neutral / bear BTC-trendin ja markkinaleveyden perusteella."""
+    changes = [
+        t.get("changePct", 0)
+        for s, t in tickers.items()
+        if not is_stablecoin(s) and t.get("last", 0) > 0
+    ]
+    breadth = (
+        sum(1 for c in changes if c > 0) / len(changes) if changes else 0.5
+    )
+
+    btc_sym = _find_btc_symbol(tickers)
+    btc_24h = 0.0
+    btc_4h = None
+    btc_ema_bull = None
+    if btc_sym:
+        btc_24h = tickers[btc_sym].get("changePct", 0)
+        a = analyses.get(btc_sym, {})
+        btc_4h = a.get("change4hPct")
+        if a.get("ema9") is not None and a.get("ema21") is not None:
+            btc_ema_bull = a["ema9"] > a["ema21"]
+
+    bull_signals = 0
+    bear_signals = 0
+    if btc_24h > 1:
+        bull_signals += 1
+    elif btc_24h < -1.5:
+        bear_signals += 1
+    if btc_4h is not None:
+        if btc_4h > 0.5:
+            bull_signals += 1
+        elif btc_4h < -0.5:
+            bear_signals += 1
+    if btc_ema_bull is True:
+        bull_signals += 1
+    elif btc_ema_bull is False:
+        bear_signals += 1
+    if breadth > 0.55:
+        bull_signals += 1
+    elif breadth < 0.4:
+        bear_signals += 1
+
+    if bear_signals >= 2 and bear_signals > bull_signals:
+        regime = "bear"
+    elif bull_signals >= 2 and bull_signals > bear_signals:
+        regime = "bull"
+    else:
+        regime = "neutral"
+
+    return {
+        "regime": regime,
+        "btc_change_24h_pct": round(btc_24h, 2),
+        "btc_change_4h_pct": round(btc_4h, 2) if btc_4h is not None else None,
+        "breadth_up_pct": round(breadth * 100, 1),
+    }
+
+
+def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
+    """C + B: hyväksy tekninen sisäänosto vain kun aikajänteet linjassa ja regiimi sallii."""
+    if analysis.get("action") == "sell":
+        return False
+    mtf = analysis.get("mtfAlign", 0)
+    change_24h = analysis.get("changePct")
+    if change_24h is None:
+        change_24h = analysis.get("momentum") or 0
+    if regime == "bear":
+        # Karhumarkkinassa vain selvästi linjassa nousevat, ei putoavia veitsiä
+        return mtf >= 1 and change_24h > -1
+    if regime == "bull":
+        return mtf >= 0
+    # neutraali: ei täysin laskevaa linjausta
+    return mtf >= 0 and change_24h > -3
+
 
 def _in_uptrend(analysis: dict[str, Any]) -> bool:
     """Position or market still rising — hold winners, don't sell early."""
@@ -136,6 +243,42 @@ def calc_period_change_pct(closes: list[float], periods: int) -> float | None:
     return ((new - old) / old) * 100
 
 
+def calc_atr_pct(candles: list[dict[str, Any]], period: int = 14) -> float | None:
+    """Average True Range prosentteina nykyhinnasta — volatiliteettimitta."""
+    if len(candles) < period + 1:
+        return None
+    trs: list[float] = []
+    for i in range(1, len(candles)):
+        high = candles[i]["high"]
+        low = candles[i]["low"]
+        prev_close = candles[i - 1]["close"]
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        trs.append(tr)
+    if len(trs) < period:
+        return None
+    atr = sum(trs[-period:]) / period
+    last_close = candles[-1]["close"]
+    if last_close <= 0:
+        return None
+    return (atr / last_close) * 100
+
+
+def _mtf_alignment(change_1h: float | None, change_4h: float | None, change_24h: float) -> int:
+    """+1 nouseva linjaus, -1 laskeva linjaus, 0 ristiriita (monen aikajänteen vahvistus)."""
+    signs = []
+    for v in (change_1h, change_4h, change_24h):
+        if v is None:
+            continue
+        signs.append(1 if v > 0 else -1 if v < 0 else 0)
+    if not signs:
+        return 0
+    if all(s > 0 for s in signs):
+        return 1
+    if all(s < 0 for s in signs):
+        return -1
+    return 0
+
+
 def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -> dict[str, Any]:
     if len(candles) >= 20:
         analysis = analyze_market(candles)
@@ -147,6 +290,12 @@ def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -
             analysis["change1hPct"] = change_1h
         if change_4h is not None:
             analysis["change4hPct"] = change_4h
+        atr_pct = calc_atr_pct(candles)
+        if atr_pct is not None:
+            analysis["atrPct"] = atr_pct
+        analysis["mtfAlign"] = _mtf_alignment(
+            change_1h, change_4h, ticker.get("changePct", 0)
+        )
         analysis["volumeEur"] = ticker.get("volumeEur", 0)
         analysis["currentPrice"] = ticker.get("last", analysis["currentPrice"])
         analysis["emaBullish"] = analysis.get("ema9", 0) > analysis.get("ema21", 0)
@@ -155,6 +304,8 @@ def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -
     quick = analyze_ticker_quick(ticker)
     quick["change1hPct"] = None
     quick["change4hPct"] = None
+    quick["atrPct"] = None
+    quick["mtfAlign"] = 0
     return quick
 
 
@@ -715,9 +866,15 @@ def make_trading_decisions(
     label_fn: Callable[[str], str],
     gemini_insights: dict[str, Any] | None = None,
     gemini_picks: list[str] | None = None,
+    regime: str = "neutral",
+    learning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     holdings = portfolio_data["holdings"]
     cash = portfolio_data["cash"]
+    learning = learning or {}
+    rotation_scale = float(learning.get("rotation_scale", 1.0))
+    rotation_enabled = bool(learning.get("rotation_enabled", True))
+    rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
 
     ranked = [
         {"symbol": symbol, "analysis": analysis, "rank": analysis["score"]}
@@ -731,6 +888,8 @@ def make_trading_decisions(
             -(x["analysis"].get("volumeEur") or 0),
         )
     )
+    # B + C: tekniseen sisäänostoon vain regiimin/aikajänteiden sallimat — varalla koko lista
+    ranked_buyable = [r for r in ranked if _entry_ok(r["analysis"], regime)] or ranked
 
     target_count = MAX_POSITIONS
     gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
@@ -744,7 +903,7 @@ def make_trading_decisions(
         top_cryptos = _to_crypto_items(symbols, analyses)
     else:
         fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
-        top_cryptos = _build_top_cryptos(ranked, analyses, fallback_n, gemini_insights)
+        top_cryptos = _build_top_cryptos(ranked_buyable, analyses, fallback_n, gemini_insights)
 
     if not top_cryptos and gemini_picks:
         gemini_top = _to_crypto_items(gemini_picks, analyses, gemini_boost=True)
@@ -762,10 +921,10 @@ def make_trading_decisions(
         picks: list[dict[str, Any]] = []
         if desired:
             picks = _to_crypto_items(desired, analyses, gemini_boost=True)
-        elif not gemini_active and ranked:
-            picks = ranked[: min(2, len(ranked))]
-        elif ranked:
-            picks = ranked[:1]
+        elif not gemini_active and ranked_buyable:
+            picks = ranked_buyable[: min(2, len(ranked_buyable))]
+        elif ranked_buyable:
+            picks = ranked_buyable[:1]
         if picks:
             return {
                 "decisions": [],
@@ -816,14 +975,18 @@ def make_trading_decisions(
             )
             continue
 
-        if profit_pct <= STOP_LOSS_PCT:
+        stop_pct = dynamic_stop_pct(analysis)
+        if profit_pct <= stop_pct:
             decisions.append(
                 {
                     "type": "sell",
                     "symbol": symbol,
                     "amount": holding["amount"],
                     "eurAmount": holding_value,
-                    "reason": f"Stop-loss {profit_pct:.1f} % — rajataan tappio, pääoma parempaan",
+                    "reason": (
+                        f"Stop-loss {profit_pct:.1f} % (ATR-raja {stop_pct:.1f} %) — "
+                        f"rajataan tappio, pääoma parempaan"
+                    ),
                     "analysis": analysis,
                 }
             )
@@ -887,10 +1050,11 @@ def make_trading_decisions(
                 }
             )
         elif (
-            profit_pct < ROTATE_LOSS_PCT
+            rotation_enabled
+            and profit_pct < ROTATE_LOSS_PCT
             and (symbol not in top_symbols or change_24h < -2)
         ):
-            sell_amount = holding["amount"] * ROTATION_TRIM_FRACTION
+            sell_amount = holding["amount"] * rotation_trim
             _append_sell_decision(
                 decisions,
                 symbol,
@@ -899,8 +1063,8 @@ def make_trading_decisions(
                 f"Tappiolla {profit_pct:.1f} % — myydään osa ja siirretään vahvempaan",
                 analysis,
             )
-        elif analysis["action"] == "sell":
-            sell_amount = holding["amount"] * ROTATION_TRIM_FRACTION
+        elif rotation_enabled and analysis["action"] == "sell":
+            sell_amount = holding["amount"] * rotation_trim
             _append_sell_decision(
                 decisions,
                 symbol,
@@ -908,6 +1072,18 @@ def make_trading_decisions(
                 analysis["currentPrice"],
                 "; ".join(analysis["reasons"]),
                 analysis,
+            )
+        elif not rotation_enabled and profit_pct < ROTATE_LOSS_PCT:
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": (
+                        "Oppiminen: rotaatio tuottanut tappiota — pidetään ja "
+                        "annetaan teknisen stopin hoitaa"
+                    ),
+                    "analysis": analysis,
+                }
             )
         elif analysis["action"] == "hold":
             decisions.append(

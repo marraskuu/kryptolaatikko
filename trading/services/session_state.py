@@ -26,6 +26,8 @@ def default_state() -> dict[str, Any]:
         "lastTradeTick": 0,
         "lastGeminiTick": 0,
         "geminiInsights": None,
+        "regime": None,
+        "learning": None,
         "tickers": {},
         "analyses": {},
         "profitWatch": {},
@@ -136,4 +138,6 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
         "aiProvider": gemini_status.get("provider", "technical"),
         "geminiStatus": gemini_status,
+        "regime": state.get("regime"),
+        "learning": state.get("learning"),
     }
