@@ -197,7 +197,10 @@ def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[d
 
     path = f"/candles/trade:{timeframe}:{symbol}/hist"
     try:
-        data = _bitfinex_fetch(f"{path}?limit={limit}&sort=1")
+        # HUOM: EI sort=1 — Bitfinexillä sort=1 + limit palauttaa VANHIMMAT kynttilät
+        # (kolikon koko historian alusta, esim. 2016), ei tuoreimpia. Oletus (uusin
+        # ensin) antaa viimeiset `limit` kynttilää; järjestetään alla vanhin→uusin.
+        data = _bitfinex_fetch(f"{path}?limit={limit}")
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code in (404, 429):
             return []
@@ -227,8 +230,8 @@ def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[d
         }
         for row in data
     ]
-    # sort=1 palauttaa jo vanhin→uusin. Kaikki indikaattorit (RSI, EMA, momentum,
-    # ATR, muutos-%) olettavat tuoreimman olevan listan lopussa (closes[-1]),
-    # joten EI käännetä — muuten ATR/RSI lasketaan vanhentuneesta datasta.
+    # API palauttaa tuoreimmat ensin; kaikki indikaattorit (RSI, EMA, momentum, ATR,
+    # muutos-%) olettavat tuoreimman olevan listan lopussa (closes[-1]). Järjestetään
+    # siksi vanhin→uusin aikaleiman mukaan.
     candles.sort(key=lambda c: c["timestamp"])
     return candles
