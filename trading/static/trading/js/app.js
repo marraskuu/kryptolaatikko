@@ -380,7 +380,16 @@ function renderMarketList() {
 
       let badge = "";
       if (isHeld && watch) {
-        badge = `<span class="market-row-badge">${watch.statusText}</span>`;
+        let watchText = watch.statusText;
+        const pnl = getPositionPnl(sym);
+        if (pnl && Number.isFinite(pnl.pnlEur)) {
+          const sign = pnl.pnlEur >= 0 ? "+" : "";
+          const eur = `${sign}${formatEur(pnl.pnlEur).replace("€", "").trim()} €`;
+          const parts = watchText.split(" — ");
+          parts[0] = `${parts[0]} (${eur})`;
+          watchText = parts.join(" — ");
+        }
+        badge = `<span class="market-row-badge">${watchText}</span>`;
       } else if (isHeld) {
         badge = `<span class="market-row-badge">${signal} Salkussa</span>`;
       } else if (isTarget) {
