@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -23,6 +24,11 @@ GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
 FEE_RATE = 0.001
 TAX_RATE = 0.30
 MIN_ROTATION_INTERVAL_MIN = 30
+
+# Tilapäiset virheet, jotka kannattaa yrittää uudelleen (ruuhka/ylikuormitus)
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+GEMINI_MAX_RETRIES = int(os.environ.get("GEMINI_MAX_RETRIES", "2"))
+GEMINI_RETRY_BACKOFF_SEC = 1.5
 
 
 # Halvin oletus — lite-malli riittää, kun tekninen analyysi tekee raskaan työn
@@ -56,6 +62,34 @@ def _model_candidates() -> list[str]:
         if model not in models:
             models.append(model)
     return models
+
+
+def _post_with_retry(url: str, api_key: str, prompt: str) -> requests.Response:
+    """POST Geminille; uudelleenyritys tilapäisille ruuhka-/ylikuormavirheille.
+
+    Palauttaa vastauksen myös ei-2xx tilassa; lopullinen raise_for_status
+    tehdään kutsujassa, jotta virheen detaljit saadaan talteen.
+    """
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+        },
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
+    last_response: requests.Response | None = None
+    for attempt in range(GEMINI_MAX_RETRIES + 1):
+        response = requests.post(url, headers=headers, json=payload, timeout=GEMINI_TIMEOUT)
+        last_response = response
+        if response.status_code not in RETRYABLE_STATUS:
+            return response
+        if attempt < GEMINI_MAX_RETRIES:
+            time.sleep(GEMINI_RETRY_BACKOFF_SEC * (attempt + 1))
+    return last_response  # type: ignore[return-value]
 
 
 def _read_api_key() -> str:
@@ -752,6 +786,7 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
     api_key = _read_api_key()
     errors: list[str] = []
+    transient_only = True
     configured_model = _read_model()
 
     for model in _model_candidates():
@@ -760,21 +795,7 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
             f"{model}:generateContent"
         )
         try:
-            response = requests.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": api_key,
-                },
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.2,
-                        "responseMimeType": "application/json",
-                    },
-                },
-                timeout=GEMINI_TIMEOUT,
-            )
+            response = _post_with_retry(url, api_key, prompt)
             response.raise_for_status()
             body = response.json()
             text = body["candidates"][0]["content"]["parts"][0]["text"]
@@ -841,17 +862,22 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
         except requests.RequestException as exc:
             detail = ""
+            status_code = None
             if hasattr(exc, "response") and exc.response is not None:
+                status_code = exc.response.status_code
                 try:
                     err_body = exc.response.json()
                     detail = err_body.get("error", {}).get("message", "")[:160]
                 except (ValueError, AttributeError):
                     detail = exc.response.text[:160] if exc.response.text else ""
+            if status_code is not None and status_code not in RETRYABLE_STATUS:
+                transient_only = False
             err_msg = detail or type(exc).__name__
             errors.append(f"{model}: {err_msg}")
             logger.warning("Gemini API error (%s): %s", model, err_msg)
             continue
         except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            transient_only = False
             err_msg = type(exc).__name__
             errors.append(f"{model}: {err_msg}")
             logger.warning("Gemini parse error (%s): %s", model, err_msg)
@@ -860,9 +886,12 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
     primary_err = next((e for e in errors if e.startswith(f"{configured_model}:")), None)
     fallback_err = errors[0] if errors else ""
     detail = (primary_err or fallback_err).split(": ", 1)[-1] if (primary_err or fallback_err) else ""
-    msg = f"Gemini-yhteys epäonnistui ({configured_model}) — käytetään teknistä analyysiä"
-    if detail:
-        msg = f"{msg} ({detail})"
+    if transient_only and errors:
+        msg = "Gemini ruuhkautunut — yritetään pian uudelleen, käytetään teknistä analyysiä tällä välin"
+    else:
+        msg = f"Gemini-yhteys epäonnistui ({configured_model}) — käytetään teknistä analyysiä"
+        if detail:
+            msg = f"{msg} ({detail})"
     return None, {
         "ok": False,
         "status": "error",
