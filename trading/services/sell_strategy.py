@@ -16,6 +16,11 @@ PULLBACK_FLOOR_PCT = 0.35
 PULLBACK_CAP_PCT = 3.0          # enimmäisanto huipusta ennen myyntiä
 ROUND_TRIP_COST_PCT = 0.2       # 2 x 0.1 % kaupankäyntikulu
 
+# 2: Porrastettu voiton kotiutus — lukitse osa voitosta ensimmäisessä portaassa,
+# anna lopun ratsastaa trailing-stopilla (paras molemmista: turvattu voitto + nousuvara).
+PARTIAL_TAKE_TRIGGER_PCT = 3.0  # ensimmäinen porras kun voitto ylittää tämän
+PARTIAL_TAKE_FRACTION = 0.30    # kotiuta 30 % positiosta portaassa 1
+
 
 def default_watch_state() -> dict[str, Any]:
     return {
@@ -24,6 +29,7 @@ def default_watch_state() -> dict[str, Any]:
         "peakTime": 0,
         "prevPrice": 0.0,
         "armed": False,
+        "tier1Taken": False,
     }
 
 
@@ -59,14 +65,46 @@ def update_profit_sell(
     wait_sec = STABILIZE_WAIT_MS // 1000
     trigger_pct = _trigger_pct(atr_pct)
     pullback_threshold = _pullback_threshold_pct(atr_pct)
+    covers_cost = profit_pct > ROUND_TRIP_COST_PCT
+
+    # 2: Porras 1 — kotiuta osa heti kun voitto ylittää portaan ensimmäisen kerran,
+    # ja jätä loppu trailing-stopille. Ei toistu samalla positiolla (tier1Taken).
+    if not state.get("tier1Taken") and profit_pct >= PARTIAL_TAKE_TRIGGER_PCT and covers_cost:
+        state["tier1Taken"] = True
+        if not state["active"]:
+            state["active"] = True
+            state["peakPrice"] = current_price
+            state["peakTime"] = now
+            state["armed"] = False
+        state["prevPrice"] = current_price
+        states[symbol] = state
+        return {
+            "shouldSell": True,
+            "sellFraction": PARTIAL_TAKE_FRACTION,
+            "profitPct": profit_pct,
+            "reason": (
+                f"Voitto +{profit_pct:.1f} % — kotiutetaan {PARTIAL_TAKE_FRACTION * 100:.0f} % "
+                f"(porras 1), loppu jää trailing-stopille nousua varten"
+            ),
+            "status": "tier1",
+            "statusText": (
+                f"+{profit_pct:.1f} % — kotiutettu {PARTIAL_TAKE_FRACTION * 100:.0f} %, "
+                f"loppu trailaten"
+            ),
+            "state": state,
+            "secondsLeft": 0,
+        }
 
     if profit_pct < trigger_pct:
         if state["active"] and not state["armed"]:
+            tier1_taken = state.get("tier1Taken", False)
             state = default_watch_state()
+            state["tier1Taken"] = tier1_taken
         state["prevPrice"] = current_price
         states[symbol] = state
         return {
             "shouldSell": False,
+            "sellFraction": 1.0,
             "profitPct": profit_pct,
             "status": "below_trigger",
             "statusText": f"Voitto {profit_pct:.1f} % — odotetaan +{trigger_pct:.1f} %",
@@ -94,7 +132,6 @@ def update_profit_sell(
         state["armed"] = True
 
     # E: realisoidaan vain jos voitto kattaa edestakaiset kulut
-    covers_cost = profit_pct > ROUND_TRIP_COST_PCT
     should_sell = False
     reason = ""
     if state["armed"] and peak > 0 and pullback_pct >= pullback_threshold and covers_cost:
@@ -131,6 +168,7 @@ def update_profit_sell(
 
     return {
         "shouldSell": should_sell,
+        "sellFraction": 1.0,
         "profitPct": profit_pct,
         "reason": reason,
         "status": status,

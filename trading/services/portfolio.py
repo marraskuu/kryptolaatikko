@@ -70,8 +70,13 @@ class Portfolio:
             total_cost_basis = existing["amount"] * existing["avgPrice"] + eur_amount
             existing["amount"] = total_amount
             existing["avgPrice"] = total_cost_basis / total_amount
+            existing.setdefault("openedAt", _now_iso())
         else:
-            self.holdings[symbol] = {"amount": amount, "avgPrice": price}
+            self.holdings[symbol] = {
+                "amount": amount,
+                "avgPrice": price,
+                "openedAt": _now_iso(),
+            }
 
         self.data["tradeId"] += 1
         self.trades.insert(

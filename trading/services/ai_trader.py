@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -24,8 +25,164 @@ STOP_CAP_PCT = -8.0          # stop ei löysempi kuin -8 %
 DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
 ROUND_TRIP_COST_PCT = 0.2    # 2 x 0.1 % kaupankäyntikulu
 
-# E: rotaation pitää tuottaa vähintään tämän verran odotusarvoa kuluja vastaan
-ROTATION_EDGE_PCT = 1.0
+# 1: Kuluviisas rotaatio — vaihda positio vain jos uuden kohteen odotettu etu
+# ylittää edestakaiskulun + marginaalin (muuten kulut syövät hyödyn).
+ROTATION_EDGE_MARGIN_PCT = 0.5
+ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
+
+# 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
+STAGNANT_HOURS = 8.0
+STAGNANT_MAX_PROFIT_PCT = 0.5
+
+# 3: Hajautussuoja — rajoita korkeasti korreloivan klusterin yhteispaino.
+CORR_THRESHOLD = 0.85
+CORR_MIN_SAMPLES = 8
+CLUSTER_WEIGHT_CAP = 0.6
+
+
+def _edge_pct(analysis: dict[str, Any] | None) -> float:
+    """Lyhyen aikavälin odotetun liikkeen estimaatti (%), rajattu — rotaation kuluvertailuun."""
+    if not analysis:
+        return 0.0
+    mom4 = analysis.get("change4hPct")
+    if mom4 is None:
+        mom4 = analysis.get("momentum")
+    if mom4 is None:
+        mom4 = analysis.get("changePct")
+    edge = 0.5 * float(mom4 or 0)
+    mom1 = analysis.get("change1hPct")
+    if mom1 is not None:
+        edge += 0.25 * float(mom1)
+    edge += 0.4 * float(analysis.get("mtfAlign") or 0)
+    sig = analysis.get("geminiSignal") or {}
+    if sig.get("action") == "buy":
+        edge += 0.3 * (float(sig.get("confidence", 5)) - 5.0)
+    return max(-6.0, min(6.0, edge))
+
+
+def _rotation_worthwhile(holding_analysis: dict[str, Any], best_target_edge: float) -> bool:
+    """Kannattaako rotaatio: parhaan kohteen edun on ylitettävä nykyisen + kulut + marginaali."""
+    return (best_target_edge - _edge_pct(holding_analysis)) >= ROTATION_MIN_EDGE_PCT
+
+
+def _holding_age_hours(opened_at: Any) -> float | None:
+    if not opened_at:
+        return None
+    dt = _parse_time(opened_at)
+    if dt is None:
+        return None
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+
+
+def _parse_time(iso: Any) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def _pearson(a: list[float], b: list[float]) -> float | None:
+    n = min(len(a), len(b))
+    if n < CORR_MIN_SAMPLES:
+        return None
+    a = a[-n:]
+    b = b[-n:]
+    ma = sum(a) / n
+    mb = sum(b) / n
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((y - mb) ** 2 for y in b)
+    if va <= 0 or vb <= 0:
+        return None
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n))
+    return cov / math.sqrt(va * vb)
+
+
+def _analysis_for(analyses: dict[str, dict[str, Any]], norm: str) -> dict[str, Any] | None:
+    a = analyses.get(norm)
+    if a is not None:
+        return a
+    for key, val in analyses.items():
+        if normalize_symbol(key) == norm:
+            return val
+    return None
+
+
+def diversify_weights(
+    weights: dict[str, float],
+    analyses: dict[str, dict[str, Any]],
+) -> dict[str, float]:
+    """3: Rajaa korkeasti korreloivan klusterin yhteispaino CLUSTER_WEIGHT_CAP:iin.
+
+    Estää että koko salkku on tehollisesti yksi veto (esim. neljä samaan suuntaan
+    liikkuvaa altcoinia). Jos kaikki valinnat korreloivat, ei voida hajauttaa →
+    palautetaan painot ennallaan.
+    """
+    syms = [s for s, w in weights.items() if w > 0]
+    if len(syms) < 2:
+        return weights
+
+    returns = {
+        s: list(_analysis_for(analyses, s).get("recentReturns") or [])
+        for s in syms
+        if _analysis_for(analyses, s)
+    }
+
+    parent = {s: s for s in syms}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: str, y: str) -> None:
+        parent[find(x)] = find(y)
+
+    for i in range(len(syms)):
+        for j in range(i + 1, len(syms)):
+            ri = returns.get(syms[i])
+            rj = returns.get(syms[j])
+            if not ri or not rj:
+                continue
+            corr = _pearson(ri, rj)
+            if corr is not None and corr >= CORR_THRESHOLD:
+                union(syms[i], syms[j])
+
+    clusters: dict[str, list[str]] = {}
+    for s in syms:
+        clusters.setdefault(find(s), []).append(s)
+    if len(clusters) < 2:
+        return weights  # kaikki samassa klusterissa — ei hajautettavaa
+
+    adjusted = dict(weights)
+    total = sum(adjusted[s] for s in syms) or 1.0
+    cap = CLUSTER_WEIGHT_CAP * total
+
+    freed = 0.0
+    under: list[str] = []
+    for members in clusters.values():
+        cw = sum(adjusted[s] for s in members)
+        if cw > cap and cw > 0:
+            scale = cap / cw
+            for s in members:
+                freed += adjusted[s] * (1 - scale)
+                adjusted[s] *= scale
+        else:
+            under.extend(members)
+
+    if freed > 0 and under:
+        base = sum(adjusted[s] for s in under) or float(len(under))
+        for s in under:
+            share = (adjusted[s] / base) if base > 0 else 1.0 / len(under)
+            adjusted[s] += freed * share
+
+    norm_total = sum(adjusted.values())
+    if norm_total <= 0:
+        return weights
+    return {s: w / norm_total for s, w in adjusted.items()}
 
 
 def _atr_pct(analysis: dict[str, Any]) -> float:
@@ -293,6 +450,13 @@ def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -
         atr_pct = calc_atr_pct(candles)
         if atr_pct is not None:
             analysis["atrPct"] = atr_pct
+        rets = [
+            (closes[i] - closes[i - 1]) / closes[i - 1]
+            for i in range(1, len(closes))
+            if closes[i - 1] > 0
+        ]
+        if rets:
+            analysis["recentReturns"] = rets[-24:]
         analysis["mtfAlign"] = _mtf_alignment(
             change_1h, change_4h, ticker.get("changePct", 0)
         )
@@ -640,6 +804,7 @@ def _deploy_cash_to_targets(
     gemini_active: bool,
     skip_sell_symbols: set[str],
     blocked_buys: set[str] | None = None,
+    best_target_edge: float = 0.0,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -677,6 +842,11 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
         elif target_symbols:
+            # 1: kuluviisas — trimmaa pois valinnoista vain jos kohteen etu kattaa
+            # kaupankäyntikulut, tai jos positio on selvästi heikkenevä.
+            weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
+            if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
+                continue
             sell_amount = amount * ROTATION_TRIM_FRACTION
             _append_sell_decision(
                 decisions,
@@ -774,6 +944,7 @@ def _plan_initial_allocation(
 ) -> list[dict[str, Any]]:
     symbols = [item["symbol"] for item in picks]
     weights = _compute_allocation_weights(gemini_insights, symbols, analyses, gemini_active)
+    weights = diversify_weights(weights, analyses)
     investable = cash / 1.001
     planned: list[dict[str, Any]] = []
     remaining = investable
@@ -946,6 +1117,11 @@ def make_trading_decisions(
     target_count = max(1, len(top_cryptos)) if top_cryptos else 1
 
     top_symbols = {c["symbol"] for c in top_cryptos}
+    # 1: paras saatavilla oleva kohde-edge kuluviisasta rotaatiovertailua varten
+    best_target_edge = max(
+        (_edge_pct(c.get("analysis")) for c in top_cryptos if c.get("analysis")),
+        default=0.0,
+    )
 
     decisions: list[dict[str, Any]] = []
     churn_cooldown = in_churn_cooldown(portfolio_data)
@@ -1042,6 +1218,32 @@ def make_trading_decisions(
         gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
+        # 2: Aikastoppi — jämähtänyt positio (pitkä pito, ei voittoa, ei nousuputkea,
+        # ei bull-regiimi) myydään kokonaan, jotta pääoma vapautuu parempaan kohteeseen.
+        age_h = _holding_age_hours(holding.get("openedAt"))
+        if (
+            age_h is not None
+            and age_h >= STAGNANT_HOURS
+            and profit_pct < STAGNANT_MAX_PROFIT_PCT
+            and not _in_uptrend(analysis)
+            and regime != "bull"
+            and change_24h <= 0
+        ):
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": (
+                        f"Aikastoppi {age_h:.0f} h — jämähtänyt ({profit_pct:+.1f} %), "
+                        f"vapautetaan pääoma vahvempaan kohteeseen"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+            continue
+
         sell_conf = 5 if profit_pct < 0 else 6
         if churn_cooldown:
             decisions.append(
@@ -1087,15 +1289,30 @@ def make_trading_decisions(
             and profit_pct < ROTATE_LOSS_PCT
             and (symbol not in top_symbols or change_24h < -2)
         ):
-            sell_amount = holding["amount"] * rotation_trim
-            _append_sell_decision(
-                decisions,
-                symbol,
-                sell_amount,
-                analysis["currentPrice"],
-                f"Tappiolla {profit_pct:.1f} % — myydään osa ja siirretään vahvempaan",
-                analysis,
-            )
+            # 1: kuluviisas — älä rotatoi, jos kohteen etu ei kata edestakaiskuluja
+            # (poikkeus: selvästi heikkenevä positio < -2 % rajataan silti).
+            if change_24h < -2 or _rotation_worthwhile(analysis, best_target_edge):
+                sell_amount = holding["amount"] * rotation_trim
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    analysis["currentPrice"],
+                    f"Tappiolla {profit_pct:.1f} % — myydään osa ja siirretään vahvempaan",
+                    analysis,
+                )
+            else:
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": (
+                            f"Kuluviisas: ei rotaatiota ({profit_pct:.1f} %) — kohteen etu "
+                            f"ei kata kaupankäyntikuluja, pidetään"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
         elif rotation_enabled and analysis["action"] == "sell":
             sell_amount = holding["amount"] * rotation_trim
             _append_sell_decision(
@@ -1134,6 +1351,8 @@ def make_trading_decisions(
     weights = _compute_allocation_weights(
         gemini_insights, alloc_symbols, analyses, gemini_active
     )
+    # 3: hajautussuoja — rajaa korkeasti korreloivan klusterin yhteispaino
+    weights = diversify_weights(weights, analyses)
 
     skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
     if not churn_cooldown:
@@ -1149,6 +1368,7 @@ def make_trading_decisions(
             gemini_active,
             skip_sell_symbols,
             blocked_buys,
+            best_target_edge,
         )
 
     for d in decisions:

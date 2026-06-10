@@ -33,7 +33,9 @@ def _category(reason: str) -> str:
     r = (reason or "").lower()
     if "stop-loss" in r:
         return "stop_loss"
-    if "huipusta" in r or "realisoidaan voitto" in r or "valmis myyntiin" in r:
+    if "aikastoppi" in r:
+        return "time_stop"
+    if "huipusta" in r or "realisoidaan voitto" in r or "valmis myyntiin" in r or "kotiut" in r:
         return "profit_take"
     if "gemini" in r:
         return "gemini_sell"

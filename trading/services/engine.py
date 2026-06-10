@@ -40,7 +40,16 @@ def _now_iso() -> str:
 
 # Hitaasti muuttuvat tekniset mittarit kannetaan eteenpäin Gemini-kutsujen välillä,
 # mutta hinta ja 24h-muutos päivittyvät joka kierroksella tuoreesta tickeristä.
-_CARRY_FORWARD_KEYS = ("atrPct", "mtfAlign", "ema9", "ema21", "rsi", "change1hPct", "change4hPct")
+_CARRY_FORWARD_KEYS = (
+    "atrPct",
+    "mtfAlign",
+    "ema9",
+    "ema21",
+    "rsi",
+    "change1hPct",
+    "change4hPct",
+    "recentReturns",
+)
 
 
 def _refresh_analyses(state: dict[str, Any]) -> None:
@@ -84,8 +93,12 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
         state["profitWatch"][symbol] = result
 
         if result["shouldSell"]:
-            eur_total = holding["amount"] * ticker["last"]
-            portfolio.sell(symbol, holding["amount"], ticker["last"], result["reason"])
+            frac = max(0.0, min(1.0, result.get("sellFraction", 1.0)))
+            sell_amount = holding["amount"] * frac
+            if sell_amount <= 0:
+                continue
+            eur_total = sell_amount * ticker["last"]
+            portfolio.sell(symbol, sell_amount, ticker["last"], result["reason"])
             log_ai_event(state, "sell", get_crypto_label(symbol), result["reason"], eur_total)
             executed.append(
                 {
@@ -96,8 +109,11 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
                     "reason": result["reason"],
                 }
             )
-            state["watches"].pop(symbol, None)
-            state["profitWatch"].pop(symbol, None)
+            # Täysi myynti vapauttaa seurannan; osittainen (porras 1) jättää lopun
+            # trailing-stopin seurattavaksi.
+            if frac >= 0.999:
+                state["watches"].pop(symbol, None)
+                state["profitWatch"].pop(symbol, None)
 
     state["portfolio"] = portfolio.to_dict()
     return executed
