@@ -227,5 +227,8 @@ def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[d
         }
         for row in data
     ]
-    candles.reverse()
+    # sort=1 palauttaa jo vanhin→uusin. Kaikki indikaattorit (RSI, EMA, momentum,
+    # ATR, muutos-%) olettavat tuoreimman olevan listan lopussa (closes[-1]),
+    # joten EI käännetä — muuten ATR/RSI lasketaan vanhentuneesta datasta.
+    candles.sort(key=lambda c: c["timestamp"])
     return candles

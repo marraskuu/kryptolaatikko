@@ -10,8 +10,10 @@ PULLBACK_FROM_PEAK_PCT = 0.35
 # A + E: ATR-pohjainen trailing take-profit
 PROFIT_TRIGGER_ATR_MULT = 1.3   # arming-kynnys = 1.3 x ATR%
 PROFIT_TRIGGER_FLOOR_PCT = 1.5  # mutta vähintään tämä (kattaa kulut + veron)
+PROFIT_TRIGGER_CAP_PCT = 8.0    # ja enintään tämä (ettei jää odottamaan absurdia voittoa)
 PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
 PULLBACK_FLOOR_PCT = 0.35
+PULLBACK_CAP_PCT = 4.0          # enimmäisanto huipusta ennen myyntiä
 ROUND_TRIP_COST_PCT = 0.2       # 2 x 0.1 % kaupankäyntikulu
 
 
@@ -27,13 +29,19 @@ def default_watch_state() -> dict[str, Any]:
 
 def _trigger_pct(atr_pct: float | None) -> float:
     if atr_pct and atr_pct > 0:
-        return max(PROFIT_TRIGGER_FLOOR_PCT, PROFIT_TRIGGER_ATR_MULT * atr_pct)
+        return min(
+            PROFIT_TRIGGER_CAP_PCT,
+            max(PROFIT_TRIGGER_FLOOR_PCT, PROFIT_TRIGGER_ATR_MULT * atr_pct),
+        )
     return PROFIT_TRIGGER_PCT
 
 
 def _pullback_threshold_pct(atr_pct: float | None) -> float:
     if atr_pct and atr_pct > 0:
-        return max(PULLBACK_FLOOR_PCT, PULLBACK_ATR_MULT * atr_pct)
+        return min(
+            PULLBACK_CAP_PCT,
+            max(PULLBACK_FLOOR_PCT, PULLBACK_ATR_MULT * atr_pct),
+        )
     return PULLBACK_FROM_PEAK_PCT
 
 
