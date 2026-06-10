@@ -12,6 +12,21 @@ def index(request):
     return render(request, "trading/index.html")
 
 
+def _db_diagnostics() -> dict:
+    """Kevyt diagnostiikka: säilyykö tila deployien yli (MySQL) vai ei (SQLite)."""
+    from django.db import connection
+
+    engine = connection.settings_dict.get("ENGINE", "")
+    short = engine.rsplit(".", 1)[-1]
+    persistent = short not in ("sqlite3",)
+    return {
+        "engine": short,
+        "persistent": persistent,
+        "host": connection.settings_dict.get("HOST") or None,
+        "name": connection.settings_dict.get("NAME") if persistent else "ephemeral",
+    }
+
+
 @csrf_exempt
 @require_GET
 def api_state(request):
@@ -19,6 +34,7 @@ def api_state(request):
     payload = build_api_payload(state)
     payload["error"] = state.get("error")
     payload["autoRun"] = True
+    payload["db"] = _db_diagnostics()
     return JsonResponse(payload)
 
 
