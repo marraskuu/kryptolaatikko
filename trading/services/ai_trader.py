@@ -895,7 +895,9 @@ def make_trading_decisions(
         {
             "symbol": symbol,
             "analysis": analysis,
-            "rank": analysis["score"] + _mem_adjust(symbol),
+            "rank": analysis["score"]
+            + _mem_adjust(symbol)
+            + float(analysis.get("condAdjust") or 0),
         }
         for symbol, analysis in analyses.items()
         if analysis.get("currentPrice", 0) > 0 and not is_stablecoin(symbol)

@@ -628,6 +628,32 @@ def log_startup_status() -> None:
     )
 
 
+def _compact_learning(learning: dict[str, Any] | None) -> dict[str, Any]:
+    """Tiivis oppimisyhteenveto promptiin — ei raakatilastoja/koko symbolimuistia (tokenit)."""
+    if not learning:
+        return {}
+    mem = learning.get("symbol_memory") or {}
+    losers = sorted(
+        (s for s, m in mem.items() if (m.get("score_adjust") or 0) < 0),
+        key=lambda s: mem[s].get("net_eur", 0),
+    )[:6]
+    winners = sorted(
+        (s for s, m in mem.items() if (m.get("score_adjust") or 0) > 0),
+        key=lambda s: mem[s].get("net_eur", 0),
+        reverse=True,
+    )[:6]
+    return {
+        "note": learning.get("note"),
+        "rotation_enabled": learning.get("rotation_enabled"),
+        "entry_score_min": learning.get("entry_score_min"),
+        "overall_expectancy_eur": learning.get("overall_expectancy_eur"),
+        "stats": learning.get("stats"),
+        "blocked_buys": learning.get("blocked_buys"),
+        "losers": losers,
+        "winners": winners,
+    }
+
+
 def advise_portfolio(
     tickers: dict[str, dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
@@ -693,7 +719,8 @@ def advise_portfolio(
     )
     costs = trade_history.get("costs_and_churn") or {}
     regime_json = json.dumps(regime or {}, ensure_ascii=False)
-    learning_json = json.dumps(learning or {}, ensure_ascii=False)
+    learning_json = json.dumps(_compact_learning(learning), ensure_ascii=False)
+    market_setups_json = json.dumps((learning or {}).get("market_setups") or {}, ensure_ascii=False)
     prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
 
 Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
@@ -704,10 +731,15 @@ Markkinaregiimi (BTC-trendi & markkinaleveys):
 - neutral → valikoi vahvimmat, vältä heikkoja
 - bear → defensiivinen: vain vahvimmat aikajänteet linjassa (mtfAlign=1), ei putoavia veitsiä, pienempi positiomäärä
 
-Oppiminen omasta historiasta (expectancy per kauppatyyppi):
+Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 {learning_json}
 - Jos rotation-expectancy negatiivinen → ÄLÄ rotatoi pienistä syistä, pidä voittajia
 - Painota kauppatyyppejä joilla positiivinen expectancy
+- blocked_buys = älä osta näitä nyt (tuore tappio); losers = vältä, winners = suosi
+
+Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = "regiimi|24h-haarukka"):
+{market_setups_json}
+- best = historiallisesti tuottoisin asetelma, worst = häviävin → vältä worst-tyyppisiä ostoja
 
 Kustannukset (tärkeää — turha churn syö voiton):
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0.1)} % per kauppa (osto ja myynti)

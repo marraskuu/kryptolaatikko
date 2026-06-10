@@ -28,6 +28,7 @@ def default_state() -> dict[str, Any]:
         "geminiInsights": None,
         "regime": None,
         "learning": None,
+        "marketLearning": None,
         "tickers": {},
         "analyses": {},
         "profitWatch": {},
@@ -140,4 +141,5 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "geminiStatus": gemini_status,
         "regime": state.get("regime"),
         "learning": state.get("learning"),
+        "marketLearning": state.get("marketLearning"),
     }

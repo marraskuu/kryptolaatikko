@@ -17,6 +17,7 @@ from .ai_trader import (
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
+from . import market_learning
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -168,6 +169,17 @@ def execute_trading_cycle() -> dict[str, Any]:
     learning = compute_tuning(state["portfolio"])
     state["learning"] = learning
 
+    # Koko markkinan varjo-oppiminen: signaalit → toteutunut 1h/4h tuotto kaikille
+    ml_stats: dict[str, Any] = {}
+    try:
+        ml_stats, ml_summary = market_learning.step(
+            state["tickers"], state["analyses"], regime
+        )
+        state["marketLearning"] = ml_summary
+        learning["market_setups"] = ml_summary
+    except Exception:
+        logger.warning("Market learning step failed", exc_info=True)
+
     gemini_insights = None
     now_ms = int(time.time() * 1000)
     last_gemini_ms = state.get("lastGeminiTick") or 0
@@ -220,6 +232,12 @@ def execute_trading_cycle() -> dict[str, Any]:
     else:
         gemini_status = gemini_status_snapshot()
     state["geminiStatus"] = gemini_status
+
+    # Liitä opittu olosuhdesäätö lopullisiin analyyseihin (myös Gemini-syväanalyysin jälkeen)
+    try:
+        market_learning.apply(state["analyses"], regime, ml_stats)
+    except Exception:
+        logger.warning("Market learning apply failed", exc_info=True)
 
     portfolio = Portfolio(state["portfolio"])
     profit_sells = _check_profit_sells(state, portfolio)

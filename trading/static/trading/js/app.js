@@ -559,6 +559,17 @@ function renderRegimeLearning() {
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
+  const ml = state.marketLearning;
+  if (ml && (ml.bucketsLearned || ml.bucketsTracked)) {
+    let title = "Koko markkinan varjo-oppiminen (signaalit → toteutunut 1h/4h tuotto)";
+    if (ml.best?.setup) {
+      title += `\nParas: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`;
+    }
+    if (ml.worst?.setup) {
+      title += `\nHuonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`;
+    }
+    html += `<span class="metric-chip" title="${title}">📊 ${ml.bucketsLearned} asetelmaa opittu</span>`;
+  }
   return html;
 }
 
