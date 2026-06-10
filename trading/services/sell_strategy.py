@@ -94,6 +94,7 @@ def update_profit_sell(
         status = "armed"
     else:
         status_text = f"+{profit_pct:.1f} % — valmis myyntiin"
+        status = "ready"
 
     return {
         "shouldSell": should_sell,

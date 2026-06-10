@@ -25,13 +25,14 @@ TAX_RATE = 0.30
 MIN_ROTATION_INTERVAL_MIN = 30
 
 
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+# Halvin oletus — lite-malli riittää, kun tekninen analyysi tekee raskaan työn
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 
-# Tuettuja malleja — ei vanhentuneita (esim. gemini-2.0-flash)
+# Tuettuja malleja — halvin ensin, ei vanhentuneita (esim. gemini-2.0-flash)
 SUPPORTED_GEMINI_MODELS = (
-    "gemini-3.5-flash",
-    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash",
 )
 
 
@@ -613,8 +614,12 @@ def advise_portfolio(
             "configured": False,
         }
 
-    market = _build_market_summary(tickers, analyses, portfolio, label_fn)
-    market_count = len(market)
+    # Kustannussäästö: lähetä vain top 20 volyymillä + omistukset Geminille,
+    # mutta scan_leaders esikarsii KOKO markkinan teknisesti (ilmaiseksi),
+    # joten mikään potentiaalinen ei jää huomaamatta.
+    total_pairs = sum(1 for s in tickers if not is_stablecoin(s))
+    market = _build_market_summary(tickers, analyses, portfolio, label_fn, limit=20)
+    market_count = total_pairs
     scan_leaders = _build_scan_leaders(tickers, analyses, label_fn)
     if not market:
         return None, {"ok": False, "message": "Ei markkinadataa Geminille", "provider": "gemini", "configured": True}
@@ -690,17 +695,17 @@ Kaupankäyntisäännöt (voitto edellä):
 10. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
 11. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 
-TEHTÄVÄ — SKANNAA KOKO MARKKINA ({market_count} kryptoparia, EI stablecoineja):
-- markkinadata = kaikki volatiilit parit (USDT/USDC/UDC/STABLE/DAI jne. EI mukana) — vertaa jokaista nykyisiin positioihin
-- top_picks = parhaat 1–4 KOKO listasta (ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
-- Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa listalta
+TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
+- momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
+- markkinadata = top 20 volyymillä + omistukset (yksityiskohtainen data) — vertaa jokaista nykyisiin positioihin
+- top_picks = parhaat 1–4 (momentum_johtajat + markkinadata yhdessä; ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
+- Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa johtajalistalta
 - signals: jokainen held-positio + KAIKKI top_picks + vähintään 3 parasta momentum_johtajaa joita et osta (action hold/buy)
-- Älä vastaa vain salkun 2 kohteella — skannaus kattaa kaikki {market_count} paria
 
-momentum_johtajat (tekninen esikarsinta koko markkinasta):
+momentum_johtajat (tekninen esikarsinta KAIKISTA {market_count} parista):
 {json.dumps(scan_leaders, ensure_ascii=False)}
 
-Markkinadata — {market_count} volatiliparia, stablecoinit pois (change_1h/4h/24h, RSI, EMA-trendi, momentum):
+Markkinadata — top 20 volyymillä + omistukset, stablecoinit pois (change_1h/4h/24h, RSI, EMA-trendi, momentum):
 {json.dumps(market, ensure_ascii=False)}
 
 Vastaa VAIN validilla JSON:lla (ei markdownia):

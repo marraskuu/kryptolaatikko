@@ -24,6 +24,8 @@ def default_state() -> dict[str, Any]:
         "running": True,
         "lastPriceTick": 0,
         "lastTradeTick": 0,
+        "lastGeminiTick": 0,
+        "geminiInsights": None,
         "tickers": {},
         "analyses": {},
         "profitWatch": {},

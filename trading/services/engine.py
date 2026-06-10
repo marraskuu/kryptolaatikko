@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,10 @@ from .session_state import (
 from .state_store import load_state, save_state
 
 logger = logging.getLogger(__name__)
+
+# Gemini-kutsuväli sekunteina — kytketty irti 60 s kaupankäyntikierroksesta
+# kustannusten hillitsemiseksi. Tekninen analyysi pyörii joka kierroksella.
+GEMINI_INTERVAL_SEC = int(os.environ.get("GEMINI_INTERVAL_SEC", "600"))
 
 
 def _now_iso() -> str:
@@ -128,7 +133,11 @@ def execute_trading_cycle() -> dict[str, Any]:
     _refresh_analyses(state)
 
     gemini_insights = None
-    if gemini_configured():
+    now_ms = int(time.time() * 1000)
+    last_gemini_ms = state.get("lastGeminiTick") or 0
+    due_for_gemini = (now_ms - last_gemini_ms) >= GEMINI_INTERVAL_SEC * 1000
+
+    if gemini_configured() and due_for_gemini:
         enrich_analyses_for_gemini(
             state["tickers"],
             state["analyses"],
@@ -142,8 +151,10 @@ def execute_trading_cycle() -> dict[str, Any]:
             get_crypto_label,
             last_gemini_snapshot=state.get("lastGeminiSnapshot"),
         )
-        apply_gemini_insights(state["analyses"], gemini_insights)
         if gemini_insights and gemini_status.get("ok"):
+            apply_gemini_insights(state["analyses"], gemini_insights)
+            state["lastGeminiTick"] = now_ms
+            state["geminiInsights"] = gemini_insights
             log_ai_event(
                 state,
                 "info",
@@ -157,6 +168,17 @@ def execute_trading_cycle() -> dict[str, Any]:
                 "top_picks": list(gemini_insights.get("top_picks") or []),
                 "total_value": round(snap_value, 2),
             }
+        else:
+            # Kutsu epäonnistui — käytä viimeisintä onnistunutta analyysiä
+            gemini_insights = state.get("geminiInsights")
+            if gemini_insights:
+                apply_gemini_insights(state["analyses"], gemini_insights)
+    elif gemini_configured():
+        # Throttle: käytä välimuistissa olevaa analyysiä, ei uutta API-kutsua
+        gemini_insights = state.get("geminiInsights")
+        if gemini_insights:
+            apply_gemini_insights(state["analyses"], gemini_insights)
+        gemini_status = state.get("geminiStatus") or gemini_status_snapshot()
     else:
         gemini_status = gemini_status_snapshot()
     state["geminiStatus"] = gemini_status
