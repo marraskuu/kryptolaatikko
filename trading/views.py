@@ -22,6 +22,8 @@ def _db_diagnostics() -> dict:
     short = engine.rsplit(".", 1)[-1]
     persistent = short not in ("sqlite3",)
 
+    from urllib.parse import urlparse
+
     url_vars = ("MYSQL_URL", "DATABASE_URL", "MYSQL_PUBLIC_URL")
     parts_vars = ("MYSQLHOST", "MYSQL_HOST", "MYSQLDATABASE", "MYSQL_DATABASE")
     env_present = {k: bool(os.environ.get(k, "").strip()) for k in url_vars + parts_vars}
@@ -31,6 +33,18 @@ def _db_diagnostics() -> dict:
         if "${" in os.environ.get(k, "") or "${{" in os.environ.get(k, "")
     }
 
+    url_schemes = {}
+    for k in url_vars:
+        raw = os.environ.get(k, "").strip()
+        if not raw:
+            continue
+        cleaned = raw.strip("'\"").strip()
+        url_schemes[k] = {
+            "scheme": urlparse(cleaned).scheme or "(none)",
+            "len": len(cleaned),
+            "quoted": raw != cleaned,
+        }
+
     return {
         "engine": short,
         "persistent": persistent,
@@ -38,6 +52,7 @@ def _db_diagnostics() -> dict:
         "name": connection.settings_dict.get("NAME") if persistent else "ephemeral",
         "envPresent": env_present,
         "unresolvedRefs": unresolved,
+        "urlSchemes": url_schemes,
     }
 
 

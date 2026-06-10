@@ -84,18 +84,27 @@ from urllib.parse import quote_plus, urlparse
 WSGI_APPLICATION = "config.wsgi.application"
 
 
-def _is_valid_db_url(url: str) -> bool:
+def _clean_db_url(url: str) -> str:
+    """Siivoa Railwayn muuttuja: trimmaa ja poista mahdolliset lainausmerkit."""
     url = url.strip()
+    if len(url) >= 2 and url[0] == url[-1] and url[0] in ("'", '"'):
+        url = url[1:-1].strip()
+    return url
+
+
+def _is_valid_db_url(url: str) -> bool:
+    url = _clean_db_url(url)
     if not url or url.startswith("${") or "${{" in url:
         return False
-    scheme = urlparse(url).scheme
-    return scheme in ("mysql", "mysql2", "postgres", "postgresql", "sqlite")
+    scheme = urlparse(url).scheme.lower()
+    base = scheme.split("+", 1)[0]
+    return base in ("mysql", "mysql2", "mysqlconnector", "postgres", "postgresql", "postgis", "sqlite")
 
 
 def _database_url() -> str:
     """Railway MySQL: MYSQL_URL, DATABASE_URL tai MYSQLHOST/MYSQLUSER/..."""
     for key in ("MYSQL_URL", "DATABASE_URL", "MYSQL_PUBLIC_URL"):
-        value = os.environ.get(key, "").strip()
+        value = _clean_db_url(os.environ.get(key, ""))
         if value and _is_valid_db_url(value):
             return value
 
