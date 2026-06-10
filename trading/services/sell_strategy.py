@@ -8,12 +8,12 @@ STABILIZE_WAIT_MS = 180 * 1000
 PULLBACK_FROM_PEAK_PCT = 0.35
 
 # A + E: ATR-pohjainen trailing take-profit
-PROFIT_TRIGGER_ATR_MULT = 1.3   # arming-kynnys = 1.3 x ATR%
+PROFIT_TRIGGER_ATR_MULT = 1.2   # arming-kynnys = 1.2 x ATR%
 PROFIT_TRIGGER_FLOOR_PCT = 1.5  # mutta vähintään tämä (kattaa kulut + veron)
-PROFIT_TRIGGER_CAP_PCT = 8.0    # ja enintään tämä (ettei jää odottamaan absurdia voittoa)
+PROFIT_TRIGGER_CAP_PCT = 5.0    # ja enintään tämä (lukitaan voitot aiemmin)
 PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
 PULLBACK_FLOOR_PCT = 0.35
-PULLBACK_CAP_PCT = 4.0          # enimmäisanto huipusta ennen myyntiä
+PULLBACK_CAP_PCT = 3.0          # enimmäisanto huipusta ennen myyntiä
 ROUND_TRIP_COST_PCT = 0.2       # 2 x 0.1 % kaupankäyntikulu
 
 
