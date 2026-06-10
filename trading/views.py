@@ -14,16 +14,30 @@ def index(request):
 
 def _db_diagnostics() -> dict:
     """Kevyt diagnostiikka: säilyykö tila deployien yli (MySQL) vai ei (SQLite)."""
+    import os
+
     from django.db import connection
 
     engine = connection.settings_dict.get("ENGINE", "")
     short = engine.rsplit(".", 1)[-1]
     persistent = short not in ("sqlite3",)
+
+    url_vars = ("MYSQL_URL", "DATABASE_URL", "MYSQL_PUBLIC_URL")
+    parts_vars = ("MYSQLHOST", "MYSQL_HOST", "MYSQLDATABASE", "MYSQL_DATABASE")
+    env_present = {k: bool(os.environ.get(k, "").strip()) for k in url_vars + parts_vars}
+    unresolved = {
+        k: True
+        for k in url_vars
+        if "${" in os.environ.get(k, "") or "${{" in os.environ.get(k, "")
+    }
+
     return {
         "engine": short,
         "persistent": persistent,
         "host": connection.settings_dict.get("HOST") or None,
         "name": connection.settings_dict.get("NAME") if persistent else "ephemeral",
+        "envPresent": env_present,
+        "unresolvedRefs": unresolved,
     }
 
 

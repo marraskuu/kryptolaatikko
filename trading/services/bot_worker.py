@@ -43,6 +43,16 @@ def start_bot_worker() -> None:
             return
         _worker_started = True
 
+    from django.conf import settings
+    from django.db import connection
+
+    if connection.settings_dict.get("ENGINE", "").endswith("sqlite3") and not settings.DEBUG:
+        logger.warning(
+            "VAROITUS: tuotannossa käytössä SQLite (väliaikainen levy) — salkku ja "
+            "oppimishistoria NOLLAUTUVAT joka deployssa. Aseta Railwayn MySQL-yhteys "
+            "(MYSQL_URL / DATABASE_URL) jotta tila säilyy."
+        )
+
     from .state_store import load_state, save_state
 
     state = load_state()
