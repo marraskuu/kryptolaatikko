@@ -107,6 +107,9 @@ h1 {
 .header-actions {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
 }
 
 .btn {

@@ -549,7 +549,7 @@ function renderRegimeLearning() {
   if (regime?.regime) {
     const r = regimeMap[regime.regime] || regimeMap.neutral;
     const btc = regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
-    const breadth = regime.breadth_up_pct != null ? ` · ${regime.breadth_up_pct}% nousussa` : "";
+    const breadth = regime.breadth_up_pct != null ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)` : "";
     html += `<span class="metric-chip ${r.cls}">${r.label}${btc}${breadth}</span>`;
   }
   if (learning?.note) {
