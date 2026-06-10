@@ -145,7 +145,10 @@ def step(
     store["obs"] = obs
     store["stats"] = stats
     _save(store)
-    return stats, _summary(stats)
+    summary = _summary(stats)
+    summary["obsPending"] = len(obs)
+    summary["lastSampleAgeSec"] = int((now - int(store.get("lastSample", 0))) / 1000)
+    return stats, summary
 
 
 def condition_adjust(analysis: dict[str, Any], regime: Any, stats: dict[str, Any]) -> float:
