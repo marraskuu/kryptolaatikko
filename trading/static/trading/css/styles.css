@@ -93,25 +93,16 @@ h1 {
 
 .header-regime-inline {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.header-regime-inline .regime-chip {
+  white-space: nowrap;
 }
 
 .header-learning {
   margin-top: 8px;
-}
-
-.badge.regime-badge.up {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--green);
-}
-
-.badge.regime-badge.down {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--red);
-}
-
-.badge.regime-badge.neutral {
-  background: var(--surface2);
-  color: var(--muted);
 }
 
 .subtitle {
