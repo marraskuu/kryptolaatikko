@@ -210,18 +210,6 @@ def execute_trading_cycle() -> dict[str, Any]:
     except Exception:
         logger.warning("Market learning step failed", exc_info=True)
 
-    learning_report = build_learning_report(
-        learning=learning,
-        market_learning=state.get("marketLearning"),
-        regime=regime_info,
-        portfolio=state["portfolio"],
-        previous_snapshot=state.get("learningReportSnapshot"),
-        narrative=state.get("learningNarrative"),
-        last_narrative_at=state.get("lastLearningNarrativeAt"),
-    )
-    learning_report = maybe_refresh_narrative(state, learning_report)
-    state["learningReport"] = learning_report
-
     gemini_insights = None
     now_ms = int(time.time() * 1000)
     last_gemini_ms = state.get("lastGeminiTick") or 0
@@ -429,6 +417,19 @@ def execute_trading_cycle() -> dict[str, Any]:
     state["portfolio"] = portfolio.to_dict()
     state["lastTradeTick"] = int(time.time() * 1000)
     state["running"] = True
+
+    learning_report = build_learning_report(
+        learning=learning,
+        market_learning=state.get("marketLearning"),
+        regime=regime_info,
+        portfolio=state["portfolio"],
+        previous_snapshot=state.get("learningReportSnapshot"),
+        narrative=state.get("learningNarrative"),
+        last_narrative_at=state.get("lastLearningNarrativeAt"),
+    )
+    learning_report = maybe_refresh_narrative(state, learning_report)
+    state["learningReport"] = learning_report
+
     save_state(state)
 
     payload = build_api_payload(state)

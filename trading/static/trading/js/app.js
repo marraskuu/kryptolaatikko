@@ -299,12 +299,34 @@ function renderUptime() {
   els.statUptime.textContent = formatUptime(state.botStartedAt);
 }
 
+function renderNextCountdown() {
+  if (!els.statNext) return;
+  els.statNext.classList.remove("status-due", "status-overdue");
+  if (countdown > 0) {
+    els.statNext.textContent = `${countdown}s`;
+  } else if (state.nextTradeInSec === 0 && state.lastTradeAt) {
+    const last = new Date(state.lastTradeAt);
+    const overdueSec = Number.isFinite(last.getTime())
+      ? Math.floor((Date.now() - last.getTime()) / 1000) - (state.tradeIntervalSec || 60)
+      : 0;
+    if (overdueSec > 30) {
+      els.statNext.textContent = "Odottaa…";
+      els.statNext.classList.add("status-overdue");
+    } else {
+      els.statNext.textContent = "Ajetaan…";
+      els.statNext.classList.add("status-due");
+    }
+  } else {
+    els.statNext.textContent = "Ajetaan…";
+    els.statNext.classList.add("status-due");
+  }
+}
+
 function renderAll(lastUpdate) {
   if (lastUpdate) {
     els.lastUpdate.textContent = `Päivitetty ${formatTime(lastUpdate)}`;
   }
-  els.statNext.textContent = `${countdown}s`;
-  els.statNext.classList.add("status-running");
+  renderNextCountdown();
   renderUptime();
   renderStats();
   renderMarketList();
@@ -915,7 +937,7 @@ function startCountdown() {
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
     if (countdown > 0) countdown--;
-    els.statNext.textContent = `${countdown}s`;
+    renderNextCountdown();
     renderUptime();
   }, 1000);
 }

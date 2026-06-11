@@ -294,6 +294,27 @@ h1 {
   font-weight: 600;
 }
 
+.stat-value.status-due {
+  color: var(--yellow);
+  font-size: 1.35rem;
+}
+
+.stat-value.status-overdue {
+  color: var(--red);
+  font-size: 1.25rem;
+  animation: pulse-due 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-due {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .stat-label {
   font-size: 0.75rem;
   text-transform: uppercase;

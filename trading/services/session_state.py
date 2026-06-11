@@ -93,6 +93,12 @@ def _resolve_gemini_status(state: dict[str, Any]) -> dict[str, Any]:
     return live
 
 
+def _ms_to_iso(ms: int | float | None) -> str | None:
+    if not ms:
+        return None
+    return datetime.fromtimestamp(float(ms) / 1000, tz=timezone.utc).isoformat()
+
+
 def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     portfolio = Portfolio(state["portfolio"])
     tickers = state["tickers"]
@@ -103,11 +109,14 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
 
     trade_interval = TRADE_INTERVAL_MS // 1000
     last_trade_ms = state.get("lastTradeTick") or 0
+    last_price_ms = state.get("lastPriceTick") or 0
     if last_trade_ms:
         elapsed = int(time.time() * 1000 - last_trade_ms) // 1000
         next_trade_in = max(0, trade_interval - elapsed)
     else:
         next_trade_in = trade_interval
+
+    last_activity_ms = max(last_trade_ms, last_price_ms)
 
     gemini_status = _resolve_gemini_status(state)
 
@@ -140,7 +149,8 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "maxPositions": MAX_POSITIONS,
         "tradeIntervalSec": trade_interval,
         "nextTradeInSec": next_trade_in,
-        "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
+        "lastTradeAt": _ms_to_iso(last_trade_ms),
+        "lastUpdate": _ms_to_iso(last_activity_ms),
         "aiProvider": gemini_status.get("provider", "technical"),
         "geminiStatus": gemini_status,
         "regime": state.get("regime"),
