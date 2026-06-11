@@ -242,6 +242,51 @@ h1 {
 .stat-change.negative { color: var(--red); }
 .stat-change.neutral { color: var(--muted); }
 
+.winloss-card {
+  grid-column: 1 / -1;
+}
+
+.winloss-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.winloss-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.winloss-row.winloss-head .winloss-win,
+.winloss-row.winloss-head .winloss-loss,
+.winloss-row.winloss-head .winloss-period {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.winloss-period {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.winloss-win {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.winloss-loss {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--red);
+}
+
 .main-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

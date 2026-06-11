@@ -239,6 +239,13 @@ const els = {
   statTrades: document.getElementById("stat-trades"),
   statTradesMonth: document.getElementById("stat-trades-month"),
   statTrades24h: document.getElementById("stat-trades-24h"),
+  wlYearLabel: document.getElementById("wl-year-label"),
+  wlYearWin: document.getElementById("wl-year-win"),
+  wlYearLoss: document.getElementById("wl-year-loss"),
+  wlMonthWin: document.getElementById("wl-month-win"),
+  wlMonthLoss: document.getElementById("wl-month-loss"),
+  wlDayWin: document.getElementById("wl-day-win"),
+  wlDayLoss: document.getElementById("wl-day-loss"),
   statNext: document.getElementById("stat-next"),
   lastUpdate: document.getElementById("last-update"),
   marketList: document.getElementById("market-list"),
@@ -312,6 +319,8 @@ function renderStats() {
   }
   els.statTaxEstimate.textContent = `Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
 
+  renderWinLoss(s.realizedBreakdown);
+
   const pnl = s.pnl ?? 0;
   const pnlPct = s.pnlPct ?? 0;
   const pnlClass = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
@@ -320,6 +329,28 @@ function renderStats() {
     (s.taxCurrentYear ?? 0) > 0 ? ` · vero ${taxYear} ${formatEur(s.taxCurrentYear)}` : "";
   els.statPnl.textContent = `${sign}${formatEur(pnl).replace("€", "").trim()} € (${formatPct(pnlPct)})${taxNote}`;
   els.statPnl.className = `stat-change ${pnlClass}`;
+}
+
+function renderWinLoss(breakdown) {
+  const empty = { winCount: 0, winEur: 0, lossCount: 0, lossEur: 0 };
+  const data = breakdown || {};
+  const winText = (p) => `${p.winCount} kpl · +${formatEur(p.winEur || 0)}`;
+  const lossText = (p) =>
+    `${p.lossCount} kpl · ${p.lossEur > 0 ? "−" : ""}${formatEur(p.lossEur || 0)}`;
+  const rows = [
+    ["year", els.wlYearWin, els.wlYearLoss],
+    ["month", els.wlMonthWin, els.wlMonthLoss],
+    ["day", els.wlDayWin, els.wlDayLoss],
+  ];
+  rows.forEach(([key, winEl, lossEl]) => {
+    const p = data[key] || empty;
+    if (winEl) winEl.textContent = winText(p);
+    if (lossEl) lossEl.textContent = lossText(p);
+  });
+  if (els.wlYearLabel) {
+    const year = state.stats?.taxCurrentYearLabel;
+    els.wlYearLabel.textContent = year ? `Vuonna ${year}` : "Tänä vuonna";
+  }
 }
 
 function getHeldSymbolsSet() {

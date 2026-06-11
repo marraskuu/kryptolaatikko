@@ -24,6 +24,18 @@ def _year_of(iso: Any) -> int | None:
         return None
 
 
+def _dt_of(iso: Any) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def default_portfolio() -> dict[str, Any]:
     return {
         "initialCapital": INITIAL_CAPITAL,
@@ -244,6 +256,47 @@ class Portfolio:
                 continue
             by_year[year] = by_year.get(year, 0.0) + float(t.get("profitLoss") or 0.0)
         return by_year
+
+    def get_realized_breakdown(self) -> dict[str, dict[str, Any]]:
+        """Voitto-/tappiomyyntien lukumäärät ja eurot kolmelta jaksolta.
+
+        Jaksot: kuluva kalenterivuosi, kuluva kalenterikuukausi ja viimeiset 24 h.
+        Palauttaa kullekin: voittojen lkm + yhteen­laskettu voitto (€), tappioiden
+        lkm + yhteenlaskettu tappio (€, positiivisena lukuna).
+        """
+        now = datetime.now(timezone.utc)
+        day_cutoff = now.timestamp() - 24 * 3600
+
+        def _blank() -> dict[str, Any]:
+            return {"winCount": 0, "winEur": 0.0, "lossCount": 0, "lossEur": 0.0}
+
+        periods = {"year": _blank(), "month": _blank(), "day": _blank()}
+
+        for t in self.trades:
+            if t.get("type") != "sell":
+                continue
+            dt = _dt_of(t.get("timestamp"))
+            if dt is None:
+                continue
+            pl = float(t.get("profitLoss") or 0.0)
+            in_year = dt.year == now.year
+            in_month = in_year and dt.month == now.month
+            in_day = dt.timestamp() >= day_cutoff
+            for key, included in (("year", in_year), ("month", in_month), ("day", in_day)):
+                if not included:
+                    continue
+                bucket = periods[key]
+                if pl > 0.01:
+                    bucket["winCount"] += 1
+                    bucket["winEur"] += pl
+                elif pl < -0.01:
+                    bucket["lossCount"] += 1
+                    bucket["lossEur"] += -pl
+
+        for bucket in periods.values():
+            bucket["winEur"] = round(bucket["winEur"], 2)
+            bucket["lossEur"] = round(bucket["lossEur"], 2)
+        return periods
 
     def get_tax_summary(self, tickers: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Verot myyntivoitoista kalenterivuosittain (1.1.–31.12.).
