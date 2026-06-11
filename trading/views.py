@@ -4,8 +4,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 
 from .services.export_excel import build_tax_excel
+from .services.bot_worker import maybe_wake_bot
 from .services.session_state import build_api_payload
-from .services.state_store import load_state
+from .services.state_store import load_state, save_state
 
 
 def index(request):
@@ -60,10 +61,13 @@ def _db_diagnostics() -> dict:
 @require_GET
 def api_state(request):
     state = load_state()
+    maybe_wake_bot(state)
     payload = build_api_payload(state)
     payload["error"] = state.get("error")
     payload["autoRun"] = True
     payload["db"] = _db_diagnostics()
+    import os
+    payload["appBuild"] = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "dev")[:12]
     response = JsonResponse(payload)
     response["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response["Pragma"] = "no-cache"

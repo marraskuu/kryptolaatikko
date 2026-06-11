@@ -97,9 +97,22 @@ def load_state() -> dict[str, Any]:
         changed = True
     if _ensure_bot_started_at(state):
         changed = True
+    if repair_persisted_state(state):
+        changed = True
     if changed:
         save_state(state)
     return state
+
+
+def repair_persisted_state(state: dict[str, Any]) -> bool:
+    """Korjaa tunnetut vanhentuneet tilavirheet deployn jälkeen."""
+    from .learning_report import clear_stale_narrative_error
+
+    changed = clear_stale_narrative_error(state)
+    err = state.get("learningNarrativeError") or (state.get("learningReport") or {}).get("narrativeError")
+    if err and "_model_candidates" in str(err):
+        changed = clear_stale_narrative_error(state) or changed
+    return changed
 
 
 def save_state(state: dict[str, Any]) -> None:
