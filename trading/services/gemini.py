@@ -999,8 +999,7 @@ Vastaa VAIN validilla JSON:lla:
 }}"""
 
     api_key = _read_api_key()
-    configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
-    models = _model_candidates(configured_model)
+    models = _model_candidates()
     narrative_timeout = int(os.environ.get("LEARNING_NARRATIVE_TIMEOUT", "90"))
 
     for model in models:
