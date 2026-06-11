@@ -262,13 +262,14 @@ h1 {
 
 .winloss-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.6fr) 1fr 1fr;
+  grid-template-columns: minmax(90px, 0.6fr) 1fr 1fr minmax(80px, 0.7fr);
   gap: 12px;
   align-items: center;
 }
 
 .winloss-row.winloss-head .winloss-win,
 .winloss-row.winloss-head .winloss-loss,
+.winloss-row.winloss-head .winloss-net,
 .winloss-row.winloss-head .winloss-period {
   font-size: 0.7rem;
   text-transform: uppercase;
@@ -293,6 +294,15 @@ h1 {
   font-weight: 700;
   color: var(--red);
 }
+
+.winloss-net {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.winloss-net.up { color: var(--green); }
+.winloss-net.down { color: var(--red); }
+.winloss-net.even { color: var(--muted); }
 
 .main-grid {
   display: grid;

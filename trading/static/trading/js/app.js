@@ -242,10 +242,13 @@ const els = {
   wlYearLabel: document.getElementById("wl-year-label"),
   wlYearWin: document.getElementById("wl-year-win"),
   wlYearLoss: document.getElementById("wl-year-loss"),
+  wlYearNet: document.getElementById("wl-year-net"),
   wlMonthWin: document.getElementById("wl-month-win"),
   wlMonthLoss: document.getElementById("wl-month-loss"),
+  wlMonthNet: document.getElementById("wl-month-net"),
   wlDayWin: document.getElementById("wl-day-win"),
   wlDayLoss: document.getElementById("wl-day-loss"),
+  wlDayNet: document.getElementById("wl-day-net"),
   statNext: document.getElementById("stat-next"),
   lastUpdate: document.getElementById("last-update"),
   marketList: document.getElementById("market-list"),
@@ -337,15 +340,31 @@ function renderWinLoss(breakdown) {
   const winText = (p) => `${p.winCount} kpl · +${formatEur(p.winEur || 0)}`;
   const lossText = (p) =>
     `${p.lossCount} kpl · ${p.lossEur > 0 ? "−" : ""}${formatEur(p.lossEur || 0)}`;
+  const netText = (p) => {
+    const net = (p.winEur || 0) - (p.lossEur || 0);
+    const sign = net > 0.005 ? "+" : net < -0.005 ? "−" : "";
+    const abs = Math.abs(net);
+    return `${sign}${formatEur(abs)}`;
+  };
+  const netClass = (p) => {
+    const net = (p.winEur || 0) - (p.lossEur || 0);
+    if (net > 0.005) return "up";
+    if (net < -0.005) return "down";
+    return "even";
+  };
   const rows = [
-    ["year", els.wlYearWin, els.wlYearLoss],
-    ["month", els.wlMonthWin, els.wlMonthLoss],
-    ["day", els.wlDayWin, els.wlDayLoss],
+    ["year", els.wlYearWin, els.wlYearLoss, els.wlYearNet],
+    ["month", els.wlMonthWin, els.wlMonthLoss, els.wlMonthNet],
+    ["day", els.wlDayWin, els.wlDayLoss, els.wlDayNet],
   ];
-  rows.forEach(([key, winEl, lossEl]) => {
+  rows.forEach(([key, winEl, lossEl, netEl]) => {
     const p = data[key] || empty;
     if (winEl) winEl.textContent = winText(p);
     if (lossEl) lossEl.textContent = lossText(p);
+    if (netEl) {
+      netEl.textContent = netText(p);
+      netEl.className = `winloss-net ${netClass(p)}`;
+    }
   });
   if (els.wlYearLabel) {
     const year = state.stats?.taxCurrentYearLabel;
