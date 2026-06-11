@@ -968,6 +968,143 @@ h1 {
   padding: 8px 0;
 }
 
+.learning-report-panel {
+  margin-top: 0;
+}
+
+.learning-report {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.learning-narrative {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.learning-narrative-intro {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.learning-narrative-block h4 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.learning-narrative-block p {
+  font-size: 0.875rem;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.learning-narrative-block.ideas {
+  border-top: 1px dashed rgba(245, 158, 11, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.ideas h4 {
+  color: var(--yellow);
+}
+
+.learning-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.learning-section {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.learning-section h4 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.learning-section ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.learning-section li {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.learning-changes,
+.learning-roadmap {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.learning-changes h4,
+.learning-roadmap h4 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.learning-changes ul,
+.learning-roadmap ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.learning-changes li {
+  font-size: 0.8125rem;
+  color: var(--green);
+}
+
+.learning-roadmap li {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.learning-roadmap .roadmap-status-ready {
+  color: var(--green);
+}
+
+.learning-roadmap .roadmap-status-soon {
+  color: var(--yellow);
+}
+
+@media (max-width: 768px) {
+  .learning-sections {
+    grid-template-columns: 1fr;
+  }
+}
+
 .trade-item {
   display: flex;
   align-items: flex-start;

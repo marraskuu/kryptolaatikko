@@ -935,3 +935,90 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
         "model": configured_model,
         "configured": True,
     }
+
+
+def generate_learning_narrative(
+    structured_report: dict[str, Any],
+    previous_narrative: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Gemini selittää oppimisen — erillinen 6 h raportti, ei muuta kaupankäyntisääntöjä."""
+    if not is_configured():
+        return None, {
+            "ok": False,
+            "message": _key_hint(),
+            "provider": "technical",
+            "configured": False,
+        }
+
+    sections_text = json.dumps(structured_report.get("sections") or [], ensure_ascii=False)
+    changes_text = json.dumps(structured_report.get("changes") or [], ensure_ascii=False)
+    roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
+    prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
+
+    prompt = f"""Olet krypto-simulaattorin oppimisraportin kirjoittaja. Tehtäväsi on SELITTÄÄ mitä botti on oppinut — et muuta sääntöjä etkä tee kauppapäätöksiä.
+
+TÄRKEÄÄ:
+- Kaikki alla olevat säätöpäätökset on JO toteutettu koodissa (learning.py). Älä keksi uusia automaattisia sääntöjä.
+- Kenttä "ideas" = VAIN ehdotuksia ihmiselle — merkitse selvästi ettei niitä vielä käytetä.
+- Kirjoita suomeksi, selkeästi, max 2–3 lausetta per kenttä.
+- Perustu vain annettuun dataan — älä keksi kauppoja tai lukuja.
+
+Oppimisosiot (rule-pohjainen):
+{sections_text}
+
+Muutokset edelliseen raporttiin:
+{changes_text}
+
+Roadmap (mitä aktivoituu kun dataa kertyy):
+{roadmap_text}
+
+Edellinen Gemini-raportti (viite, älä toista turhaan):
+{prev_text}
+
+Vastaa VAIN validilla JSON:lla:
+{{
+  "intro": "1–2 lausetta: yhteenveto tilanteesta",
+  "learned": "Mitä uutta opittiin viime jaksolla (luettelomerkit \\n)",
+  "in_use": "Miten opittua KÄYTETÄÄN nyt kaupankäynnissä (rotaatio, conf-estot, symbolit…)",
+  "next_steps": "Mitä odotetaan seuraavaksi roadmapin perusteella",
+  "ideas": "1–3 EHDOTUSTA voiton parantamiseksi — EI vielä käytössä, vain ideoita"
+}}"""
+
+    api_key = _read_api_key()
+    configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+    models = _model_candidates(configured_model)
+
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            response = _post_with_retry(url, api_key, prompt)
+            response.raise_for_status()
+            body = response.json()
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = _extract_json(text)
+            narrative = {
+                "intro": str(parsed.get("intro") or "").strip(),
+                "learned": str(parsed.get("learned") or "").strip(),
+                "in_use": str(parsed.get("in_use") or "").strip(),
+                "next_steps": str(parsed.get("next_steps") or "").strip(),
+                "ideas": str(parsed.get("ideas") or "").strip(),
+                "source": "gemini",
+                "model": model,
+            }
+            return narrative, {
+                "ok": True,
+                "message": "Oppimisraportti päivitetty",
+                "provider": "gemini",
+                "model": model,
+                "configured": True,
+            }
+        except (requests.RequestException, KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.warning("Learning narrative Gemini error (%s): %s", model, exc)
+            continue
+
+    return None, {
+        "ok": False,
+        "message": "Oppimisraportin Gemini-kutsu epäonnistui",
+        "provider": "gemini",
+        "configured": True,
+    }

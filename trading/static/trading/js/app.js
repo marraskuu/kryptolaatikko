@@ -262,6 +262,8 @@ const els = {
   portfolioBody: document.getElementById("portfolio-body"),
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
+  learningReport: document.getElementById("learning-report"),
+  learningReportMeta: document.getElementById("learning-report-meta"),
   errorBanner: document.getElementById("error-banner"),
 };
 
@@ -308,6 +310,7 @@ function renderAll(lastUpdate) {
   renderMarketList();
   renderPortfolio();
   renderTradeLog();
+  renderLearningReport();
   renderAIDecision(state.lastAIReport);
   if (els.headerMarketLearningInline) {
     els.headerMarketLearningInline.innerHTML = renderMarketLearningChip();
@@ -715,6 +718,107 @@ function renderLearningChips() {
     html += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
   }
   return html;
+}
+
+function formatDurationSec(sec) {
+  if (sec == null || sec < 0) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h} t ${m} min`;
+  return `${m} min`;
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderLearningReport() {
+  if (!els.learningReport) return;
+  const report = state.learningReport;
+  if (!report) {
+    els.learningReport.innerHTML = '<p class="empty-log">Oppimisraportti latautuu…</p>';
+    return;
+  }
+
+  if (els.learningReportMeta) {
+    const next = report.nextNarrativeInSec;
+    const last = report.lastNarrativeAt;
+    const parts = [];
+    if (last) parts.push(`Gemini ${formatTime(last)}`);
+    else parts.push("Gemini odottaa ensimmäistä kierrosta");
+    if (next != null) parts.push(`seuraava ${formatDurationSec(next)} kuluttua`);
+    els.learningReportMeta.textContent = parts.join(" · ");
+  }
+
+  const narrative = report.narrative;
+  let narrativeHtml = "";
+  if (narrative && (narrative.intro || narrative.learned || narrative.in_use)) {
+    const blocks = [
+      ["learned", "Mitä opittiin"],
+      ["in_use", "Käytössä nyt"],
+      ["next_steps", "Seuraavaksi"],
+      ["ideas", "Ideat (ei vielä käytössä)"],
+    ];
+    narrativeHtml = `
+      <div class="learning-narrative">
+        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
+        ${blocks
+          .filter(([key]) => narrative[key])
+          .map(
+            ([key, title]) => `
+          <div class="learning-narrative-block${key === "ideas" ? " ideas" : ""}">
+            <h4>${title}</h4>
+            <p>${escapeHtml(narrative[key])}</p>
+          </div>`
+          )
+          .join("")}
+      </div>`;
+  }
+
+  const sectionsHtml = (report.sections || [])
+    .map(
+      (sec) => `
+      <div class="learning-section">
+        <h4>${sec.icon || ""} ${escapeHtml(sec.title || "")}</h4>
+        <ul>${(sec.lines || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+      </div>`
+    )
+    .join("");
+
+  const changesHtml = (report.changes || []).length
+    ? `<div class="learning-changes">
+        <h4>Muuttunut edelliseen raporttiin</h4>
+        <ul>${report.changes.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>
+      </div>`
+    : "";
+
+  const roadmapHtml = (report.roadmap || []).length
+    ? `<div class="learning-roadmap">
+        <h4>Roadmap</h4>
+        <ul>${report.roadmap
+          .map((r) => {
+            const cls =
+              r.status === "valmis"
+                ? "roadmap-status-ready"
+                : r.status === "tulossa"
+                  ? "roadmap-status-soon"
+                  : "";
+            return `<li><span class="${cls}">${escapeHtml(r.label)} · ${escapeHtml(r.progress)}</span><span>${escapeHtml(r.action)}</span></li>`;
+          })
+          .join("")}</ul>
+      </div>`
+    : "";
+
+  els.learningReport.innerHTML = `
+    ${narrativeHtml}
+    <div class="learning-sections">${sectionsHtml}</div>
+    ${changesHtml}
+    ${roadmapHtml}
+  `;
 }
 
 function renderAIDecision(report) {

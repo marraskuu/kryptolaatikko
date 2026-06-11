@@ -17,6 +17,7 @@ from .ai_trader import (
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
+from .learning_report import build_learning_report, maybe_refresh_narrative
 from .trade_meta import meta_from_analysis
 from . import market_learning
 from .portfolio import Portfolio
@@ -208,6 +209,18 @@ def execute_trading_cycle() -> dict[str, Any]:
         learning["market_setups"] = ml_summary
     except Exception:
         logger.warning("Market learning step failed", exc_info=True)
+
+    learning_report = build_learning_report(
+        learning=learning,
+        market_learning=state.get("marketLearning"),
+        regime=regime_info,
+        portfolio=state["portfolio"],
+        previous_snapshot=state.get("learningReportSnapshot"),
+        narrative=state.get("learningNarrative"),
+        last_narrative_at=state.get("lastLearningNarrativeAt"),
+    )
+    learning_report = maybe_refresh_narrative(state, learning_report)
+    state["learningReport"] = learning_report
 
     gemini_insights = None
     now_ms = int(time.time() * 1000)

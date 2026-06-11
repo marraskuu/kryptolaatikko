@@ -146,5 +146,6 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "regime": state.get("regime"),
         "learning": state.get("learning"),
         "marketLearning": state.get("marketLearning"),
+        "learningReport": state.get("learningReport"),
         "botStartedAt": state.get("botStartedAt"),
     }
