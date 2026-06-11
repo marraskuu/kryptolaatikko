@@ -480,6 +480,13 @@ h1 {
   color: var(--accent);
 }
 
+.holding-value {
+  font-weight: 700;
+}
+.holding-value.up { color: var(--green); }
+.holding-value.down { color: var(--red); }
+.holding-value.even { color: var(--yellow); }
+
 .crypto-card {
   background: var(--surface2);
   border: 1px solid var(--border);

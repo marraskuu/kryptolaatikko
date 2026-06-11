@@ -396,16 +396,32 @@ function renderMarketList() {
       if (isHeld && watch) {
         let watchText = watch.statusText;
         const pnl = getPositionPnl(sym);
+        let holdingPrefix = "";
         if (pnl && Number.isFinite(pnl.pnlEur)) {
           const sign = pnl.pnlEur >= 0 ? "+" : "";
           const eur = `${sign}${formatEur(pnl.pnlEur).replace("€", "").trim()} €`;
           const parts = watchText.split(" — ");
           parts[0] = `${parts[0]} (${eur})`;
           watchText = parts.join(" — ");
+
+          // Omistuksen nykyarvo "Voitto"-sanan eteen: vihreä voitolla, punainen
+          // tappiolla, keltainen jos sama kuin ostohinta.
+          const valueCls =
+            pnl.pnlEur > 0.005 ? "up" : pnl.pnlEur < -0.005 ? "down" : "even";
+          const valueStr = `${formatEur(pnl.currentValue).replace("€", "").trim()} €`;
+          holdingPrefix = `<span class="holding-value ${valueCls}">${valueStr}</span> `;
         }
-        badge = `<span class="market-row-badge">${watchText}</span>`;
+        badge = `<span class="market-row-badge">${holdingPrefix}${watchText}</span>`;
       } else if (isHeld) {
-        badge = `<span class="market-row-badge">${signal} Salkussa</span>`;
+        const pnl = getPositionPnl(sym);
+        let holdingPrefix = "";
+        if (pnl && Number.isFinite(pnl.pnlEur)) {
+          const valueCls =
+            pnl.pnlEur > 0.005 ? "up" : pnl.pnlEur < -0.005 ? "down" : "even";
+          const valueStr = `${formatEur(pnl.currentValue).replace("€", "").trim()} €`;
+          holdingPrefix = `<span class="holding-value ${valueCls}">${valueStr}</span> `;
+        }
+        badge = `<span class="market-row-badge">${holdingPrefix}${signal} Salkussa</span>`;
       } else if (isTarget) {
         badge = `<span class="market-row-badge market-row-badge-target">◎ Gemini-valinta</span>`;
       }
