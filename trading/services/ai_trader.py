@@ -1053,6 +1053,9 @@ def make_trading_decisions(
     rotation_scale = float(learning.get("rotation_scale", 1.0))
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
+    # A: Geminin häviömyyntien hillintä (oppimisen säätämä)
+    gemini_sell_min_conf = int(learning.get("gemini_sell_min_confidence", 0))
+    gemini_sell_scale = max(0.2, min(1.0, float(learning.get("gemini_sell_scale", 1.0))))
 
     # D: symbolimuisti — opi omista onnistumisista/epäonnistumisista per kolikko
     symbol_memory = learning.get("symbol_memory") or {}
@@ -1256,9 +1259,15 @@ def make_trading_decisions(
                     "analysis": analysis,
                 }
             )
-        elif gemini_sig and gemini_sig.get("action") == "sell" and gemini_sig.get("confidence", 0) >= sell_conf:
-            sell_amount = holding["amount"] * _gemini_sell_fraction(
-                gemini_sig.get("confidence", 5)
+        elif (
+            gemini_sig
+            and gemini_sig.get("action") == "sell"
+            and gemini_sig.get("confidence", 0) >= max(sell_conf, gemini_sell_min_conf)
+        ):
+            sell_amount = (
+                holding["amount"]
+                * _gemini_sell_fraction(gemini_sig.get("confidence", 5))
+                * gemini_sell_scale
             )
             _append_sell_decision(
                 decisions,

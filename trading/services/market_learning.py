@@ -30,10 +30,10 @@ MAX_OBS = 8000                  # kova katto odottaville havainnoille
 BUCKET_CAP_N = 600              # ämpärin otoskatto → vanha unohtuu (recency)
 DECAY = 0.8
 ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja
-MAX_SCORE_ADJUST = 3.0
+MAX_SCORE_ADJUST = 4.0         # C: vahvempi vaikutus — nojaa voittaviin asetelmiin
 W_1H = 0.6
 W_4H = 0.4
-EXP_TO_SCORE = 1.5              # +1 % opittu odotus → +1.5 score (clampattu)
+EXP_TO_SCORE = 2.0             # C: +1 % opittu odotus → +2.0 score (clampattu)
 
 _DEFAULT = {"obs": [], "stats": {}, "lastSample": 0}
 

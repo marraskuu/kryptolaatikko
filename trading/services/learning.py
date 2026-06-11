@@ -27,6 +27,7 @@ LOSS_COOLDOWN_SEC = 2 * 3600     # älä osta uudelleen 2 h sisällä tappiosta
 SYMBOL_MIN_TRADES = 2            # vähintään näin monta tulosta ennen säätöä
 SYMBOL_PENALTY_CAP = -4.0        # rankingin maksimirangaistus
 SYMBOL_BONUS_CAP = 3.0           # rankingin maksimibonus
+CHRONIC_LOSER_LOSSES = 3         # 0 voittoa & näin monta tappiota → estä osto kokonaan
 
 
 def _category(reason: str) -> str:
@@ -116,6 +117,15 @@ def compute_symbol_memory(
                 blocked = True
                 cooldown_min = int((LOSS_COOLDOWN_SEC - elapsed) / 60)
 
+        # B: krooninen häviäjä — ei yhtään voittoa ja vähintään 3 tappiota.
+        # Estetään osto kokonaan ja annetaan täysi ranking-rangaistus, riippumatta
+        # nettotappion suuruudesta (pienetkin toistuvat tappiot kielivät huonosta
+        # kohteesta). Esto purkautuu luonnostaan kun tappiot vanhenevat ikkunasta.
+        chronic_loser = b["wins"] == 0 and b["losses"] >= CHRONIC_LOSER_LOSSES
+        if chronic_loser:
+            blocked = True
+            score_adjust = SYMBOL_PENALTY_CAP
+
         memory[sym] = {
             "net_eur": round(net, 2),
             "wins": b["wins"],
@@ -123,6 +133,7 @@ def compute_symbol_memory(
             "score_adjust": round(score_adjust, 2),
             "blocked": blocked,
             "cooldown_min": cooldown_min,
+            "chronic": chronic_loser,
         }
     return memory
 
@@ -169,6 +180,26 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         elif rot_exp > 0.2:
             notes.append(f"rotaatio toimii ({rot_exp:+.2f} €/kauppa)")
 
+    # A: Geminin harkinnanvaraiset myynnit — sama expectancy-portti kuin rotaatiossa.
+    # Jos ne tuottavat tappiota, nostetaan vaadittua varmuuskynnystä ja pienennetään
+    # kerralla myytävää osuutta (annetaan voittajien juosta pidemmälle).
+    gem = stats.get("gemini_sell", {})
+    gem_n = int(gem.get("trades", 0))
+    gem_exp = float(gem.get("expectancy_eur", 0.0))
+    gemini_sell_min_confidence = 0
+    gemini_sell_scale = 1.0
+    if gem_n >= MIN_SAMPLES:
+        if gem_exp < -0.15:
+            gemini_sell_min_confidence = 8
+            gemini_sell_scale = 0.5
+            notes.append(f"Gemini-myynnit tiukemmin — tappiollisia ({gem_exp:+.2f} €/kauppa)")
+        elif gem_exp < 0:
+            gemini_sell_min_confidence = 7
+            gemini_sell_scale = 0.7
+            notes.append(f"Gemini-myynnit varovaisemmin ({gem_exp:+.2f} €/kauppa)")
+        elif gem_exp > 0.2:
+            notes.append(f"Gemini-myynnit toimivat ({gem_exp:+.2f} €/kauppa)")
+
     # Globaali valikoivuus: jos oma kokonaisodotusarvo on negatiivinen, ole tarkempi
     total_n = len(sells)
     total_net = sum(_net_eur(t) for t in sells)
@@ -189,12 +220,16 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
 
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
+    chronic = [s for s, m in memory.items() if m.get("chronic")]
+    cooldown = [s for s, m in memory.items() if m["blocked"] and not m.get("chronic")]
     losers = [s for s, m in memory.items() if m["score_adjust"] < 0]
     winners = [s for s, m in memory.items() if m["score_adjust"] > 0]
     if losers:
         notes.append(f"välttää {len(losers)} häviäjää")
-    if blocked:
-        notes.append(f"{len(blocked)} cooldownissa")
+    if chronic:
+        notes.append(f"{len(chronic)} estetty (toistuva tappio)")
+    if cooldown:
+        notes.append(f"{len(cooldown)} cooldownissa")
     if winners:
         notes.append(f"suosii {len(winners)} voittajaa")
 
@@ -203,6 +238,8 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     return {
         "rotation_enabled": rotation_enabled,
         "rotation_scale": rotation_scale,
+        "gemini_sell_min_confidence": gemini_sell_min_confidence,
+        "gemini_sell_scale": gemini_sell_scale,
         "entry_score_min": entry_score_min,
         "max_new_positions": max_new_positions,
         "overall_expectancy_eur": round(overall_exp, 3),
