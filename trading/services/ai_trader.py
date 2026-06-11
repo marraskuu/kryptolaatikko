@@ -15,7 +15,8 @@ MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
 ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
-FEE_RATE = 0.001
+# Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
+FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = 25
 
 # A: ATR-pohjainen riski (tasapainoinen taso)
@@ -23,11 +24,12 @@ ATR_STOP_MULT = 1.5          # stop = entry - 1.5 * ATR%
 STOP_FLOOR_PCT = -1.5        # stop ei tiukempi kuin -1.5 %
 STOP_CAP_PCT = -8.0          # stop ei löysempi kuin -8 %
 DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
-ROUND_TRIP_COST_PCT = 0.2    # 2 x 0.1 % kaupankäyntikulu
+ROUND_TRIP_COST_PCT = 0.0    # Bitfinex: ei kaupankäyntikuluja
 
-# 1: Kuluviisas rotaatio — vaihda positio vain jos uuden kohteen odotettu etu
-# ylittää edestakaiskulun + marginaalin (muuten kulut syövät hyödyn).
-ROTATION_EDGE_MARGIN_PCT = 0.5
+# 1: Etuviisas rotaatio — kuluja ei enää ole, mutta vältetään silti turha
+# noise-churn: vaihto vain jos uuden kohteen odotettu etu ylittää nykyisen
+# selvällä marginaalilla (ja säästää 30 % voittoveron turhalta realisoinnilta).
+ROTATION_EDGE_MARGIN_PCT = 0.3
 ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
 
 # 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
@@ -41,7 +43,7 @@ CLUSTER_WEIGHT_CAP = 0.6
 
 
 def _edge_pct(analysis: dict[str, Any] | None) -> float:
-    """Lyhyen aikavälin odotetun liikkeen estimaatti (%), rajattu — rotaation kuluvertailuun."""
+    """Lyhyen aikavälin odotetun liikkeen estimaatti (%), rajattu — rotaation etuvertailuun."""
     if not analysis:
         return 0.0
     mom4 = analysis.get("change4hPct")
@@ -61,7 +63,7 @@ def _edge_pct(analysis: dict[str, Any] | None) -> float:
 
 
 def _rotation_worthwhile(holding_analysis: dict[str, Any], best_target_edge: float) -> bool:
-    """Kannattaako rotaatio: parhaan kohteen edun on ylitettävä nykyisen + kulut + marginaali."""
+    """Kannattaako rotaatio: parhaan kohteen edun on ylitettävä nykyisen selvällä marginaalilla."""
     return (best_target_edge - _edge_pct(holding_analysis)) >= ROTATION_MIN_EDGE_PCT
 
 
@@ -842,8 +844,8 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
         elif target_symbols:
-            # 1: kuluviisas — trimmaa pois valinnoista vain jos kohteen etu kattaa
-            # kaupankäyntikulut, tai jos positio on selvästi heikkenevä.
+            # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
+            # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
             weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
             if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
                 continue
@@ -945,7 +947,7 @@ def _plan_initial_allocation(
     symbols = [item["symbol"] for item in picks]
     weights = _compute_allocation_weights(gemini_insights, symbols, analyses, gemini_active)
     weights = diversify_weights(weights, analyses)
-    investable = cash / 1.001
+    investable = cash / (1 + FEE_RATE)
     planned: list[dict[str, Any]] = []
     remaining = investable
 
@@ -1289,8 +1291,8 @@ def make_trading_decisions(
             and profit_pct < ROTATE_LOSS_PCT
             and (symbol not in top_symbols or change_24h < -2)
         ):
-            # 1: kuluviisas — älä rotatoi, jos kohteen etu ei kata edestakaiskuluja
-            # (poikkeus: selvästi heikkenevä positio < -2 % rajataan silti).
+            # 1: etuviisas — älä rotatoi ilman selvää etua (vältä turha noise-churn ja
+            # turha veron realisointi); poikkeus: selvästi heikkenevä positio < -2 %.
             if change_24h < -2 or _rotation_worthwhile(analysis, best_target_edge):
                 sell_amount = holding["amount"] * rotation_trim
                 _append_sell_decision(
@@ -1307,8 +1309,8 @@ def make_trading_decisions(
                         "type": "hold",
                         "symbol": symbol,
                         "reason": (
-                            f"Kuluviisas: ei rotaatiota ({profit_pct:.1f} %) — kohteen etu "
-                            f"ei kata kaupankäyntikuluja, pidetään"
+                            f"Ei rotaatiota ({profit_pct:.1f} %) — kohteella ei selvää "
+                            f"etua, pidetään"
                         ),
                         "analysis": analysis,
                     }

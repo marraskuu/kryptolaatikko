@@ -21,7 +21,7 @@ from .bitfinex import is_stablecoin, normalize_symbol
 logger = logging.getLogger(__name__)
 
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
-FEE_RATE = 0.001
+FEE_RATE = 0.0  # Bitfinex poisti kaupankäyntikulut kokonaan
 TAX_RATE = 0.30
 MIN_ROTATION_INTERVAL_MIN = 30
 
@@ -501,14 +501,17 @@ def _build_costs_and_churn(
     day_fees = _estimate_fees(day_trades)
     week_sells = _summarize_sells([t for t in week_trades if t["type"] == "sell"])
 
+    # Bitfinex poisti kaupankäyntikulut → churn ei enää maksa kuluina. Ainoa
+    # rotaation kustannus on 30 % voittovero realisoiduista voitoista, joten
+    # varoita vain jos realisoinnit ovat olleet tappiollisia (turhaa pääoman
+    # heittelyä) — ei enää kuluperusteella.
     churn_warning = ""
     week_count = len(week_trades)
-    if week_count >= 20:
+    if week_count >= 15 and week_sells.get("net_profit_eur", 0) < 0:
         churn_warning = (
-            f"Liikaa kauppoja ({week_count}/7 pv) — arvioitu kulut {week_fees} EUR syö reunaa"
+            f"Paljon kauppoja ({week_count}/7 pv) ja myynnit tappiolla "
+            f"({week_sells.get('net_profit_eur', 0)} EUR) — vältä turhaa heittelyä"
         )
-    elif week_count >= 10 and week_sells.get("net_profit_eur", 0) < week_fees:
-        churn_warning = f"Kaupankäyntikulut ({week_fees} EUR) ylittävät myyntivoitot — vähennä churnia"
 
     return {
         "fee_rate_pct": round(FEE_RATE * 100, 2),
@@ -741,11 +744,11 @@ Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = "regi
 {market_setups_json}
 - best = historiallisesti tuottoisin asetelma, worst = häviävin → vältä worst-tyyppisiä ostoja
 
-Kustannukset (tärkeää — turha churn syö voiton):
-- Kaupankäyntikulu: {costs.get('fee_rate_pct', 0.1)} % per kauppa (osto ja myynti)
-- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista
+Kustannukset:
+- Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
+- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista — tämä on ainoa rotaation kustannus. Älä realisoi voittoja turhaan; anna voittajien juosta (vero lykkääntyy).
 - Rotaatiota max kerran {costs.get('min_minutes_between_rotations', 30)} min (paitsi stop-loss / voitto-myynti)
-- Jos costs_and_churn.churn_warning on asetettu → VÄHENNÄ kauppoja merkittävästi
+- Koska kuluja ei ole, voit rotatoida vapaammin heikoista vahvempiin — vältä silti turhaa noise-heittelyä ja tappioiden lukitsemista
 
 Salkun tila nyt:
 - Arvo yhteensä: {total_value} EUR (P/L {portfolio_pnl_pct:+.2f} % vs alkupääoma)
@@ -759,7 +762,7 @@ Historian käyttö:
 - recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
 - by_symbol: symbolikohtainen netto, voitto/tappio-määrät, keskimääräinen pitoaika — vältä toistuvasti tappiollisia
 - last_gemini_review: arvioi edellisen päätöksesi onnistuminen ennen uutta rotaatiota
-- costs_and_churn: vertaa estimated_fees_eur vs sell_net_profit_eur — älä tee pieniä rotaatioita jos kulut > hyöty
+- costs_and_churn: kuluja ei ole — keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä
 - Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä (RSI<40, EMA bullish)
 - Voittavilla symboleilla pidä pidempään (katso avg_hold_hours_on_wins)
 

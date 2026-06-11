@@ -14,7 +14,7 @@ PROFIT_TRIGGER_CAP_PCT = 5.0    # ja enintään tämä (lukitaan voitot aiemmin)
 PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
 PULLBACK_FLOOR_PCT = 0.35
 PULLBACK_CAP_PCT = 3.0          # enimmäisanto huipusta ennen myyntiä
-ROUND_TRIP_COST_PCT = 0.2       # 2 x 0.1 % kaupankäyntikulu
+ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja (vain 30 % voittovero)
 
 # 2: Porrastettu voiton kotiutus — lukitse osa voitosta ensimmäisessä portaassa,
 # anna lopun ratsastaa trailing-stopilla (paras molemmista: turvattu voitto + nousuvara).

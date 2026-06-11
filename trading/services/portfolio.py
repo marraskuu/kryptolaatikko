@@ -4,6 +4,10 @@ from typing import Any
 
 INITIAL_CAPITAL = 1000.0
 TAX_RATE = 0.30
+# Bitfinex poisti kaupankäyntikulut kokonaan (spot + margin, kaikki asiakkaat,
+# pysyvästi). Simulaattori heijastaa tätä: 0 % maker/taker. Voittovero (30 %)
+# ei ole pörssin kulu, joten se säilyy.
+FEE_RATE = 0.0
 
 
 def _now_iso() -> str:
@@ -59,14 +63,14 @@ class Portfolio:
         if eur_amount < 1 or self.cash < 1:
             return False
 
-        fee = eur_amount * 0.001
+        fee = eur_amount * FEE_RATE
         total_cost = eur_amount + fee
         if total_cost > self.cash:
-            eur_amount = self.cash / 1.001
+            eur_amount = self.cash / (1 + FEE_RATE)
             if eur_amount < 1:
                 return False
 
-        final_fee = eur_amount * 0.001
+        final_fee = eur_amount * FEE_RATE
         final_cost = eur_amount + final_fee
         amount = eur_amount / price
         self.data["cash"] -= final_cost
@@ -127,7 +131,7 @@ class Portfolio:
                 amount = slot.get("eur_amount") or slot.get("eurAmount") or 0
                 self.buy(
                     slot["symbol"],
-                    min(amount, self.cash / 1.001),
+                    min(amount, self.cash / (1 + FEE_RATE)),
                     slot["price"],
                     slot["reason"],
                     meta=_slot_meta(slot),
@@ -140,7 +144,7 @@ class Portfolio:
                 break
             slots_left = count - i
             slot = slots[i]
-            buy_amount = self.cash / (slots_left * 1.001)
+            buy_amount = self.cash / (slots_left * (1 + FEE_RATE))
             self.buy(slot["symbol"], buy_amount, slot["price"], slot["reason"], meta=_slot_meta(slot))
 
     def sell(
@@ -156,7 +160,7 @@ class Portfolio:
             return False
 
         eur_total = amount * price
-        fee = eur_total * 0.001
+        fee = eur_total * FEE_RATE
         cost_basis = amount * holding["avgPrice"]
         profit = eur_total - cost_basis
         tax = 0.0
