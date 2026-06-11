@@ -770,7 +770,7 @@ Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
 2. Osta nousussa olevia, korkean volyymin kohteita — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti MUTTA älä churnaa (max 1 rotaatio / 30 min)
-4. Salkussa 1–4 kryptoa — valitse ITSE montako (top_picks 1–4 kohdetta). EI pakko neljää; 1 vahva riittää. KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
+4. Salkussa 1–5 kryptoa — valitse ITSE montako (top_picks 1–5 kohdetta). EI pakko viittä; 1 vahva riittää. KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
 5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
 6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
@@ -782,7 +782,7 @@ Kaupankäyntisäännöt (voitto edellä):
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
 - markkinadata = top 20 volyymillä + omistukset (yksityiskohtainen data) — vertaa jokaista nykyisiin positioihin
-- top_picks = parhaat 1–4 (momentum_johtajat + markkinadata yhdessä; ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
+- top_picks = parhaat 1–5 (momentum_johtajat + markkinadata yhdessä; ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
 - Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa johtajalistalta
 - signals: jokainen held-positio + KAIKKI top_picks + vähintään 3 parasta momentum_johtajaa joita et osta (action hold/buy)
 
@@ -813,7 +813,7 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
   ]
 }}
 
-top_picks = 1–4 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta).
+top_picks = 1–5 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta).
 allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
 signals = held-positiot + top_picks + vähintään 3 parasta momentum_johtajaa (max 20 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
 Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.

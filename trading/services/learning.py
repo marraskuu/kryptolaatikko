@@ -17,6 +17,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from .ai_trader import MAX_POSITIONS
 from .trade_meta import entry_meta_from_trade
 
 _GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
@@ -230,7 +231,7 @@ def _apply_category_tuning(
     gemini_sell_min_confidence = 0
     gemini_sell_scale = 1.0
     entry_score_min = 1
-    max_new_positions = 4
+    max_new_positions = MAX_POSITIONS
 
     rot = stats.get("rotation", {})
     rot_n = int(rot.get("trades", 0))
@@ -420,7 +421,7 @@ def _compute_regime_tuning(
         if params["samples"] >= MIN_SAMPLES_REGIME:
             if params["entry_score_min"] != 1:
                 overrides["entry_score_min"] = params["entry_score_min"]
-            if params["max_new_positions"] != 4:
+            if params["max_new_positions"] != MAX_POSITIONS:
                 overrides["max_new_positions"] = params["max_new_positions"]
 
         if overrides:

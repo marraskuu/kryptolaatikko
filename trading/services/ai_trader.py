@@ -963,7 +963,7 @@ def _plan_initial_allocation(
     return planned
 
 
-MAX_POSITIONS = 4
+MAX_POSITIONS = 5
 
 
 def _technical_leader_symbols(
@@ -985,7 +985,7 @@ def _technical_leader_symbols(
 
 
 def _gemini_desired_symbols(gemini_insights: dict[str, Any] | None) -> list[str]:
-    """Gemini valitsee 1–4 kohdetta — ei pakota neljää."""
+    """Gemini valitsee 1–5 kohdetta — ei pakota viittä."""
     if not gemini_insights:
         return []
     seen: set[str] = set()

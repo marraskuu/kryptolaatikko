@@ -406,7 +406,8 @@ function renderMarketList() {
     return (b[1].volumeEur || 0) - (a[1].volumeEur || 0);
   });
 
-  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${heldSet.size} (max 4)`;
+  const maxPos = state.maxPositions ?? 5;
+  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${heldSet.size} (max ${maxPos})`;
 
   if (entries.length === 0) {
     els.marketList.innerHTML = '<p class="empty-log">Ladataan markkinoita…</p>';

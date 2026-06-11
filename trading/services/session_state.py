@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from .ai_trader import MAX_POSITIONS
 from .gemini import get_status as gemini_status_snapshot
 from .portfolio import Portfolio, default_portfolio
 
@@ -136,6 +137,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "realizedBreakdown": realized,
         },
         "marketCount": len(tickers),
+        "maxPositions": MAX_POSITIONS,
         "tradeIntervalSec": trade_interval,
         "nextTradeInSec": next_trade_in,
         "lastUpdate": _now_iso() if last_trade_ms or tickers else None,
