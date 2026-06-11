@@ -14,6 +14,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _year_of(iso: Any) -> int | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        return dt.year
+    except (ValueError, TypeError):
+        return None
+
+
 def default_portfolio() -> dict[str, Any]:
     return {
         "initialCapital": INITIAL_CAPITAL,
@@ -167,10 +177,13 @@ class Portfolio:
 
         if profit > 0:
             tax = profit * TAX_RATE
+            # Veroa EI vähennetä salkusta — käyttäjä maksaa pääomatuloveron itse
+            # jälkikäteen. Tax kirjataan vain raportointia varten (vuosittainen
+            # arvio). Salkku kasvaa täydellä myyntisummalla.
             self.data["totalTaxPaid"] += tax
             self.data["totalRealizedProfit"] += profit
 
-        self.data["cash"] += eur_total - fee - tax
+        self.data["cash"] += eur_total - fee
         holding["amount"] -= amount
         if holding["amount"] < 0.00000001:
             del self.holdings[symbol]
@@ -194,22 +207,6 @@ class Portfolio:
         if meta:
             trade.update(meta)
         self.trades.insert(0, trade)
-
-        if tax > 0:
-            self.data["tradeId"] += 1
-            self.trades.insert(
-                0,
-                {
-                    "id": self.data["tradeId"],
-                    "type": "tax",
-                    "symbol": symbol,
-                    "eurTotal": tax,
-                    "profit": profit,
-                    "tax": tax,
-                    "timestamp": _now_iso(),
-                    "reason": f"30 % vero voitosta ({profit:.2f} €)",
-                },
-            )
         return True
 
     def get_total_value(self, tickers: dict[str, dict[str, Any]]) -> float:
@@ -236,12 +233,47 @@ class Portfolio:
                 unrealized += gain
         return unrealized
 
-    def get_tax_summary(self, tickers: dict[str, dict[str, Any]]) -> dict[str, float]:
+    def realized_profit_by_year(self) -> dict[int, float]:
+        """Toteutunut nettomyyntivoitto (voitot - tappiot) kalenterivuosittain."""
+        by_year: dict[int, float] = {}
+        for t in self.trades:
+            if t.get("type") != "sell":
+                continue
+            year = _year_of(t.get("timestamp"))
+            if year is None:
+                continue
+            by_year[year] = by_year.get(year, 0.0) + float(t.get("profitLoss") or 0.0)
+        return by_year
+
+    def get_tax_summary(self, tickers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Verot myyntivoitoista kalenterivuosittain (1.1.–31.12.).
+
+        Veroa ei vähennetä salkusta — tämä on arvio siitä, paljonko pääomatuloveroa
+        (30 %) on tulossa maksettavaksi kultakin vuodelta toteutuneista myyntivoitoista
+        (tappiot vähentävät saman vuoden voittoja).
+        """
+        by_year = self.realized_profit_by_year()
+        current_year = datetime.now(timezone.utc).year
+        previous_year = current_year - 1
+
+        def tax_for(year: int) -> float:
+            return max(0.0, by_year.get(year, 0.0)) * TAX_RATE
+
         unrealized = self.get_unrealized_profit(tickers)
         estimated_tax = unrealized * TAX_RATE
+
         return {
-            "totalTaxPaid": self.data["totalTaxPaid"],
-            "estimatedTax": estimated_tax,
-            "totalTaxLiability": self.data["totalTaxPaid"] + estimated_tax,
-            "unrealizedProfit": unrealized,
+            "currentYear": current_year,
+            "currentYearRealized": round(by_year.get(current_year, 0.0), 2),
+            "currentYearTax": round(tax_for(current_year), 2),
+            "previousYear": previous_year,
+            "previousYearRealized": (
+                round(by_year[previous_year], 2) if previous_year in by_year else None
+            ),
+            "previousYearTax": (
+                round(tax_for(previous_year), 2) if previous_year in by_year else None
+            ),
+            "estimatedTax": round(estimated_tax, 2),
+            "unrealizedProfit": round(unrealized, 2),
+            "totalTaxOwed": round(self.data.get("totalTaxPaid", 0.0), 2),
         }

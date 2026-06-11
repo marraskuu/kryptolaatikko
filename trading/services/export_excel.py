@@ -120,7 +120,7 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
     ws_summary.append(["Myyntejä (kpl)", len(sells)])
     ws_summary.append(["Voitot ja tappiot yhteensä (EUR)", _fmt_pnl(total_profit) or "0,00"])
     ws_summary.append(
-        ["Maksettu vero 30 % (EUR)", round(portfolio.data["totalTaxPaid"], 2)]
+        ["Vero myyntivoitoista 30 % (EUR, maksat itse)", round(portfolio.data["totalTaxPaid"], 2)]
     )
     ws_summary.append(["", ""])
     ws_summary.append(

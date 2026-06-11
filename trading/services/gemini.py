@@ -746,7 +746,7 @@ Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = "regi
 
 Kustannukset:
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
-- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista — tämä on ainoa rotaation kustannus. Älä realisoi voittoja turhaan; anna voittajien juosta (vero lykkääntyy).
+- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista maksetaan ERIKSEEN (ei vähennetä salkusta) — ei estä rotaatiota. Anna silti selkeiden voittajien juosta.
 - Rotaatiota max kerran {costs.get('min_minutes_between_rotations', 30)} min (paitsi stop-loss / voitto-myynti)
 - Koska kuluja ei ole, voit rotatoida vapaammin heikoista vahvempiin — vältä silti turhaa noise-heittelyä ja tappioiden lukitsemista
 

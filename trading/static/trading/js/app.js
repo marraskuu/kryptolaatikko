@@ -232,7 +232,9 @@ const els = {
   statBreakdown: document.getElementById("stat-breakdown"),
   statCash: document.getElementById("stat-cash"),
   statCryptoHoldings: document.getElementById("stat-crypto-holdings"),
-  statTaxPaid: document.getElementById("stat-tax-paid"),
+  statTaxLabel: document.getElementById("stat-tax-label"),
+  statTaxYear: document.getElementById("stat-tax-year"),
+  statTaxPrevious: document.getElementById("stat-tax-previous"),
   statTaxEstimate: document.getElementById("stat-tax-estimate"),
   statTrades: document.getElementById("stat-trades"),
   statTradesMonth: document.getElementById("stat-trades-month"),
@@ -296,14 +298,26 @@ function renderStats() {
   if (els.statTrades24h) {
     els.statTrades24h.textContent = `Viime 24 h: ${tradeCounts.last24h}`;
   }
-  els.statTaxPaid.textContent = formatEur(s.totalTaxPaid ?? 0);
-  els.statTaxEstimate.textContent = `Arvio avoimista: ${formatEur(s.estimatedTax ?? 0)}`;
+  const taxYear = s.taxCurrentYearLabel;
+  if (els.statTaxLabel && taxYear) {
+    els.statTaxLabel.textContent = `Vero myyntivoitoista ${taxYear} (30 %)`;
+  }
+  els.statTaxYear.textContent = formatEur(s.taxCurrentYear ?? 0);
+  if (els.statTaxPrevious) {
+    if (s.taxPreviousYear != null) {
+      els.statTaxPrevious.textContent = `${s.taxPreviousYearLabel}: ${formatEur(s.taxPreviousYear)}`;
+    } else {
+      els.statTaxPrevious.textContent = "";
+    }
+  }
+  els.statTaxEstimate.textContent = `Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
 
   const pnl = s.pnl ?? 0;
   const pnlPct = s.pnlPct ?? 0;
   const pnlClass = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
   const sign = pnl >= 0 ? "+" : "";
-  const taxNote = (s.totalTaxPaid ?? 0) > 0 ? ` · vero ${formatEur(s.totalTaxPaid)}` : "";
+  const taxNote =
+    (s.taxCurrentYear ?? 0) > 0 ? ` · vero ${taxYear} ${formatEur(s.taxCurrentYear)}` : "";
   els.statPnl.textContent = `${sign}${formatEur(pnl).replace("€", "").trim()} € (${formatPct(pnlPct)})${taxNote}`;
   els.statPnl.className = `stat-change ${pnlClass}`;
 }

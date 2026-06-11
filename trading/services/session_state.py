@@ -97,12 +97,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     tickers = state["tickers"]
     total_value = portfolio.get_total_value(tickers) if tickers else portfolio.cash
     pnl = portfolio.get_pnl(total_value)
-    tax = portfolio.get_tax_summary(tickers) if tickers else {
-        "totalTaxPaid": portfolio.data["totalTaxPaid"],
-        "estimatedTax": 0,
-        "totalTaxLiability": portfolio.data["totalTaxPaid"],
-        "unrealizedProfit": 0,
-    }
+    tax = portfolio.get_tax_summary(tickers or {})
 
     trade_interval = TRADE_INTERVAL_MS // 1000
     last_trade_ms = state.get("lastTradeTick") or 0
@@ -130,7 +125,12 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "pnlPct": pnl["pnlPct"],
             "cash": portfolio.cash,
             "tradeCount": len([t for t in portfolio.trades if t["type"] != "tax"]),
-            "totalTaxPaid": tax["totalTaxPaid"],
+            "taxCurrentYear": tax["currentYearTax"],
+            "taxCurrentYearLabel": tax["currentYear"],
+            "taxCurrentYearRealized": tax["currentYearRealized"],
+            "taxPreviousYear": tax["previousYearTax"],
+            "taxPreviousYearLabel": tax["previousYear"],
+            "taxPreviousYearRealized": tax["previousYearRealized"],
             "estimatedTax": tax["estimatedTax"],
         },
         "marketCount": len(tickers),

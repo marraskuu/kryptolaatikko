@@ -51,10 +51,11 @@ def _category(reason: str) -> str:
 
 
 def _net_eur(trade: dict[str, Any]) -> float:
+    # Veroa ei vähennetä salkusta (käyttäjä maksaa sen itse), joten oppiminen
+    # mittaa salkun todellista (veroa edeltävää) tuottoa. Kulut ovat 0.
     profit = float(trade.get("profitLoss") or 0)
     fee = float(trade.get("fee") or 0)
-    tax = float(trade.get("tax") or 0)
-    return profit - fee - tax
+    return profit - fee
 
 
 def _parse_time(iso: Any) -> datetime | None:
