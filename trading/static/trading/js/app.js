@@ -185,6 +185,8 @@ function applyPayload(data) {
     lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
     tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
     nextTradeInSec: data.nextTradeInSec ?? state.nextTradeInSec,
+    botStale: data.botStale ?? state.botStale,
+    botStaleSec: data.botStaleSec ?? state.botStaleSec,
   };
 
   syncTradeCountdownFromServer(data);
@@ -310,15 +312,15 @@ function renderUptime() {
 
 function syncTradeCountdownFromServer(data) {
   const interval = data.tradeIntervalSec ?? state.tradeIntervalSec ?? 60;
-  if (typeof data.nextTradeInSec === "number") {
-    nextTradeDeadlineMs = Date.now() + data.nextTradeInSec * 1000;
-    return;
-  }
   if (data.lastTradeAt) {
     const lastMs = new Date(data.lastTradeAt).getTime();
     if (Number.isFinite(lastMs)) {
       nextTradeDeadlineMs = lastMs + interval * 1000;
+      return;
     }
+  }
+  if (typeof data.nextTradeInSec === "number" && data.nextTradeInSec > 0) {
+    nextTradeDeadlineMs = Date.now() + data.nextTradeInSec * 1000;
   }
 }
 
@@ -354,7 +356,8 @@ function renderNextCountdown() {
     els.statNext.textContent = `${remaining}s`;
     return;
   }
-  if (computeTradeOverdueSec() > 90) {
+  const overdue = computeTradeOverdueSec();
+  if (state.botStale || overdue > 90) {
     els.statNext.textContent = "Odottaa…";
     els.statNext.classList.add("status-overdue");
   } else {

@@ -3,6 +3,8 @@ import os
 import threading
 import time
 
+from django.conf import settings
+
 from .engine import execute_trading_cycle, refresh_prices
 from .session_state import log_ai_event
 
@@ -18,6 +20,10 @@ PRICE_INTERVAL_SEC = 15
 TRADE_INTERVAL_SEC = 60
 LEARNING_CHECK_SEC = 300
 BOT_STALE_SEC = 90
+EMERGENCY_WAKE_COOLDOWN = 45
+EMERGENCY_WAKE_AFTER_SEC = 120
+
+_last_emergency_wake = 0.0
 
 
 def _schedule_analysis_tick() -> None:
@@ -156,18 +162,44 @@ def ensure_bot_worker() -> None:
     start_bot_worker()
 
 
-def bot_is_stale(state: dict) -> bool:
+def bot_stale_seconds(state: dict) -> float:
     last_ms = max(state.get("lastPriceTick") or 0, state.get("lastTradeTick") or 0)
     if not last_ms:
-        return True
-    return (time.time() - last_ms / 1000) >= BOT_STALE_SEC
+        return 9999.0
+    return max(0.0, time.time() - last_ms / 1000)
+
+
+def bot_is_stale(state: dict) -> bool:
+    return bot_stale_seconds(state) >= BOT_STALE_SEC
 
 
 def maybe_wake_bot(state: dict) -> None:
     """Herätä botti jos tila on vanhentunut — kutsutaan API-pyynnöistä."""
-    if not bot_is_stale(state):
-        return
-    logger.warning("Botti näyttää jumiutuneen — herätetään worker")
+    global _last_emergency_wake
+
     ensure_bot_worker()
+    stale_sec = bot_stale_seconds(state)
+    if stale_sec < BOT_STALE_SEC:
+        return
+
+    logger.warning("Botti näyttää jumiutuneen (%.0f s) — herätetään worker", stale_sec)
+    now = time.time()
+    if stale_sec >= EMERGENCY_WAKE_AFTER_SEC and now - _last_emergency_wake >= EMERGENCY_WAKE_COOLDOWN:
+        _last_emergency_wake = now
+        try:
+            refresh_prices()
+            with _cycle_thread_lock:
+                if not _cycle_thread_running:
+                    _cycle_thread_running = True
+                    _schedule_analysis_tick()
+                    threading.Thread(
+                        target=_run_trading_cycle_async,
+                        name="emergency-trading-cycle",
+                        daemon=True,
+                    ).start()
+            return
+        except Exception:
+            logger.exception("Hätäherätys epäonnistui")
+
     threading.Thread(target=refresh_prices, name="bot-wake-refresh", daemon=True).start()
     threading.Thread(target=_refresh_learning_report_async, name="bot-wake-learning", daemon=True).start()
