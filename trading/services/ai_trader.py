@@ -1050,6 +1050,10 @@ def make_trading_decisions(
     holdings = portfolio_data["holdings"]
     cash = portfolio_data["cash"]
     learning = learning or {}
+    from .learning import merge_regime_tuning
+    from .market_learning import setup_key_for_analysis
+
+    learning = merge_regime_tuning(learning, regime)
     rotation_scale = float(learning.get("rotation_scale", 1.0))
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
@@ -1062,9 +1066,15 @@ def make_trading_decisions(
     blocked_buys = {normalize_symbol(s) for s in (learning.get("blocked_buys") or [])}
     entry_score_min = int(learning.get("entry_score_min", 1))
     max_new_positions = max(1, int(learning.get("max_new_positions", MAX_POSITIONS)))
+    setup_memory = learning.get("setup_memory") or {}
 
     def _mem_adjust(symbol: str) -> float:
         m = symbol_memory.get(symbol) or symbol_memory.get(normalize_symbol(symbol))
+        return float(m.get("score_adjust", 0.0)) if m else 0.0
+
+    def _setup_adjust(analysis: dict[str, Any]) -> float:
+        key = setup_key_for_analysis(analysis, regime)
+        m = setup_memory.get(key)
         return float(m.get("score_adjust", 0.0)) if m else 0.0
 
     ranked = [
@@ -1073,7 +1083,8 @@ def make_trading_decisions(
             "analysis": analysis,
             "rank": analysis["score"]
             + _mem_adjust(symbol)
-            + float(analysis.get("condAdjust") or 0),
+            + float(analysis.get("condAdjust") or 0)
+            + _setup_adjust(analysis),
         }
         for symbol, analysis in analyses.items()
         if analysis.get("currentPrice", 0) > 0 and not is_stablecoin(symbol)

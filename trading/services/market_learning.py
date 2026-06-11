@@ -71,6 +71,11 @@ def _change_bucket(c: float) -> str:
     return "u10"
 
 
+def setup_key_for_analysis(analysis: dict[str, Any], regime: Any) -> str:
+    """Julkinen asetelma-avain (regiimi × 24h-muutos) — sama kuin varjo-oppimisessa."""
+    return _bucket_key(analysis, _regime_str(regime))
+
+
 def _bucket_key(analysis: dict[str, Any], regime: str) -> str:
     # Vakaat piirteet: regiimi (kiinteä kierroksella) + 24h-muutoshaarukka (ei muutu
     # Geminin/syväanalyysin myötä) → sama ämpäri näytteenotossa ja soveltamisessa.

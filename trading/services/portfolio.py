@@ -139,7 +139,8 @@ class Portfolio:
 
         def _slot_meta(slot: dict[str, Any]) -> dict[str, Any] | None:
             merged = dict(meta or {})
-            if slot.get("atrPct") is not None:
+            merged.update(slot.get("tradeMeta") or {})
+            if slot.get("atrPct") is not None and "atrPct" not in merged:
                 merged["atrPct"] = slot["atrPct"]
             return merged or None
 

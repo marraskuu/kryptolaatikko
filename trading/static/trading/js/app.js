@@ -648,6 +648,14 @@ function renderRegimeLearning() {
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
+  const activeRegime = regime?.regime;
+  if (activeRegime && learning?.regime_tuning?.[activeRegime]) {
+    html += `<span class="metric-chip" title="Regiimikohtainen säätö aktiivisessa markkinassa">🎯 ${activeRegime}</span>`;
+  }
+  const ownSetups = learning?.setup_memory ? Object.keys(learning.setup_memory).length : 0;
+  if (ownSetups > 0) {
+    html += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
+  }
   const ml = state.marketLearning;
   if (ml && (ml.bucketsLearned || ml.bucketsTracked)) {
     let title = "Koko markkinan varjo-oppiminen (signaalit → toteutunut 1h/4h tuotto)";

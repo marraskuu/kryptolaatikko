@@ -17,6 +17,7 @@ from .ai_trader import (
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
+from .trade_meta import meta_from_analysis
 from . import market_learning
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
@@ -105,7 +106,11 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
                 sell_amount,
                 ticker["last"],
                 result["reason"],
-                meta={"regime": regime, "atrPct": atr_pct},
+                meta=meta_from_analysis(
+                    state["analyses"].get(symbol),
+                    regime,
+                    for_sell=True,
+                ),
             )
             log_ai_event(state, "sell", get_crypto_label(symbol), result["reason"], eur_total)
             executed.append(
@@ -296,6 +301,7 @@ def execute_trading_cycle() -> dict[str, Any]:
                 "price": item["analysis"]["currentPrice"],
                 "eur_amount": item.get("eurAmount"),
                 "atrPct": (item.get("analysis") or {}).get("atrPct"),
+                "tradeMeta": meta_from_analysis(item.get("analysis"), regime),
                 "reason": format_initial_buy_reason(
                     item["analysis"],
                     get_crypto_label(item["symbol"]),
@@ -308,7 +314,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             }
             for i, item in enumerate(initial_allocation)
         ]
-        portfolio.allocate_initial(slots, meta={"regime": regime})
+        portfolio.allocate_initial(slots)
         for i, item in enumerate(initial_allocation):
             symbol = item["symbol"]
             label = get_crypto_label(symbol)
@@ -334,12 +340,13 @@ def execute_trading_cycle() -> dict[str, Any]:
             )
 
     for d in [x for x in decisions if x["type"] == "sell"]:
+        analysis = d.get("analysis") or {}
         portfolio.sell(
             d["symbol"],
             d["amount"],
-            d["analysis"]["currentPrice"],
+            analysis["currentPrice"],
             d["reason"],
-            meta={"regime": regime, "atrPct": (d.get("analysis") or {}).get("atrPct")},
+            meta=meta_from_analysis(analysis, regime, for_sell=True),
         )
         log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
         executed_sells.append(
@@ -353,12 +360,13 @@ def execute_trading_cycle() -> dict[str, Any]:
         )
 
     for d in [x for x in decisions if x["type"] == "buy"]:
+        analysis = d.get("analysis") or {}
         ok = portfolio.buy(
             d["symbol"],
             d["eurAmount"],
-            d["analysis"]["currentPrice"],
+            analysis["currentPrice"],
             d["reason"],
-            meta={"regime": regime, "atrPct": (d.get("analysis") or {}).get("atrPct")},
+            meta=meta_from_analysis(analysis, regime),
         )
         if ok:
             log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
