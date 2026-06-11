@@ -68,3 +68,18 @@ def start_bot_worker() -> None:
 
     thread = threading.Thread(target=_bot_loop, name="crypto-bot-worker", daemon=True)
     thread.start()
+
+    def _kick_learning_narrative() -> None:
+        time.sleep(5)
+        try:
+            from .learning_report import refresh_learning_report_if_due
+
+            state = load_state()
+            if not state.get("learningReport"):
+                return
+            refresh_learning_report_if_due(state)
+            save_state(state)
+        except Exception:
+            logger.exception("Oppimisraportin käynnistystarkistus epäonnistui")
+
+    threading.Thread(target=_kick_learning_narrative, name="learning-narrative-kick", daemon=True).start()

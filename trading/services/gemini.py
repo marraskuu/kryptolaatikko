@@ -64,7 +64,13 @@ def _model_candidates() -> list[str]:
     return models
 
 
-def _post_with_retry(url: str, api_key: str, prompt: str) -> requests.Response:
+def _post_with_retry(
+    url: str,
+    api_key: str,
+    prompt: str,
+    *,
+    timeout: int | None = None,
+) -> requests.Response:
     """POST Geminille; uudelleenyritys tilapäisille ruuhka-/ylikuormavirheille.
 
     Palauttaa vastauksen myös ei-2xx tilassa; lopullinen raise_for_status
@@ -82,8 +88,9 @@ def _post_with_retry(url: str, api_key: str, prompt: str) -> requests.Response:
         "x-goog-api-key": api_key,
     }
     last_response: requests.Response | None = None
+    request_timeout = timeout if timeout is not None else GEMINI_TIMEOUT
     for attempt in range(GEMINI_MAX_RETRIES + 1):
-        response = requests.post(url, headers=headers, json=payload, timeout=GEMINI_TIMEOUT)
+        response = requests.post(url, headers=headers, json=payload, timeout=request_timeout)
         last_response = response
         if response.status_code not in RETRYABLE_STATUS:
             return response
@@ -994,11 +1001,12 @@ Vastaa VAIN validilla JSON:lla:
     api_key = _read_api_key()
     configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
     models = _model_candidates(configured_model)
+    narrative_timeout = int(os.environ.get("LEARNING_NARRATIVE_TIMEOUT", "90"))
 
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            response = _post_with_retry(url, api_key, prompt)
+            response = _post_with_retry(url, api_key, prompt, timeout=narrative_timeout)
             response.raise_for_status()
             body = response.json()
             text = body["candidates"][0]["content"]["parts"][0]["text"]
