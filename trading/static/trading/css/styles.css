@@ -51,15 +51,30 @@ body::before {
 
 .header {
   display: flex;
+  justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 28px;
+  width: 100%;
 }
 
 .header-left {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.header-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: flex-start;
 }
 
 .logo {
@@ -78,13 +93,6 @@ h1 {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 
 .header-text {
@@ -1028,6 +1036,15 @@ h1 {
 }
 
 @media (max-width: 900px) {
+  .header {
+    flex-wrap: wrap;
+  }
+
+  .header-badges {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+
   .stats-row,
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
