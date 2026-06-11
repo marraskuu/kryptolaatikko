@@ -96,7 +96,10 @@ def _resolve_gemini_status(state: dict[str, Any]) -> dict[str, Any]:
 def _ms_to_iso(ms: int | float | None) -> str | None:
     if not ms:
         return None
-    return datetime.fromtimestamp(float(ms) / 1000, tz=timezone.utc).isoformat()
+    # Millisekuntitarkkuus — osa selaimista hylkää 6 desimaalin ISO-aikaleiman.
+    return datetime.fromtimestamp(float(ms) / 1000, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.%f"
+    )[:-3] + "Z"
 
 
 def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:

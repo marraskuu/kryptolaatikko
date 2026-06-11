@@ -312,15 +312,25 @@ function renderUptime() {
 
 function syncTradeCountdownFromServer(data) {
   const interval = data.tradeIntervalSec ?? state.tradeIntervalSec ?? 60;
+  // Palvelimen nextTradeInSec on auktoritatiivinen (ei riipu selaimen kellosta).
+  if (typeof data.nextTradeInSec === "number") {
+    const targetDeadline =
+      data.nextTradeInSec <= 0
+        ? Date.now()
+        : Date.now() + data.nextTradeInSec * 1000;
+    if (
+      nextTradeDeadlineMs == null ||
+      Math.abs(targetDeadline - nextTradeDeadlineMs) > 1500
+    ) {
+      nextTradeDeadlineMs = targetDeadline;
+    }
+    return;
+  }
   if (data.lastTradeAt) {
     const lastMs = new Date(data.lastTradeAt).getTime();
     if (Number.isFinite(lastMs)) {
       nextTradeDeadlineMs = lastMs + interval * 1000;
-      return;
     }
-  }
-  if (typeof data.nextTradeInSec === "number" && data.nextTradeInSec > 0) {
-    nextTradeDeadlineMs = Date.now() + data.nextTradeInSec * 1000;
   }
 }
 
