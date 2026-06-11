@@ -480,17 +480,42 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     return report
 
 
-def clear_stale_narrative_error(state: dict[str, Any]) -> None:
+def clear_stale_narrative_error(state: dict[str, Any]) -> bool:
     """Poista tallennettu virhe jos kertomusta ei vielä ole — sallii uudelleenyrityksen deployn jälkeen."""
     if _has_narrative_story(state, state.get("learningReport")):
-        return
+        return False
+    had_error = bool(
+        state.get("learningNarrativeError")
+        or (state.get("learningReport") or {}).get("narrativeError")
+    )
+    if not had_error:
+        return False
     state.pop("learningNarrativeError", None)
     cached = state.get("learningReport")
-    if not isinstance(cached, dict):
-        return
-    report = dict(cached)
-    report.pop("narrativeError", None)
-    state["learningReport"] = report
+    if isinstance(cached, dict):
+        report = dict(cached)
+        report.pop("narrativeError", None)
+        state["learningReport"] = report
+    return True
+
+
+def needs_learning_report_refresh(state: dict[str, Any]) -> bool:
+    """Tarvitaanko oppimisraporttiin kirjoitus/Gemini-kutsu (ei joka minuutti)."""
+    cached = state.get("learningReport")
+    last_ms = _last_report_ms(state)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    due = not cached or not last_ms or (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000
+    if due:
+        return True
+    if not cached:
+        return False
+    report = _merge_cached_learning_report(state, cached)
+    narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
+    if narrative_error and not _has_narrative_story(state, report):
+        return True
+    if _narrative_pending_stale(state, report):
+        return True
+    return False
 
 
 def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:

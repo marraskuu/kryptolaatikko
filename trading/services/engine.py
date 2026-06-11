@@ -17,7 +17,6 @@ from .ai_trader import (
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
-from .learning_report import refresh_learning_report_if_due
 from .trade_meta import meta_from_analysis
 from . import market_learning
 from .portfolio import Portfolio
@@ -206,15 +205,9 @@ def execute_trading_cycle() -> dict[str, Any]:
         _cycle_started_at = time.time()
 
     try:
-        refresh_prices()
         state = load_state()
         if state.get("error"):
             return build_api_payload(state)
-
-        # Näytä 60 s countdown heti kun analyysi alkaa (ei vasta lopussa).
-        state["lastTradeTick"] = int(time.time() * 1000)
-        state["running"] = True
-        save_state(state)
 
         _refresh_analyses(state)
         _enrich_holdings(state)
@@ -442,10 +435,6 @@ def execute_trading_cycle() -> dict[str, Any]:
             log_watch_event(state, w["symbol"], state["profitWatch"].get(w["symbol"]))
 
         state["portfolio"] = portfolio.to_dict()
-        save_state(state)
-
-        state["learningReport"] = refresh_learning_report_if_due(state)
-
         save_state(state)
 
         payload = build_api_payload(state)

@@ -10,37 +10,89 @@ logger = logging.getLogger(__name__)
 
 _worker_started = False
 _worker_lock = threading.Lock()
+_cycle_thread_lock = threading.Lock()
+_cycle_thread_running = False
 
 PRICE_INTERVAL_SEC = 15
 TRADE_INTERVAL_SEC = 60
-LEARNING_REFRESH_SEC = 60
+LEARNING_CHECK_SEC = 300
 
 
-def _refresh_learning_report_state() -> None:
-    from .learning_report import clear_stale_narrative_error, refresh_learning_report_if_due
+def _schedule_analysis_tick() -> None:
     from .state_store import load_state, save_state
 
     state = load_state()
-    clear_stale_narrative_error(state)
+    state["lastTradeTick"] = int(time.time() * 1000)
+    state["running"] = True
+    save_state(state)
+
+
+def _run_trading_cycle_async() -> None:
+    global _cycle_thread_running
+    try:
+        execute_trading_cycle()
+    except Exception:
+        logger.exception("Kaupankäyntikierros epäonnistui")
+    finally:
+        with _cycle_thread_lock:
+            _cycle_thread_running = False
+
+
+def _refresh_learning_report_state() -> None:
+    from .learning_report import (
+        clear_stale_narrative_error,
+        needs_learning_report_refresh,
+        refresh_learning_report_if_due,
+    )
+    from .state_store import load_state, save_state
+
+    state = load_state()
+    changed = clear_stale_narrative_error(state)
+    if not needs_learning_report_refresh(state):
+        if changed:
+            save_state(state)
+        return
     refresh_learning_report_if_due(state)
     save_state(state)
 
 
+def _refresh_learning_report_async() -> None:
+    try:
+        _refresh_learning_report_state()
+    except Exception:
+        logger.exception("Oppimisraportin taustapäivitys epäonnistui")
+
+
 def _bot_loop() -> None:
+    global _cycle_thread_running
     logger.info("Botti-worker käynnistyi (kurssit %ss, kaupat %ss)", PRICE_INTERVAL_SEC, TRADE_INTERVAL_SEC)
     last_trade = 0.0
-    last_learning_refresh = 0.0
+    last_learning_check = 0.0
 
     while True:
         try:
             refresh_prices()
             now = time.time()
-            if now - last_learning_refresh >= LEARNING_REFRESH_SEC:
-                _refresh_learning_report_state()
-                last_learning_refresh = now
+
+            if now - last_learning_check >= LEARNING_CHECK_SEC:
+                threading.Thread(
+                    target=_refresh_learning_report_async,
+                    name="learning-report-refresh",
+                    daemon=True,
+                ).start()
+                last_learning_check = now
+
             if now - last_trade >= TRADE_INTERVAL_SEC:
-                last_trade = now
-                execute_trading_cycle()
+                with _cycle_thread_lock:
+                    if not _cycle_thread_running:
+                        _cycle_thread_running = True
+                        last_trade = now
+                        _schedule_analysis_tick()
+                        threading.Thread(
+                            target=_run_trading_cycle_async,
+                            name="trading-cycle",
+                            daemon=True,
+                        ).start()
         except Exception:
             logger.exception("Botti-worker virhe")
         time.sleep(PRICE_INTERVAL_SEC)
@@ -86,9 +138,6 @@ def start_bot_worker() -> None:
 
     def _kick_learning_narrative() -> None:
         time.sleep(5)
-        try:
-            _refresh_learning_report_state()
-        except Exception:
-            logger.exception("Oppimisraportin käynnistystarkistus epäonnistui")
+        _refresh_learning_report_async()
 
     threading.Thread(target=_kick_learning_narrative, name="learning-narrative-kick", daemon=True).start()

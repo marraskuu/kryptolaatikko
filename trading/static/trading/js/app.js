@@ -354,7 +354,7 @@ function renderNextCountdown() {
     els.statNext.textContent = `${remaining}s`;
     return;
   }
-  if (computeTradeOverdueSec() > 180) {
+  if (computeTradeOverdueSec() > 90) {
     els.statNext.textContent = "Odottaa…";
     els.statNext.classList.add("status-overdue");
   } else {
