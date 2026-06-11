@@ -184,8 +184,8 @@ h1 {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 20px;
   margin-bottom: 24px;
 }
 
@@ -979,11 +979,21 @@ h1 {
 }
 
 @media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .main-grid {
     grid-template-columns: 1fr;
   }
 
   .crypto-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 }
