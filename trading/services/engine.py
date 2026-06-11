@@ -32,7 +32,9 @@ from .state_store import load_state, save_state
 logger = logging.getLogger(__name__)
 
 _cycle_running = False
+_cycle_started_at = 0.0
 _cycle_running_lock = threading.Lock()
+CYCLE_LOCK_STALE_SEC = int(os.environ.get("CYCLE_LOCK_STALE_SEC", "180"))
 
 # Gemini-kutsuväli sekunteina — kytketty irti 60 s kaupankäyntikierroksesta
 # kustannusten hillitsemiseksi. Tekninen analyysi pyörii joka kierroksella.
@@ -187,13 +189,21 @@ def refresh_prices() -> dict[str, Any]:
 
 
 def execute_trading_cycle() -> dict[str, Any]:
-    global _cycle_running
+    global _cycle_running, _cycle_started_at
 
     with _cycle_running_lock:
         if _cycle_running:
-            logger.info("Kaupankäyntikierros ohitetaan — edellinen vielä käynnissä")
-            return build_api_payload(load_state())
+            stale_for = time.time() - _cycle_started_at
+            if stale_for < CYCLE_LOCK_STALE_SEC:
+                logger.info("Kaupankäyntikierros ohitetaan — edellinen vielä käynnissä")
+                return build_api_payload(load_state())
+            logger.warning(
+                "Kaupankäyntikierros jumissa %.0f s — nollataan lukitus",
+                stale_for,
+            )
+            _cycle_running = False
         _cycle_running = True
+        _cycle_started_at = time.time()
 
     try:
         refresh_prices()

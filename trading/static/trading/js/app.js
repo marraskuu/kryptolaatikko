@@ -17,6 +17,7 @@ let marketSearch = "";
 let pollTimer = null;
 let countdownTimer = null;
 let lastLearningReportBodyKey = "";
+let nextTradeDeadlineMs = null;
 
 async function fetchState() {
   const res = await fetch("/api/state/", {
@@ -186,6 +187,8 @@ function applyPayload(data) {
     nextTradeInSec: data.nextTradeInSec ?? state.nextTradeInSec,
   };
 
+  syncTradeCountdownFromServer(data);
+
   const providerBadge = document.getElementById("ai-provider-badge");
   const geminiBadge = document.getElementById("gemini-badge");
   let geminiNotice = "";
@@ -305,14 +308,25 @@ function renderUptime() {
   els.statUptime.textContent = formatUptime(state.botStartedAt);
 }
 
+function syncTradeCountdownFromServer(data) {
+  const interval = data.tradeIntervalSec ?? state.tradeIntervalSec ?? 60;
+  if (typeof data.nextTradeInSec === "number") {
+    nextTradeDeadlineMs = Date.now() + data.nextTradeInSec * 1000;
+    return;
+  }
+  if (data.lastTradeAt) {
+    const lastMs = new Date(data.lastTradeAt).getTime();
+    if (Number.isFinite(lastMs)) {
+      nextTradeDeadlineMs = lastMs + interval * 1000;
+    }
+  }
+}
+
 function computeNextTradeSec() {
   const interval = state.tradeIntervalSec || 60;
-  if (state.lastTradeAt) {
-    const lastMs = new Date(state.lastTradeAt).getTime();
-    if (Number.isFinite(lastMs)) {
-      const elapsed = Math.max(0, Math.floor((Date.now() - lastMs) / 1000));
-      return Math.min(interval, Math.max(0, interval - elapsed));
-    }
+  if (nextTradeDeadlineMs != null) {
+    const remaining = Math.ceil((nextTradeDeadlineMs - Date.now()) / 1000);
+    return Math.min(interval, Math.max(0, remaining));
   }
   if (typeof state.nextTradeInSec === "number") {
     return Math.min(interval, Math.max(0, state.nextTradeInSec));
@@ -321,12 +335,15 @@ function computeNextTradeSec() {
 }
 
 function computeTradeOverdueSec() {
+  if (nextTradeDeadlineMs != null) {
+    return Math.max(0, Math.ceil((Date.now() - nextTradeDeadlineMs) / 1000));
+  }
   const interval = state.tradeIntervalSec || 60;
   if (!state.lastTradeAt) return 0;
   const lastMs = new Date(state.lastTradeAt).getTime();
   if (!Number.isFinite(lastMs)) return 0;
   const elapsed = Math.max(0, Math.floor((Date.now() - lastMs) / 1000));
-  return elapsed - interval;
+  return Math.max(0, elapsed - interval);
 }
 
 function renderNextCountdown() {
