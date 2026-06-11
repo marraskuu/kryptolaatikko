@@ -24,8 +24,8 @@ def _bot_loop() -> None:
             refresh_prices()
             now = time.time()
             if now - last_trade >= TRADE_INTERVAL_SEC:
-                execute_trading_cycle()
                 last_trade = now
+                execute_trading_cycle()
         except Exception:
             logger.exception("Botti-worker virhe")
         time.sleep(PRICE_INTERVAL_SEC)

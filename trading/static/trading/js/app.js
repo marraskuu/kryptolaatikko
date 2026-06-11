@@ -310,11 +310,12 @@ function computeNextTradeSec() {
   if (state.lastTradeAt) {
     const lastMs = new Date(state.lastTradeAt).getTime();
     if (Number.isFinite(lastMs)) {
-      return Math.max(0, interval - Math.floor((Date.now() - lastMs) / 1000));
+      const elapsed = Math.max(0, Math.floor((Date.now() - lastMs) / 1000));
+      return Math.min(interval, Math.max(0, interval - elapsed));
     }
   }
   if (typeof state.nextTradeInSec === "number") {
-    return Math.max(0, state.nextTradeInSec);
+    return Math.min(interval, Math.max(0, state.nextTradeInSec));
   }
   return interval;
 }
@@ -324,7 +325,8 @@ function computeTradeOverdueSec() {
   if (!state.lastTradeAt) return 0;
   const lastMs = new Date(state.lastTradeAt).getTime();
   if (!Number.isFinite(lastMs)) return 0;
-  return Math.floor((Date.now() - lastMs) / 1000) - interval;
+  const elapsed = Math.max(0, Math.floor((Date.now() - lastMs) / 1000));
+  return elapsed - interval;
 }
 
 function renderNextCountdown() {

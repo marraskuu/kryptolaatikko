@@ -31,6 +31,9 @@ from .state_store import load_state, save_state
 
 logger = logging.getLogger(__name__)
 
+_cycle_running = False
+_cycle_running_lock = threading.Lock()
+
 # Gemini-kutsuväli sekunteina — kytketty irti 60 s kaupankäyntikierroksesta
 # kustannusten hillitsemiseksi. Tekninen analyysi pyörii joka kierroksella.
 GEMINI_INTERVAL_SEC = int(os.environ.get("GEMINI_INTERVAL_SEC", "600"))
@@ -184,194 +187,187 @@ def refresh_prices() -> dict[str, Any]:
 
 
 def execute_trading_cycle() -> dict[str, Any]:
-    refresh_prices()
-    state = load_state()
-    if state.get("error"):
-        return build_api_payload(state)
+    global _cycle_running
 
-    _refresh_analyses(state)
-    _enrich_holdings(state)
+    with _cycle_running_lock:
+        if _cycle_running:
+            logger.info("Kaupankäyntikierros ohitetaan — edellinen vielä käynnissä")
+            return build_api_payload(load_state())
+        _cycle_running = True
 
-    # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
-    regime_info = compute_market_regime(state["tickers"], state["analyses"])
-    regime = regime_info["regime"]
-    state["regime"] = regime_info
-    learning = compute_tuning(state["portfolio"])
-    state["learning"] = learning
-
-    # Koko markkinan varjo-oppiminen: signaalit → toteutunut 1h/4h tuotto kaikille
-    ml_stats: dict[str, Any] = {}
     try:
-        ml_stats, ml_summary = market_learning.step(
-            state["tickers"], state["analyses"], regime
-        )
-        state["marketLearning"] = ml_summary
-        learning["market_setups"] = ml_summary
-    except Exception:
-        logger.warning("Market learning step failed", exc_info=True)
+        refresh_prices()
+        state = load_state()
+        if state.get("error"):
+            return build_api_payload(state)
 
-    gemini_insights = None
-    now_ms = int(time.time() * 1000)
-    last_gemini_ms = state.get("lastGeminiTick") or 0
-    due_for_gemini = (now_ms - last_gemini_ms) >= GEMINI_INTERVAL_SEC * 1000
+        # Näytä 60 s countdown heti kun analyysi alkaa (ei vasta lopussa).
+        state["lastTradeTick"] = int(time.time() * 1000)
+        state["running"] = True
+        save_state(state)
 
-    if gemini_configured() and due_for_gemini:
-        enrich_analyses_for_gemini(
-            state["tickers"],
-            state["analyses"],
-            state["portfolio"],
-            fetch_candles,
-        )
-        gemini_insights, gemini_status = advise_portfolio(
-            state["tickers"],
-            state["analyses"],
-            state["portfolio"],
-            get_crypto_label,
-            last_gemini_snapshot=state.get("lastGeminiSnapshot"),
-            regime=regime_info,
-            learning=learning,
-        )
-        if gemini_insights and gemini_status.get("ok"):
-            apply_gemini_insights(state["analyses"], gemini_insights)
-            state["lastGeminiTick"] = now_ms
-            state["geminiInsights"] = gemini_insights
-            log_ai_event(
-                state,
-                "info",
-                "Gemini",
-                gemini_status.get("message", "Analyysi valmis"),
+        _refresh_analyses(state)
+        _enrich_holdings(state)
+
+        # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
+        regime_info = compute_market_regime(state["tickers"], state["analyses"])
+        regime = regime_info["regime"]
+        state["regime"] = regime_info
+        learning = compute_tuning(state["portfolio"])
+        state["learning"] = learning
+
+        # Koko markkinan varjo-oppiminen: signaalit → toteutunut 1h/4h tuotto kaikille
+        ml_stats: dict[str, Any] = {}
+        try:
+            ml_stats, ml_summary = market_learning.step(
+                state["tickers"], state["analyses"], regime
             )
-            portfolio_for_snap = Portfolio(state["portfolio"])
-            snap_value = portfolio_for_snap.get_total_value(state["tickers"])
-            state["lastGeminiSnapshot"] = {
-                "timestamp": _now_iso(),
-                "top_picks": list(gemini_insights.get("top_picks") or []),
-                "total_value": round(snap_value, 2),
-            }
-        else:
-            # Kutsu epäonnistui — käytä viimeisintä onnistunutta analyysiä
+            state["marketLearning"] = ml_summary
+            learning["market_setups"] = ml_summary
+        except Exception:
+            logger.warning("Market learning step failed", exc_info=True)
+
+        gemini_insights = None
+        now_ms = int(time.time() * 1000)
+        last_gemini_ms = state.get("lastGeminiTick") or 0
+        due_for_gemini = (now_ms - last_gemini_ms) >= GEMINI_INTERVAL_SEC * 1000
+
+        if gemini_configured() and due_for_gemini:
+            enrich_analyses_for_gemini(
+                state["tickers"],
+                state["analyses"],
+                state["portfolio"],
+                fetch_candles,
+            )
+            gemini_insights, gemini_status = advise_portfolio(
+                state["tickers"],
+                state["analyses"],
+                state["portfolio"],
+                get_crypto_label,
+                last_gemini_snapshot=state.get("lastGeminiSnapshot"),
+                regime=regime_info,
+                learning=learning,
+            )
+            if gemini_insights and gemini_status.get("ok"):
+                apply_gemini_insights(state["analyses"], gemini_insights)
+                state["lastGeminiTick"] = now_ms
+                state["geminiInsights"] = gemini_insights
+                log_ai_event(
+                    state,
+                    "info",
+                    "Gemini",
+                    gemini_status.get("message", "Analyysi valmis"),
+                )
+                portfolio_for_snap = Portfolio(state["portfolio"])
+                snap_value = portfolio_for_snap.get_total_value(state["tickers"])
+                state["lastGeminiSnapshot"] = {
+                    "timestamp": _now_iso(),
+                    "top_picks": list(gemini_insights.get("top_picks") or []),
+                    "total_value": round(snap_value, 2),
+                }
+            else:
+                # Kutsu epäonnistui — käytä viimeisintä onnistunutta analyysiä
+                gemini_insights = state.get("geminiInsights")
+                if gemini_insights:
+                    apply_gemini_insights(state["analyses"], gemini_insights)
+        elif gemini_configured():
+            # Throttle: käytä välimuistissa olevaa analyysiä, ei uutta API-kutsua
             gemini_insights = state.get("geminiInsights")
             if gemini_insights:
                 apply_gemini_insights(state["analyses"], gemini_insights)
-    elif gemini_configured():
-        # Throttle: käytä välimuistissa olevaa analyysiä, ei uutta API-kutsua
-        gemini_insights = state.get("geminiInsights")
-        if gemini_insights:
-            apply_gemini_insights(state["analyses"], gemini_insights)
-        gemini_status = state.get("geminiStatus") or gemini_status_snapshot()
-    else:
-        gemini_status = gemini_status_snapshot()
-    state["geminiStatus"] = gemini_status
+            gemini_status = state.get("geminiStatus") or gemini_status_snapshot()
+        else:
+            gemini_status = gemini_status_snapshot()
+        state["geminiStatus"] = gemini_status
 
-    # Liitä opittu olosuhdesäätö lopullisiin analyyseihin (myös Gemini-syväanalyysin jälkeen)
-    try:
-        market_learning.apply(state["analyses"], regime, ml_stats)
-    except Exception:
-        logger.warning("Market learning apply failed", exc_info=True)
+        # Liitä opittu olosuhdesäätö lopullisiin analyyseihin (myös Gemini-syväanalyysin jälkeen)
+        try:
+            market_learning.apply(state["analyses"], regime, ml_stats)
+        except Exception:
+            logger.warning("Market learning apply failed", exc_info=True)
 
-    portfolio = Portfolio(state["portfolio"])
-    profit_sells = _check_profit_sells(state, portfolio)
+        portfolio = Portfolio(state["portfolio"])
+        profit_sells = _check_profit_sells(state, portfolio)
 
-    total_value = portfolio.get_total_value(state["tickers"])
-    gemini_picks = (gemini_insights or {}).get("top_picks") if gemini_insights else None
-    decision_result = make_trading_decisions(
-        state["analyses"],
-        portfolio.to_dict(),
-        total_value,
-        get_crypto_label,
-        gemini_insights=gemini_insights,
-        gemini_picks=gemini_picks,
-        regime=regime,
-        learning=learning,
-    )
-    decisions = decision_result["decisions"]
-    state["activeSymbols"] = decision_result.get("topSymbols", [])
+        total_value = portfolio.get_total_value(state["tickers"])
+        gemini_picks = (gemini_insights or {}).get("top_picks") if gemini_insights else None
+        decision_result = make_trading_decisions(
+            state["analyses"],
+            portfolio.to_dict(),
+            total_value,
+            get_crypto_label,
+            gemini_insights=gemini_insights,
+            gemini_picks=gemini_picks,
+            regime=regime,
+            learning=learning,
+        )
+        decisions = decision_result["decisions"]
+        state["activeSymbols"] = decision_result.get("topSymbols", [])
 
-    executed_buys: list[dict[str, Any]] = []
-    executed_sells = [
-        {**s, "analysis": state["analyses"].get(s["symbol"])}
-        for s in profit_sells
-    ]
+        executed_buys: list[dict[str, Any]] = []
+        executed_sells = [
+            {**s, "analysis": state["analyses"].get(s["symbol"])}
+            for s in profit_sells
+        ]
 
-    initial_allocation = decision_result.get("initialAllocation") or []
-    gemini_active = decision_result.get("geminiActive", False)
-    if initial_allocation:
-        slots = [
-            {
-                "symbol": item["symbol"],
-                "price": item["analysis"]["currentPrice"],
-                "eur_amount": item.get("eurAmount"),
-                "atrPct": (item.get("analysis") or {}).get("atrPct"),
-                "tradeMeta": meta_from_analysis(item.get("analysis"), regime),
-                "reason": format_initial_buy_reason(
+        initial_allocation = decision_result.get("initialAllocation") or []
+        gemini_active = decision_result.get("geminiActive", False)
+        if initial_allocation:
+            slots = [
+                {
+                    "symbol": item["symbol"],
+                    "price": item["analysis"]["currentPrice"],
+                    "eur_amount": item.get("eurAmount"),
+                    "atrPct": (item.get("analysis") or {}).get("atrPct"),
+                    "tradeMeta": meta_from_analysis(item.get("analysis"), regime),
+                    "reason": format_initial_buy_reason(
+                        item["analysis"],
+                        get_crypto_label(item["symbol"]),
+                        i + 1,
+                        len(initial_allocation),
+                        gemini_active,
+                        alloc_pct=item.get("allocPct"),
+                        eur_amount=item.get("eurAmount"),
+                    ),
+                }
+                for i, item in enumerate(initial_allocation)
+            ]
+            portfolio.allocate_initial(slots)
+            for i, item in enumerate(initial_allocation):
+                symbol = item["symbol"]
+                label = get_crypto_label(symbol)
+                eur_amount = item.get("eurAmount")
+                reason = format_initial_buy_reason(
                     item["analysis"],
-                    get_crypto_label(item["symbol"]),
+                    label,
                     i + 1,
                     len(initial_allocation),
                     gemini_active,
                     alloc_pct=item.get("allocPct"),
-                    eur_amount=item.get("eurAmount"),
-                ),
-            }
-            for i, item in enumerate(initial_allocation)
-        ]
-        portfolio.allocate_initial(slots)
-        for i, item in enumerate(initial_allocation):
-            symbol = item["symbol"]
-            label = get_crypto_label(symbol)
-            eur_amount = item.get("eurAmount")
-            reason = format_initial_buy_reason(
-                item["analysis"],
-                label,
-                i + 1,
-                len(initial_allocation),
-                gemini_active,
-                alloc_pct=item.get("allocPct"),
-                eur_amount=eur_amount,
-            )
-            log_ai_event(state, "buy", label, reason, eur_amount)
-            executed_buys.append(
-                {
-                    "symbol": symbol,
-                    "label": label,
-                    "amount": eur_amount,
-                    "reason": reason,
-                    "analysis": item["analysis"],
-                }
-            )
+                    eur_amount=eur_amount,
+                )
+                log_ai_event(state, "buy", label, reason, eur_amount)
+                executed_buys.append(
+                    {
+                        "symbol": symbol,
+                        "label": label,
+                        "amount": eur_amount,
+                        "reason": reason,
+                        "analysis": item["analysis"],
+                    }
+                )
 
-    for d in [x for x in decisions if x["type"] == "sell"]:
-        analysis = d.get("analysis") or {}
-        portfolio.sell(
-            d["symbol"],
-            d["amount"],
-            analysis["currentPrice"],
-            d["reason"],
-            meta=meta_from_analysis(analysis, regime, for_sell=True),
-        )
-        log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
-        executed_sells.append(
-            {
-                "symbol": d["symbol"],
-                "label": get_crypto_label(d["symbol"]),
-                "amount": d.get("eurAmount"),
-                "reason": d["reason"],
-                "analysis": d["analysis"],
-            }
-        )
-
-    for d in [x for x in decisions if x["type"] == "buy"]:
-        analysis = d.get("analysis") or {}
-        ok = portfolio.buy(
-            d["symbol"],
-            d["eurAmount"],
-            analysis["currentPrice"],
-            d["reason"],
-            meta=meta_from_analysis(analysis, regime),
-        )
-        if ok:
-            log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
-            executed_buys.append(
+        for d in [x for x in decisions if x["type"] == "sell"]:
+            analysis = d.get("analysis") or {}
+            portfolio.sell(
+                d["symbol"],
+                d["amount"],
+                analysis["currentPrice"],
+                d["reason"],
+                meta=meta_from_analysis(analysis, regime, for_sell=True),
+            )
+            log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+            executed_sells.append(
                 {
                     "symbol": d["symbol"],
                     "label": get_crypto_label(d["symbol"]),
@@ -381,48 +377,70 @@ def execute_trading_cycle() -> dict[str, Any]:
                 }
             )
 
-    watches = []
-    for symbol in portfolio.holdings:
-        watch = state["profitWatch"].get(symbol)
-        if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
-            watches.append(
-                {
-                    "symbol": symbol,
-                    "label": get_crypto_label(symbol),
-                    "reason": watch.get("statusText"),
-                    "profitPct": watch.get("profitPct"),
-                }
+        for d in [x for x in decisions if x["type"] == "buy"]:
+            analysis = d.get("analysis") or {}
+            ok = portfolio.buy(
+                d["symbol"],
+                d["eurAmount"],
+                analysis["currentPrice"],
+                d["reason"],
+                meta=meta_from_analysis(analysis, regime),
             )
+            if ok:
+                log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+                executed_buys.append(
+                    {
+                        "symbol": d["symbol"],
+                        "label": get_crypto_label(d["symbol"]),
+                        "amount": d.get("eurAmount"),
+                        "reason": d["reason"],
+                        "analysis": d["analysis"],
+                    }
+                )
 
-    report = build_decision_report(
-        decisions,
-        get_crypto_label,
-        gemini_active=decision_result.get("geminiActive", False),
-    )
-    report.update(
-        {
-            "executedBuys": executed_buys,
-            "executedSells": executed_sells,
-            "watches": watches,
-            "timestamp": _now_iso(),
-        }
-    )
-    state["lastAIReport"] = report
+        watches = []
+        for symbol in portfolio.holdings:
+            watch = state["profitWatch"].get(symbol)
+            if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
+                watches.append(
+                    {
+                        "symbol": symbol,
+                        "label": get_crypto_label(symbol),
+                        "reason": watch.get("statusText"),
+                        "profitPct": watch.get("profitPct"),
+                    }
+                )
 
-    for d in [x for x in decisions if x["type"] == "hold"]:
-        log_ai_event(state, "hold", get_crypto_label(d["symbol"]), d["reason"])
-    for w in watches:
-        log_watch_event(state, w["symbol"], state["profitWatch"].get(w["symbol"]))
+        report = build_decision_report(
+            decisions,
+            get_crypto_label,
+            gemini_active=decision_result.get("geminiActive", False),
+        )
+        report.update(
+            {
+                "executedBuys": executed_buys,
+                "executedSells": executed_sells,
+                "watches": watches,
+                "timestamp": _now_iso(),
+            }
+        )
+        state["lastAIReport"] = report
 
-    state["portfolio"] = portfolio.to_dict()
-    state["lastTradeTick"] = int(time.time() * 1000)
-    state["running"] = True
-    save_state(state)
+        for d in [x for x in decisions if x["type"] == "hold"]:
+            log_ai_event(state, "hold", get_crypto_label(d["symbol"]), d["reason"])
+        for w in watches:
+            log_watch_event(state, w["symbol"], state["profitWatch"].get(w["symbol"]))
 
-    state["learningReport"] = refresh_learning_report_if_due(state)
+        state["portfolio"] = portfolio.to_dict()
+        save_state(state)
 
-    save_state(state)
+        state["learningReport"] = refresh_learning_report_if_due(state)
 
-    payload = build_api_payload(state)
-    payload["lastUpdate"] = _now_iso()
-    return payload
+        save_state(state)
+
+        payload = build_api_payload(state)
+        payload["lastUpdate"] = _now_iso()
+        return payload
+    finally:
+        with _cycle_running_lock:
+            _cycle_running = False
