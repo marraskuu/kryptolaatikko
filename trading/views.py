@@ -64,7 +64,10 @@ def api_state(request):
     payload["error"] = state.get("error")
     payload["autoRun"] = True
     payload["db"] = _db_diagnostics()
-    return JsonResponse(payload)
+    response = JsonResponse(payload)
+    response["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response["Pragma"] = "no-cache"
+    return response
 
 
 @csrf_exempt

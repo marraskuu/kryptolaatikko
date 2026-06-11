@@ -955,33 +955,40 @@ def generate_learning_narrative(
     roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
-    prompt = f"""Olet krypto-simulaattorin oppimisraportin kirjoittaja. Tehtäväsi on SELITTÄÄ mitä botti on oppinut — et muuta sääntöjä etkä tee kauppapäätöksiä.
+    prompt = f"""Olet krypto-simulaattorin oppimisraportin kirjoittaja. Kirjoita sijoittajalle selkeä, vapaamuotoinen kertomus suomeksi.
 
 TÄRKEÄÄ:
-- Kaikki alla olevat säätöpäätökset on JO toteutettu koodissa (learning.py). Älä keksi uusia automaattisia sääntöjä.
-- Kenttä "ideas" = VAIN ehdotuksia ihmiselle — merkitse selvästi ettei niitä vielä käytetä.
-- Kirjoita suomeksi, selkeästi, max 2–3 lausetta per kenttä.
+- Kaikki säätöpäätökset on JO toteutettu koodissa (learning.py). Älä keksi uusia automaattisia sääntöjä.
 - Perustu vain annettuun dataan — älä keksi kauppoja tai lukuja.
+- "story" = pääteksti: luettava kertomus 3–5 kappaletta (ei luetteloa).
+- "ideas" = erillinen lyhyt kappale: 1–2 ehdotusta ihmiselle — EI vielä käytössä bottiin.
 
-Oppimisosiot (rule-pohjainen):
+Sisällytä kertomukseen:
+1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
+2) Miten oppia jo hyödynnetään käytännössä (rotaatio, estot, suosikit)
+3) Mitä odotetaan seuraavaksi (roadmap)
+4) Rehellinen arvio: missä dataa on vielä vähän
+
+Oppimisdata:
 {sections_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
 
-Roadmap (mitä aktivoituu kun dataa kertyy):
+Roadmap:
 {roadmap_text}
 
-Edellinen Gemini-raportti (viite, älä toista turhaan):
+Edellinen kertomus (viite):
 {prev_text}
 
 Vastaa VAIN validilla JSON:lla:
 {{
-  "intro": "1–2 lausetta: yhteenveto tilanteesta",
-  "learned": "Mitä uutta opittiin viime jaksolla (luettelomerkit \\n)",
-  "in_use": "Miten opittua KÄYTETÄÄN nyt kaupankäynnissä (rotaatio, conf-estot, symbolit…)",
-  "next_steps": "Mitä odotetaan seuraavaksi roadmapin perusteella",
-  "ideas": "1–3 EHDOTUSTA voiton parantamiseksi — EI vielä käytössä, vain ideoita"
+  "story": "Vapaamuotoinen kertomus 3–5 kappaletta. Erota kappaleet tyhjällä rivillä (\\\\n\\\\n).",
+  "intro": "Yksi lause: tilanne nyt",
+  "learned": "Lyhyt bullet-lista uusista oivalluksista (valinnainen, \\\\n)",
+  "in_use": "Lyhyt bullet-lista: mitä jo tehdään eri tavalla (valinnainen, \\\\n)",
+  "next_steps": "Mitä aktivoituu kun dataa kertyy (1–2 lausetta)",
+  "ideas": "Ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
     api_key = _read_api_key()
@@ -997,6 +1004,7 @@ Vastaa VAIN validilla JSON:lla:
             text = body["candidates"][0]["content"]["parts"][0]["text"]
             parsed = _extract_json(text)
             narrative = {
+                "story": str(parsed.get("story") or "").strip(),
                 "intro": str(parsed.get("intro") or "").strip(),
                 "learned": str(parsed.get("learned") or "").strip(),
                 "in_use": str(parsed.get("in_use") or "").strip(),

@@ -1017,6 +1017,32 @@ h1 {
   line-height: 1.45;
 }
 
+.learning-story-title {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.learning-story-body {
+  font-size: 0.9375rem;
+  color: var(--text);
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.learning-narrative-pending p,
+.learning-narrative-error p {
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.learning-narrative-error p {
+  color: #fca5a5;
+}
+
 .learning-narrative-block h4 {
   font-size: 0.72rem;
   text-transform: uppercase;

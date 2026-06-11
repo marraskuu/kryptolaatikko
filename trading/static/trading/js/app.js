@@ -21,6 +21,7 @@ let countdown = 60;
 async function fetchState() {
   const res = await fetch("/api/state/", {
     credentials: "same-origin",
+    cache: "no-store",
     headers: { Accept: "application/json" },
   });
   const contentType = res.headers.get("content-type") || "";
@@ -176,6 +177,12 @@ function applyPayload(data) {
     aiEvents: data.aiEvents || state.aiEvents,
     lastAIReport: data.lastAIReport ?? state.lastAIReport,
     stats: data.stats || state.stats,
+    learningReport: data.learningReport ?? state.learningReport,
+    learning: data.learning ?? state.learning,
+    marketLearning: data.marketLearning ?? state.marketLearning,
+    botStartedAt: data.botStartedAt ?? state.botStartedAt,
+    lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
+    tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
   };
 
   if (data.nextTradeInSec != null) countdown = data.nextTradeInSec;
@@ -758,27 +765,70 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+function resolveLearningReport() {
+  if (state.learningReport?.sections?.length) return state.learningReport;
+
+  const learning = state.learning;
+  const ml = state.marketLearning;
+  if (!learning && !ml) return null;
+
+  const sections = [];
+  if (ml) {
+    const lines = [`${ml.bucketsLearned || 0}/${ml.bucketsTracked || 0} asetelmaa opittu`];
+    if (ml.best?.setup) lines.push(`Paras: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`);
+    if (ml.worst?.setup) lines.push(`Huonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`);
+    sections.push({ icon: "📊", title: "Markkina-asetelmat", lines });
+  }
+  if (learning?.note) {
+    sections.push({ icon: "🧠", title: "Kauppojen oppiminen", lines: [learning.note] });
+  }
+  return { sections, changes: [], roadmap: [], narrative: null };
+}
+
 function renderLearningReport() {
   if (!els.learningReport) return;
-  const report = state.learningReport;
+  const report = resolveLearningReport();
   if (!report) {
     els.learningReport.innerHTML = '<p class="empty-log">Oppimisraportti latautuu…</p>';
+    if (els.learningReportMeta) els.learningReportMeta.textContent = "Odotetaan dataa…";
     return;
   }
 
   if (els.learningReportMeta) {
     const next = report.nextNarrativeInSec;
     const last = report.lastNarrativeAt;
-    const parts = [];
-    if (last) parts.push(`Gemini ${formatTime(last)}`);
-    else parts.push("Gemini odottaa ensimmäistä kierrosta");
-    if (next != null) parts.push(`seuraava ${formatDurationSec(next)} kuluttua`);
+    const parts = [`Päivitetty ${report.timestamp ? formatTime(report.timestamp) : "juuri nyt"}`];
+    if (report.narrativePending) {
+      parts.push("Gemini kirjoittaa…");
+    } else if (last) {
+      parts.push(`Gemini ${formatTime(last)}`);
+    } else {
+      parts.push("Gemini odottaa ensimmäistä kierrosta");
+    }
+    if (next != null && !report.narrativePending) {
+      parts.push(`seuraava ${formatDurationSec(next)} kuluttua`);
+    }
     els.learningReportMeta.textContent = parts.join(" · ");
   }
 
   const narrative = report.narrative;
   let narrativeHtml = "";
-  if (narrative && (narrative.intro || narrative.learned || narrative.in_use)) {
+  if (narrative?.story) {
+    narrativeHtml = `
+      <div class="learning-narrative">
+        <h4 class="learning-story-title">Geminin kertomus</h4>
+        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
+        <div class="learning-story-body">${escapeHtml(narrative.story)}</div>
+        ${
+          narrative.ideas
+            ? `<div class="learning-narrative-block ideas">
+            <h4>Ideat (ei vielä käytössä bottiin)</h4>
+            <p>${escapeHtml(narrative.ideas)}</p>
+          </div>`
+            : ""
+        }
+      </div>`;
+  } else if (narrative && (narrative.intro || narrative.learned || narrative.in_use)) {
     const blocks = [
       ["learned", "Mitä opittiin"],
       ["in_use", "Käytössä nyt"],
@@ -799,6 +849,14 @@ function renderLearningReport() {
           )
           .join("")}
       </div>`;
+  } else if (report.narrativePending) {
+    narrativeHtml =
+      '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa kertomusta… (päivittyy automaattisesti)</p></div>';
+  } else if (report.narrativeError) {
+    narrativeHtml = `<div class="learning-narrative learning-narrative-error"><p>${escapeHtml(report.narrativeError)}</p></div>`;
+  } else if (!report.lastNarrativeAt) {
+    narrativeHtml =
+      '<div class="learning-narrative learning-narrative-pending"><p>Ensimmäinen Gemini-kertomus tulee seuraavalla kaupankäyntikierroksella (~1 min).</p></div>';
   }
 
   const sectionsHtml = (report.sections || [])

@@ -405,6 +405,27 @@ def build_learning_report(
     }
 
 
+def _apply_narrative_to_state(
+    state: dict[str, Any],
+    report: dict[str, Any],
+    narrative: dict[str, Any],
+) -> None:
+    state["lastLearningNarrativeAt"] = _now_iso()
+    state["learningNarrative"] = narrative
+    state["learningReportSnapshot"] = report.get("snapshot")
+    state.pop("learningNarrativeError", None)
+    history = list(state.get("learningReportHistory") or [])
+    history.insert(
+        0,
+        {
+            "timestamp": state["lastLearningNarrativeAt"],
+            "narrative": narrative,
+            "changes": report.get("changes"),
+        },
+    )
+    state["learningReportHistory"] = history[:LEARNING_REPORT_HISTORY]
+
+
 def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -> None:
     """Gemini-narratiivi taustalla — ei blokkaa kaupankäyntikierrosta."""
     global _narrative_refresh_running
@@ -418,22 +439,25 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
         )
         if not (new_narrative and status.get("ok")):
             logger.warning("Oppimisraportin Gemini epäonnistui: %s", status.get("message"))
+            state = load_state()
+            state["learningNarrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
+            merged = build_learning_report(
+                learning=state.get("learning") or {},
+                market_learning=state.get("marketLearning"),
+                regime=state.get("regime"),
+                portfolio=state.get("portfolio") or {},
+                previous_snapshot=state.get("learningReportSnapshot"),
+                narrative=state.get("learningNarrative"),
+                last_narrative_at=state.get("lastLearningNarrativeAt"),
+            )
+            merged["narrativePending"] = False
+            merged["narrativeError"] = state["learningNarrativeError"]
+            state["learningReport"] = merged
+            save_state(state)
             return
 
         state = load_state()
-        state["lastLearningNarrativeAt"] = _now_iso()
-        state["learningNarrative"] = new_narrative
-        state["learningReportSnapshot"] = report.get("snapshot")
-        history = list(state.get("learningReportHistory") or [])
-        history.insert(
-            0,
-            {
-                "timestamp": state["lastLearningNarrativeAt"],
-                "narrative": new_narrative,
-                "changes": report.get("changes"),
-            },
-        )
-        state["learningReportHistory"] = history[:LEARNING_REPORT_HISTORY]
+        _apply_narrative_to_state(state, report, new_narrative)
 
         merged = build_learning_report(
             learning=state.get("learning") or {},
@@ -490,6 +514,25 @@ def maybe_refresh_narrative(
     if not due:
         report["narrative"] = narrative
         report["lastNarrativeAt"] = last_at
+        report["narrativeError"] = state.get("learningNarrativeError")
+        return report
+
+    # Ensimmäinen kertomus synkronisesti — varmistaa näkyvyyden
+    if last_at is None:
+        from .gemini import generate_learning_narrative
+
+        new_narrative, status = generate_learning_narrative(
+            report,
+            previous_narrative=narrative,
+        )
+        if new_narrative and status.get("ok"):
+            _apply_narrative_to_state(state, report, new_narrative)
+            report["narrative"] = new_narrative
+            report["lastNarrativeAt"] = state["lastLearningNarrativeAt"]
+            report["narrativePending"] = False
+        else:
+            report["narrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
+            state["learningNarrativeError"] = report["narrativeError"]
         return report
 
     with _narrative_refresh_lock:
@@ -513,4 +556,5 @@ def maybe_refresh_narrative(
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
+    report["narrativeError"] = state.get("learningNarrativeError")
     return report
