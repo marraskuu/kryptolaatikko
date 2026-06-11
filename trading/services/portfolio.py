@@ -44,7 +44,14 @@ class Portfolio:
     def reset(self) -> None:
         self.data = default_portfolio()
 
-    def buy(self, symbol: str, eur_amount: float, price: float, reason: str) -> bool:
+    def buy(
+        self,
+        symbol: str,
+        eur_amount: float,
+        price: float,
+        reason: str,
+        meta: dict[str, Any] | None = None,
+    ) -> bool:
         from .bitfinex import is_stablecoin
 
         if is_stablecoin(symbol):
@@ -79,26 +86,36 @@ class Portfolio:
             }
 
         self.data["tradeId"] += 1
-        self.trades.insert(
-            0,
-            {
-                "id": self.data["tradeId"],
-                "type": "buy",
-                "symbol": symbol,
-                "amount": amount,
-                "price": price,
-                "eurTotal": eur_amount,
-                "fee": final_fee,
-                "timestamp": _now_iso(),
-                "reason": reason,
-            },
-        )
+        trade = {
+            "id": self.data["tradeId"],
+            "type": "buy",
+            "symbol": symbol,
+            "amount": amount,
+            "price": price,
+            "eurTotal": eur_amount,
+            "fee": final_fee,
+            "timestamp": _now_iso(),
+            "reason": reason,
+        }
+        if meta:
+            trade.update(meta)
+        self.trades.insert(0, trade)
         return True
 
-    def allocate_initial(self, slots: list[dict[str, Any]]) -> None:
+    def allocate_initial(
+        self,
+        slots: list[dict[str, Any]],
+        meta: dict[str, Any] | None = None,
+    ) -> None:
         """Sijoittaa käteisen slotteihin. Jos eur_amount on annettu, käytetään sitä — muuten tasajaot."""
         if not slots:
             return
+
+        def _slot_meta(slot: dict[str, Any]) -> dict[str, Any] | None:
+            merged = dict(meta or {})
+            if slot.get("atrPct") is not None:
+                merged["atrPct"] = slot["atrPct"]
+            return merged or None
 
         has_amounts = all(
             (slot.get("eur_amount") or slot.get("eurAmount") or 0) >= 1 for slot in slots
@@ -108,7 +125,13 @@ class Portfolio:
                 if self.cash < 5:
                     break
                 amount = slot.get("eur_amount") or slot.get("eurAmount") or 0
-                self.buy(slot["symbol"], min(amount, self.cash / 1.001), slot["price"], slot["reason"])
+                self.buy(
+                    slot["symbol"],
+                    min(amount, self.cash / 1.001),
+                    slot["price"],
+                    slot["reason"],
+                    meta=_slot_meta(slot),
+                )
             return
 
         count = min(4, len(slots))
@@ -118,9 +141,16 @@ class Portfolio:
             slots_left = count - i
             slot = slots[i]
             buy_amount = self.cash / (slots_left * 1.001)
-            self.buy(slot["symbol"], buy_amount, slot["price"], slot["reason"])
+            self.buy(slot["symbol"], buy_amount, slot["price"], slot["reason"], meta=_slot_meta(slot))
 
-    def sell(self, symbol: str, amount: float, price: float, reason: str) -> bool:
+    def sell(
+        self,
+        symbol: str,
+        amount: float,
+        price: float,
+        reason: str,
+        meta: dict[str, Any] | None = None,
+    ) -> bool:
         holding = self.holdings.get(symbol)
         if not holding or amount > holding["amount"]:
             return False
@@ -142,24 +172,24 @@ class Portfolio:
             del self.holdings[symbol]
 
         self.data["tradeId"] += 1
-        self.trades.insert(
-            0,
-            {
-                "id": self.data["tradeId"],
-                "type": "sell",
-                "symbol": symbol,
-                "amount": amount,
-                "price": price,
-                "eurTotal": eur_total,
-                "costBasis": cost_basis,
-                "fee": fee,
-                "profitLoss": profit,
-                "profit": profit if profit > 0 else 0,
-                "tax": tax,
-                "timestamp": _now_iso(),
-                "reason": reason,
-            },
-        )
+        trade = {
+            "id": self.data["tradeId"],
+            "type": "sell",
+            "symbol": symbol,
+            "amount": amount,
+            "price": price,
+            "eurTotal": eur_total,
+            "costBasis": cost_basis,
+            "fee": fee,
+            "profitLoss": profit,
+            "profit": profit if profit > 0 else 0,
+            "tax": tax,
+            "timestamp": _now_iso(),
+            "reason": reason,
+        }
+        if meta:
+            trade.update(meta)
+        self.trades.insert(0, trade)
 
         if tax > 0:
             self.data["tradeId"] += 1

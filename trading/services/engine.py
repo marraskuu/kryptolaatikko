@@ -78,17 +78,19 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
 
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:
     executed: list[dict[str, Any]] = []
+    regime = (state.get("regime") or {}).get("regime", "neutral")
     for symbol, holding in list(portfolio.holdings.items()):
         ticker = state["tickers"].get(symbol)
         if not ticker:
             continue
 
+        atr_pct = (state["analyses"].get(symbol) or {}).get("atrPct")
         result = update_profit_sell(
             state["watches"],
             symbol,
             ticker["last"],
             holding["avgPrice"],
-            atr_pct=(state["analyses"].get(symbol) or {}).get("atrPct"),
+            atr_pct=atr_pct,
         )
         state["profitWatch"][symbol] = result
 
@@ -98,7 +100,13 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
             if sell_amount <= 0:
                 continue
             eur_total = sell_amount * ticker["last"]
-            portfolio.sell(symbol, sell_amount, ticker["last"], result["reason"])
+            portfolio.sell(
+                symbol,
+                sell_amount,
+                ticker["last"],
+                result["reason"],
+                meta={"regime": regime, "atrPct": atr_pct},
+            )
             log_ai_event(state, "sell", get_crypto_label(symbol), result["reason"], eur_total)
             executed.append(
                 {
@@ -287,6 +295,7 @@ def execute_trading_cycle() -> dict[str, Any]:
                 "symbol": item["symbol"],
                 "price": item["analysis"]["currentPrice"],
                 "eur_amount": item.get("eurAmount"),
+                "atrPct": (item.get("analysis") or {}).get("atrPct"),
                 "reason": format_initial_buy_reason(
                     item["analysis"],
                     get_crypto_label(item["symbol"]),
@@ -299,7 +308,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             }
             for i, item in enumerate(initial_allocation)
         ]
-        portfolio.allocate_initial(slots)
+        portfolio.allocate_initial(slots, meta={"regime": regime})
         for i, item in enumerate(initial_allocation):
             symbol = item["symbol"]
             label = get_crypto_label(symbol)
@@ -325,7 +334,13 @@ def execute_trading_cycle() -> dict[str, Any]:
             )
 
     for d in [x for x in decisions if x["type"] == "sell"]:
-        portfolio.sell(d["symbol"], d["amount"], d["analysis"]["currentPrice"], d["reason"])
+        portfolio.sell(
+            d["symbol"],
+            d["amount"],
+            d["analysis"]["currentPrice"],
+            d["reason"],
+            meta={"regime": regime, "atrPct": (d.get("analysis") or {}).get("atrPct")},
+        )
         log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
         executed_sells.append(
             {
@@ -343,6 +358,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             d["eurAmount"],
             d["analysis"]["currentPrice"],
             d["reason"],
+            meta={"regime": regime, "atrPct": (d.get("analysis") or {}).get("atrPct")},
         )
         if ok:
             log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
