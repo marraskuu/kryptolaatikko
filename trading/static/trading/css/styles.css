@@ -182,15 +182,24 @@ h1 {
   border-color: var(--muted);
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 20px;
+.stats-section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
   margin-bottom: 24px;
+  width: 100%;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  width: 100%;
 }
 
 .error-banner {
-  grid-column: 1 / -1;
+  width: 100%;
   background: var(--red-dim);
   border: 1px solid rgba(239, 68, 68, 0.4);
   color: #fca5a5;
@@ -250,7 +259,8 @@ h1 {
 .stat-change.neutral { color: var(--muted); }
 
 .winloss-card {
-  grid-column: 1 / -1;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .winloss-table {
@@ -258,12 +268,15 @@ h1 {
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .winloss-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.6fr) 1fr 1fr minmax(80px, 0.7fr);
-  gap: 12px;
+  grid-template-columns: auto auto auto auto;
+  column-gap: 28px;
+  row-gap: 6px;
   align-items: center;
 }
 
@@ -287,17 +300,20 @@ h1 {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--green);
+  white-space: nowrap;
 }
 
 .winloss-loss {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--red);
+  white-space: nowrap;
 }
 
 .winloss-net {
   font-size: 0.9rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .winloss-net.up { color: var(--green); }
@@ -979,7 +995,7 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .stats-grid {
+  .stats-row {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -993,7 +1009,11 @@ h1 {
 }
 
 @media (max-width: 520px) {
-  .stats-grid {
+  .stats-row {
     grid-template-columns: 1fr;
+  }
+
+  .winloss-row {
+    column-gap: 16px;
   }
 }
