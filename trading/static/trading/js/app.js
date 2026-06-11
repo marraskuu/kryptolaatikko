@@ -16,7 +16,7 @@ let state = {
 let marketSearch = "";
 let pollTimer = null;
 let countdownTimer = null;
-let countdown = 60;
+let lastLearningReportBodyKey = "";
 
 async function fetchState() {
   const res = await fetch("/api/state/", {
@@ -183,9 +183,8 @@ function applyPayload(data) {
     botStartedAt: data.botStartedAt ?? state.botStartedAt,
     lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
     tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
+    nextTradeInSec: data.nextTradeInSec ?? state.nextTradeInSec,
   };
-
-  if (data.nextTradeInSec != null) countdown = data.nextTradeInSec;
 
   const providerBadge = document.getElementById("ai-provider-badge");
   const geminiBadge = document.getElementById("gemini-badge");
@@ -306,23 +305,39 @@ function renderUptime() {
   els.statUptime.textContent = formatUptime(state.botStartedAt);
 }
 
+function computeNextTradeSec() {
+  const interval = state.tradeIntervalSec || 60;
+  if (state.lastTradeAt) {
+    const lastMs = new Date(state.lastTradeAt).getTime();
+    if (Number.isFinite(lastMs)) {
+      return Math.max(0, interval - Math.floor((Date.now() - lastMs) / 1000));
+    }
+  }
+  if (typeof state.nextTradeInSec === "number") {
+    return Math.max(0, state.nextTradeInSec);
+  }
+  return interval;
+}
+
+function computeTradeOverdueSec() {
+  const interval = state.tradeIntervalSec || 60;
+  if (!state.lastTradeAt) return 0;
+  const lastMs = new Date(state.lastTradeAt).getTime();
+  if (!Number.isFinite(lastMs)) return 0;
+  return Math.floor((Date.now() - lastMs) / 1000) - interval;
+}
+
 function renderNextCountdown() {
   if (!els.statNext) return;
   els.statNext.classList.remove("status-due", "status-overdue");
-  if (countdown > 0) {
-    els.statNext.textContent = `${countdown}s`;
-  } else if (state.nextTradeInSec === 0 && state.lastTradeAt) {
-    const last = new Date(state.lastTradeAt);
-    const overdueSec = Number.isFinite(last.getTime())
-      ? Math.floor((Date.now() - last.getTime()) / 1000) - (state.tradeIntervalSec || 60)
-      : 0;
-    if (overdueSec > 30) {
-      els.statNext.textContent = "Odottaa…";
-      els.statNext.classList.add("status-overdue");
-    } else {
-      els.statNext.textContent = "Ajetaan…";
-      els.statNext.classList.add("status-due");
-    }
+  const remaining = computeNextTradeSec();
+  if (remaining > 0) {
+    els.statNext.textContent = `${remaining}s`;
+    return;
+  }
+  if (computeTradeOverdueSec() > 180) {
+    els.statNext.textContent = "Odottaa…";
+    els.statNext.classList.add("status-overdue");
   } else {
     els.statNext.textContent = "Ajetaan…";
     els.statNext.classList.add("status-due");
@@ -785,33 +800,47 @@ function resolveLearningReport() {
   return { sections, changes: [], roadmap: [], narrative: null };
 }
 
+function renderLearningReportMeta(report) {
+  if (!els.learningReportMeta) return;
+  const next = report.nextNarrativeInSec;
+  const last = report.lastNarrativeAt;
+  const parts = [`Päivitetty ${report.timestamp ? formatTime(report.timestamp) : "juuri nyt"}`];
+  if (report.narrativePending) {
+    parts.push("Gemini kirjoittaa kertomusta…");
+  } else if (last) {
+    parts.push(`Gemini ${formatTime(last)}`);
+  } else {
+    parts.push("Gemini odottaa seuraavaa kierrosta");
+  }
+  if (next != null && !report.narrativePending) {
+    parts.push(`seuraava raportti ${formatDurationSec(next)} kuluttua`);
+  }
+  els.learningReportMeta.textContent = parts.join(" · ");
+}
+
 function renderLearningReport() {
   if (!els.learningReport) return;
   const report = resolveLearningReport();
   if (!report) {
     els.learningReport.innerHTML = '<p class="empty-log">Oppimisraportti latautuu…</p>';
     if (els.learningReportMeta) els.learningReportMeta.textContent = "Odotetaan dataa…";
+    lastLearningReportBodyKey = "";
     return;
   }
 
-  if (els.learningReportMeta) {
-    const next = report.nextNarrativeInSec;
-    const last = report.lastNarrativeAt;
-    const parts = [`Päivitetty ${report.timestamp ? formatTime(report.timestamp) : "juuri nyt"}`];
-    if (report.narrativePending) {
-      parts.push("Gemini kirjoittaa…");
-    } else if (last) {
-      parts.push(`Gemini ${formatTime(last)}`);
-    } else {
-      parts.push("Gemini odottaa ensimmäistä kierrosta");
-    }
-    if (next != null && !report.narrativePending) {
-      parts.push(`seuraava ${formatDurationSec(next)} kuluttua`);
-    }
-    els.learningReportMeta.textContent = parts.join(" · ");
-  }
+  renderLearningReportMeta(report);
 
   const narrative = report.narrative;
+  const bodyKey = [
+    report.timestamp,
+    report.narrativePending,
+    narrative?.story || "",
+    narrative?.intro || "",
+    report.narrativeError || "",
+    (report.sections || []).length,
+  ].join("|");
+  if (bodyKey === lastLearningReportBodyKey) return;
+  lastLearningReportBodyKey = bodyKey;
   let narrativeHtml = "";
   if (narrative?.story) {
     narrativeHtml = `
@@ -994,9 +1023,10 @@ function renderTradeLog() {
 function startCountdown() {
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
-    if (countdown > 0) countdown--;
     renderNextCountdown();
     renderUptime();
+    const report = resolveLearningReport();
+    if (report) renderLearningReportMeta(report);
   }, 1000);
 }
 

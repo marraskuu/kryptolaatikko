@@ -257,7 +257,7 @@ def build_learning_report(
     narrative: dict[str, Any] | None = None,
     last_narrative_at: str | None = None,
 ) -> dict[str, Any]:
-    """Rule-pohjainen oppimisraportti — päivittyy joka kaupankäyntikierros."""
+    """Rule-pohjainen oppimisraportti — rakennetaan 6 h välein."""
     ml = market_learning or {}
     stats = learning.get("stats") or {}
     mem = learning.get("symbol_memory") or {}
@@ -405,6 +405,70 @@ def build_learning_report(
     }
 
 
+def _last_report_ms(state: dict[str, Any]) -> int:
+    for key in ("lastLearningReportAt", "lastLearningNarrativeAt"):
+        parsed = _parse_time(state.get(key))
+        if parsed:
+            return int(parsed.timestamp() * 1000)
+    cached = state.get("learningReport") or {}
+    parsed = _parse_time(cached.get("timestamp"))
+    if parsed:
+        return int(parsed.timestamp() * 1000)
+    return 0
+
+
+def _next_narrative_sec(last_ms: int, now_ms: int | None = None) -> int:
+    now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
+    if not last_ms:
+        return 0
+    elapsed_sec = (now_ms - last_ms) // 1000
+    return max(0, LEARNING_REPORT_INTERVAL_SEC - elapsed_sec)
+
+
+def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any]) -> dict[str, Any]:
+    """Palauta tallennettu raportti — päivitä vain laskurit ja narratiivi."""
+    report = dict(cached)
+    last_ms = _last_report_ms(state)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
+    narrative = state.get("learningNarrative")
+    if narrative:
+        report["narrative"] = narrative
+        report["narrativePending"] = False
+    last_at = state.get("lastLearningNarrativeAt")
+    if last_at:
+        report["lastNarrativeAt"] = last_at
+    err = state.get("learningNarrativeError")
+    if err:
+        report["narrativeError"] = err
+    return report
+
+
+def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:
+    """Päivitä koko oppimisraportti (kortit + Gemini) enintään 6 h välein."""
+    cached = state.get("learningReport")
+    last_ms = _last_report_ms(state)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    due = not cached or not last_ms or (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000
+
+    if not due and cached:
+        return _merge_cached_learning_report(state, cached)
+
+    report = build_learning_report(
+        learning=state.get("learning") or {},
+        market_learning=state.get("marketLearning"),
+        regime=state.get("regime"),
+        portfolio=state.get("portfolio") or {},
+        previous_snapshot=state.get("learningReportSnapshot"),
+        narrative=state.get("learningNarrative"),
+        last_narrative_at=state.get("lastLearningNarrativeAt"),
+    )
+    report = maybe_refresh_narrative(state, report)
+    state["lastLearningReportAt"] = report["timestamp"]
+    state["learningReport"] = report
+    return report
+
+
 def _apply_narrative_to_state(
     state: dict[str, Any],
     report: dict[str, Any],
@@ -459,16 +523,12 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
         state = load_state()
         _apply_narrative_to_state(state, report, new_narrative)
 
-        merged = build_learning_report(
-            learning=state.get("learning") or {},
-            market_learning=state.get("marketLearning"),
-            regime=state.get("regime"),
-            portfolio=state.get("portfolio") or {},
-            previous_snapshot=state.get("learningReportSnapshot"),
-            narrative=new_narrative,
-            last_narrative_at=state["lastLearningNarrativeAt"],
-        )
+        merged = dict(state.get("learningReport") or report)
+        merged["narrative"] = new_narrative
         merged["narrativePending"] = False
+        merged["lastNarrativeAt"] = state["lastLearningNarrativeAt"]
+        merged["nextNarrativeInSec"] = LEARNING_REPORT_INTERVAL_SEC
+        merged.pop("narrativeError", None)
         state["learningReport"] = merged
         save_state(state)
     except Exception:
@@ -490,7 +550,7 @@ def maybe_refresh_narrative(
 
     if not is_configured():
         report["narrative"] = {
-            "intro": "Gemini ei ole käytössä — alla rule-pohjainen oppimisraportti päivittyy joka kaupankäyntikierros.",
+            "intro": "Gemini ei ole käytössä — alla rule-pohjainen oppimisraportti päivittyy 6 h välein.",
             "learned": "",
             "in_use": "",
             "next_steps": "",
@@ -515,24 +575,6 @@ def maybe_refresh_narrative(
         report["narrative"] = narrative
         report["lastNarrativeAt"] = last_at
         report["narrativeError"] = state.get("learningNarrativeError")
-        return report
-
-    # Ensimmäinen kertomus synkronisesti — varmistaa näkyvyyden
-    if last_at is None:
-        from .gemini import generate_learning_narrative
-
-        new_narrative, status = generate_learning_narrative(
-            report,
-            previous_narrative=narrative,
-        )
-        if new_narrative and status.get("ok"):
-            _apply_narrative_to_state(state, report, new_narrative)
-            report["narrative"] = new_narrative
-            report["lastNarrativeAt"] = state["lastLearningNarrativeAt"]
-            report["narrativePending"] = False
-        else:
-            report["narrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
-            state["learningNarrativeError"] = report["narrativeError"]
         return report
 
     with _narrative_refresh_lock:

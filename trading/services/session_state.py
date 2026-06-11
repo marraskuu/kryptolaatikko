@@ -121,18 +121,10 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     gemini_status = _resolve_gemini_status(state)
 
     learning_report = state.get("learningReport")
-    if not learning_report and state.get("learning"):
-        from .learning_report import build_learning_report
+    if learning_report:
+        from .learning_report import _merge_cached_learning_report
 
-        learning_report = build_learning_report(
-            learning=state["learning"],
-            market_learning=state.get("marketLearning"),
-            regime=state.get("regime"),
-            portfolio=state["portfolio"],
-            previous_snapshot=state.get("learningReportSnapshot"),
-            narrative=state.get("learningNarrative"),
-            last_narrative_at=state.get("lastLearningNarrativeAt"),
-        )
+        learning_report = _merge_cached_learning_report(state, learning_report)
 
     return {
         "running": state.get("running", True),
