@@ -13,16 +13,31 @@ _worker_lock = threading.Lock()
 
 PRICE_INTERVAL_SEC = 15
 TRADE_INTERVAL_SEC = 60
+LEARNING_REFRESH_SEC = 60
+
+
+def _refresh_learning_report_state() -> None:
+    from .learning_report import clear_stale_narrative_error, refresh_learning_report_if_due
+    from .state_store import load_state, save_state
+
+    state = load_state()
+    clear_stale_narrative_error(state)
+    refresh_learning_report_if_due(state)
+    save_state(state)
 
 
 def _bot_loop() -> None:
     logger.info("Botti-worker käynnistyi (kurssit %ss, kaupat %ss)", PRICE_INTERVAL_SEC, TRADE_INTERVAL_SEC)
     last_trade = 0.0
+    last_learning_refresh = 0.0
 
     while True:
         try:
             refresh_prices()
             now = time.time()
+            if now - last_learning_refresh >= LEARNING_REFRESH_SEC:
+                _refresh_learning_report_state()
+                last_learning_refresh = now
             if now - last_trade >= TRADE_INTERVAL_SEC:
                 last_trade = now
                 execute_trading_cycle()
@@ -72,13 +87,7 @@ def start_bot_worker() -> None:
     def _kick_learning_narrative() -> None:
         time.sleep(5)
         try:
-            from .learning_report import refresh_learning_report_if_due
-
-            state = load_state()
-            if not state.get("learningReport"):
-                return
-            refresh_learning_report_if_due(state)
-            save_state(state)
+            _refresh_learning_report_state()
         except Exception:
             logger.exception("Oppimisraportin käynnistystarkistus epäonnistui")
 

@@ -475,7 +475,22 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     err = state.get("learningNarrativeError")
     if err:
         report["narrativeError"] = err
+    elif report.get("narrativePending"):
+        report.pop("narrativeError", None)
     return report
+
+
+def clear_stale_narrative_error(state: dict[str, Any]) -> None:
+    """Poista tallennettu virhe jos kertomusta ei vielä ole — sallii uudelleenyrityksen deployn jälkeen."""
+    if _has_narrative_story(state, state.get("learningReport")):
+        return
+    state.pop("learningNarrativeError", None)
+    cached = state.get("learningReport")
+    if not isinstance(cached, dict):
+        return
+    report = dict(cached)
+    report.pop("narrativeError", None)
+    state["learningReport"] = report
 
 
 def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:
@@ -631,7 +646,7 @@ def maybe_refresh_narrative(
 
     with _narrative_refresh_lock:
         already_running = _narrative_refresh_running
-        if pending_stale and already_running:
+        if (pending_stale or retry_after_error) and already_running:
             logger.warning("Gemini-kertomus näyttää jumittuneen — yritetään uudelleen")
             _narrative_refresh_running = False
             already_running = False
@@ -654,8 +669,15 @@ def maybe_refresh_narrative(
             name="learning-narrative",
             daemon=True,
         ).start()
+        report.pop("narrativeError", None)
+    elif retry_after_error or pending_stale:
+        report["narrativePending"] = True
+        report.pop("narrativeError", None)
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
-    report["narrativeError"] = state.get("learningNarrativeError")
+    if report.get("narrativePending"):
+        report.pop("narrativeError", None)
+    elif state.get("learningNarrativeError"):
+        report["narrativeError"] = state["learningNarrativeError"]
     return report
