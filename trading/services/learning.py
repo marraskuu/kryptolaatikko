@@ -7,15 +7,19 @@ symboleittain ja sisäänostoasetelmittain (FIFO) ja säädetään kaupankäynti
   - regiimikohtainen viritys kun tagattuja myyntejä riittää,
   - oma setup-oppiminen sisäänostoista (score, RSI, MTF, asetelma),
   - symbolimuisti, cooldownit ja valikoivuus kuten ennen.
+  - Gemini-confidence (5–10): estä tai hillitse tappiollisia luottamustasoja.
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
 from .trade_meta import entry_meta_from_trade
+
+_GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
 
 # Kuinka monta viimeisintä myyntiä otetaan mukaan oppimiseen
 LEARNING_WINDOW = 40
@@ -33,6 +37,8 @@ SYMBOL_MIN_TRADES = 2            # vähintään näin monta tulosta ennen säät
 SYMBOL_PENALTY_CAP = -4.0        # rankingin maksimirangaistus
 SYMBOL_BONUS_CAP = 3.0           # rankingin maksimibonus
 CHRONIC_LOSER_LOSSES = 3         # 0 voittoa & näin monta tappiota → estä osto kokonaan
+MIN_SAMPLES_GEMINI_CONF = 2      # per confidence-taso (5–10)
+MIN_GEMINI_CONF_TAGGED = 6         # tagattuja Gemini-myyntejä ennen conf-oppimista
 
 
 def _category(reason: str) -> str:
@@ -281,6 +287,101 @@ def _apply_category_tuning(
     }, notes
 
 
+def _gemini_confidence_from_trade(trade: dict[str, Any]) -> int | None:
+    raw = trade.get("geminiConfidence")
+    if raw is not None:
+        try:
+            conf = int(raw)
+            if 5 <= conf <= 10:
+                return conf
+        except (TypeError, ValueError):
+            pass
+    reason = trade.get("reason") or ""
+    match = _GEMINI_CONF_RE.search(reason)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _confidence_scale(scales: dict[Any, float], conf: int) -> float:
+    if not scales:
+        return 1.0
+    if conf in scales:
+        return float(scales[conf])
+    return float(scales.get(str(conf), 1.0))
+
+
+def _compute_gemini_confidence_tuning(
+    sells: list[dict[str, Any]],
+    *,
+    base_min_conf: int,
+) -> tuple[dict[str, Any], list[str]]:
+    """Oppiminen Gemini-myyntien confidence-tasoittain (5–10)."""
+    buckets: dict[int, dict[str, float]] = {}
+    for trade in sells:
+        if _category(trade.get("reason", "")) != "gemini_sell":
+            continue
+        conf = _gemini_confidence_from_trade(trade)
+        if conf is None:
+            continue
+        bucket = buckets.setdefault(conf, {"n": 0, "net": 0.0, "wins": 0})
+        net = _net_eur(trade)
+        bucket["n"] += 1
+        bucket["net"] += net
+        if net > 0.01:
+            bucket["wins"] += 1
+
+    stats = {
+        conf: _stat_block(int(b["n"]), b["net"], int(b["wins"]))
+        for conf, b in buckets.items()
+    }
+    tagged = sum(int(s["trades"]) for s in stats.values())
+
+    notes: list[str] = []
+    scales: dict[int, float] = {}
+    blocked: list[int] = []
+
+    for conf in range(5, 11):
+        stat = stats.get(conf)
+        if not stat or stat["trades"] < MIN_SAMPLES_GEMINI_CONF:
+            continue
+        exp = float(stat["expectancy_eur"])
+        if exp < -0.15:
+            scales[conf] = 0.0
+            blocked.append(conf)
+        elif exp < 0:
+            scales[conf] = 0.5
+
+    boosted_min = base_min_conf
+    if blocked:
+        boosted_min = max(boosted_min, min(10, max(blocked) + 1))
+
+    if tagged >= MIN_GEMINI_CONF_TAGGED:
+        if blocked:
+            notes.append(f"Gemini estää conf {','.join(str(c) for c in sorted(blocked))}")
+        good = [
+            conf
+            for conf, stat in stats.items()
+            if stat["trades"] >= MIN_SAMPLES_GEMINI_CONF and stat["expectancy_eur"] > 0.2
+        ]
+        if good:
+            best = max(good, key=lambda c: stats[c]["expectancy_eur"])
+            notes.append(
+                f"Gemini conf {best} ok ({stats[best]['expectancy_eur']:+.2f} €/kauppa)"
+            )
+        elif boosted_min > base_min_conf:
+            notes.append(f"Gemini min conf {boosted_min}")
+    elif tagged:
+        notes.append(f"Gemini-conf {tagged}/{MIN_GEMINI_CONF_TAGGED} tagattua")
+
+    return {
+        "gemini_confidence_stats": stats,
+        "gemini_confidence_scales": scales,
+        "gemini_confidence_tagged": tagged,
+        "gemini_sell_min_confidence": boosted_min,
+    }, notes
+
+
 def _compute_regime_tuning(
     sells: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, float]]]]:
@@ -393,11 +494,19 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     overall_exp = global_params["overall_expectancy_eur"]
     total_n = global_params["samples"]
 
+    conf_tuning, conf_notes = _compute_gemini_confidence_tuning(
+        sells,
+        base_min_conf=gemini_sell_min_confidence,
+    )
+    gemini_confidence_scales = conf_tuning["gemini_confidence_scales"]
+    if conf_tuning["gemini_confidence_tagged"] >= MIN_GEMINI_CONF_TAGGED:
+        gemini_sell_min_confidence = conf_tuning["gemini_sell_min_confidence"]
+
     linked = _sells_with_entry_context(all_trades)
     setup_memory = _compute_setup_memory(linked)
     regime_tuning, regime_stats = _compute_regime_tuning(sells)
 
-    notes = list(tune_notes)
+    notes = list(tune_notes) + conf_notes
     tagged = sum(1 for t in sells if t.get("regime") in ("bull", "neutral", "bear"))
     if tagged < MIN_SAMPLES_REGIME:
         notes.append(f"regiimioppiminen {tagged}/{MIN_SAMPLES_REGIME} myyntiä")
@@ -445,4 +554,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "regime_stats": regime_stats,
         "setup_memory": setup_memory,
         "regime_tagged_sells": tagged,
+        "gemini_confidence_stats": conf_tuning["gemini_confidence_stats"],
+        "gemini_confidence_scales": gemini_confidence_scales,
+        "gemini_confidence_tagged": conf_tuning["gemini_confidence_tagged"],
     }

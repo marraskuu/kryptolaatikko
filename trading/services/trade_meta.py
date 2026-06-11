@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .market_learning import setup_key_for_analysis
+
+_GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
 
 
 def meta_from_analysis(
@@ -36,8 +39,14 @@ def meta_from_analysis(
         meta["setup"] = setup_key_for_analysis(analysis, regime)
     else:
         sig = analysis.get("geminiSignal") or {}
-        if sig.get("action") == "sell" and sig.get("confidence") is not None:
+        if sig.get("confidence") is not None and sig.get("action") == "sell":
             meta["geminiConfidence"] = int(sig["confidence"])
+        if "geminiConfidence" not in meta:
+            for reason in analysis.get("reasons") or []:
+                match = _GEMINI_CONF_RE.search(str(reason))
+                if match:
+                    meta["geminiConfidence"] = int(match.group(1))
+                    break
 
     return {k: v for k, v in meta.items() if v is not None and v != ""}
 

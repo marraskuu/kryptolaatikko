@@ -653,6 +653,17 @@ function renderLearningChips() {
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
+  const gemTagged = learning?.gemini_confidence_tagged || 0;
+  const gemConfStats = learning?.gemini_confidence_stats;
+  if (gemTagged >= 6 && gemConfStats && Object.keys(gemConfStats).length) {
+    const lines = Object.entries(gemConfStats)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(
+        ([conf, s]) =>
+          `${conf}/10: ${s.trades} kpl, ${s.expectancy_eur >= 0 ? "+" : ""}${s.expectancy_eur} €/kauppa`
+      );
+    html += `<span class="metric-chip" title="${lines.join("\n")}">🔮 Gemini-conf</span>`;
+  }
   const activeRegime = regime?.regime;
   if (activeRegime && learning?.regime_tuning?.[activeRegime]) {
     html += `<span class="metric-chip" title="Regiimikohtainen säätö aktiivisessa markkinassa">🎯 ${activeRegime}</span>`;

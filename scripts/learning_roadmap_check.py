@@ -26,12 +26,12 @@ THRESHOLDS = {
         "action": "Odota — ei uutta koodia. Chip: 📐 N setuppia / regiimi 4/4.",
     },
     "gemini_confidence": {
-        "label": "Gemini-confidence oppiminen (toteutettava)",
+        "label": "Gemini-confidence oppiminen (koodissa — odota tagattuja myyntejä)",
         "ready_if_all": [
             ("gemini_sell_trades", 6, "ge"),
             ("gemini_tagged_confidence", 6, "ge"),
         ],
-        "action": "Toteuta: confidence-portti (5–10) gemini_sell-kategoriaan learning.py + ai_trader.",
+        "action": "Aktiivinen kun ≥6 tagattua: estää tappiolliset conf-tasot learning.py + ai_trader.",
     },
     "richer_buckets": {
         "label": "Richer market-learning ämpärit (toteutettava)",

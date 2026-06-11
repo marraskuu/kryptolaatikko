@@ -1060,6 +1060,7 @@ def make_trading_decisions(
     # A: Geminin häviömyyntien hillintä (oppimisen säätämä)
     gemini_sell_min_conf = int(learning.get("gemini_sell_min_confidence", 0))
     gemini_sell_scale = max(0.2, min(1.0, float(learning.get("gemini_sell_scale", 1.0))))
+    gemini_conf_scales = learning.get("gemini_confidence_scales") or {}
 
     # D: symbolimuisti — opi omista onnistumisista/epäonnistumisista per kolikko
     symbol_memory = learning.get("symbol_memory") or {}
@@ -1275,22 +1276,42 @@ def make_trading_decisions(
             and gemini_sig.get("action") == "sell"
             and gemini_sig.get("confidence", 0) >= max(sell_conf, gemini_sell_min_conf)
         ):
-            sell_amount = (
-                holding["amount"]
-                * _gemini_sell_fraction(gemini_sig.get("confidence", 5))
-                * gemini_sell_scale
+            conf = int(gemini_sig.get("confidence", 5))
+            conf_scale = (
+                float(gemini_conf_scales.get(conf, gemini_conf_scales.get(str(conf), 1.0)))
+                if gemini_conf_scales
+                else 1.0
             )
-            _append_sell_decision(
-                decisions,
-                symbol,
-                sell_amount,
-                analysis["currentPrice"],
-                _action_reason(
+            if conf_scale <= 0:
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": (
+                            f"Gemini myynti ({conf}/10) estetty — "
+                            f"tappiollinen confidence-taso oppimisessa"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+            else:
+                sell_amount = (
+                    holding["amount"]
+                    * _gemini_sell_fraction(conf)
+                    * gemini_sell_scale
+                    * conf_scale
+                )
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    analysis["currentPrice"],
+                    _action_reason(
+                        analysis,
+                        f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
+                    ),
                     analysis,
-                    f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
-                ),
-                analysis,
-            )
+                )
         elif (
             gemini_active
             and gemini_sig
