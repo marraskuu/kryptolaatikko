@@ -332,9 +332,7 @@ function renderStats() {
   const pnlPct = s.pnlPct ?? 0;
   const pnlClass = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
   const sign = pnl >= 0 ? "+" : "";
-  const taxNote =
-    (s.taxCurrentYear ?? 0) > 0 ? ` · vero ${taxYear} ${formatEur(s.taxCurrentYear)}` : "";
-  els.statPnl.textContent = `${sign}${formatEur(pnl).replace("€", "").trim()} € (${formatPct(pnlPct)})${taxNote}`;
+  els.statPnl.textContent = `${sign}${formatEur(pnl).replace("€", "").trim()} € (${formatPct(pnlPct)})`;
   els.statPnl.className = `stat-change ${pnlClass}`;
 }
 
