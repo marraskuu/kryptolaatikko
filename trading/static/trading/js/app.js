@@ -256,6 +256,7 @@ const els = {
   marketSearch: document.getElementById("market-search"),
   aiDecision: document.getElementById("ai-decision"),
   headerRegime: document.getElementById("header-regime"),
+  headerRegimeInline: document.getElementById("header-regime-inline"),
   portfolioBody: document.getElementById("portfolio-body"),
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
@@ -283,8 +284,11 @@ function renderAll(lastUpdate) {
   renderPortfolio();
   renderTradeLog();
   renderAIDecision(state.lastAIReport);
+  if (els.headerRegimeInline) {
+    els.headerRegimeInline.innerHTML = renderRegimeChip({ compact: true });
+  }
   if (els.headerRegime) {
-    els.headerRegime.innerHTML = renderRegimeLearning();
+    els.headerRegime.innerHTML = renderLearningChips();
   }
 }
 
@@ -629,22 +633,36 @@ function renderAIEventLog() {
     .join("");
 }
 
-function renderRegimeLearning() {
+function renderRegimeChip({ compact = false } = {}) {
   const regime = state.regime;
-  const learning = state.learning;
-  if (!regime && !learning) return "";
+  if (!regime?.regime) return "";
   const regimeMap = {
     bull: { label: "Nouseva markkina", cls: "up" },
     bear: { label: "Laskeva markkina", cls: "down" },
     neutral: { label: "Neutraali markkina", cls: "neutral" },
   };
-  let html = "";
-  if (regime?.regime) {
-    const r = regimeMap[regime.regime] || regimeMap.neutral;
-    const btc = regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
-    const breadth = regime.breadth_up_pct != null ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)` : "";
-    html += `<span class="metric-chip ${r.cls}">${r.label}${btc}${breadth}</span>`;
+  const r = regimeMap[regime.regime] || regimeMap.neutral;
+  const details = [];
+  if (regime.btc_change_24h_pct != null) {
+    details.push(`BTC ${formatPct(regime.btc_change_24h_pct)}`);
   }
+  if (regime.breadth_up_pct != null) {
+    details.push(`${regime.breadth_up_pct}% kryptoista nousussa (24 h)`);
+  }
+  const title = details.length ? `${r.label} · ${details.join(" · ")}` : r.label;
+  if (compact) {
+    return `<span class="badge regime-badge ${r.cls}" title="${title}">${r.label}</span>`;
+  }
+  const btc = regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
+  const breadth = regime.breadth_up_pct != null ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)` : "";
+  return `<span class="metric-chip ${r.cls}" title="${title}">${r.label}${btc}${breadth}</span>`;
+}
+
+function renderLearningChips() {
+  const regime = state.regime;
+  const learning = state.learning;
+  if (!learning && !state.marketLearning) return "";
+  let html = "";
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }

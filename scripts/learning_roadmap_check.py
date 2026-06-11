@@ -4,6 +4,7 @@ Oppimisroadmap — tarkista milloin seuraava oppimisvaihe kannattaa toteuttaa.
 
 Käyttö: python scripts/learning_roadmap_check.py
 Tuotanto-API: https://hiekkalaatikko.pro/api/state/
+Ajastus: Cursor-automaatio päivittäin (klo 9).
 """
 
 from __future__ import annotations

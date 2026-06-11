@@ -51,9 +51,7 @@ body::before {
 
 .header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 28px;
 }
@@ -87,6 +85,33 @@ h1 {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.header-text {
+  min-width: 0;
+}
+
+.header-regime-inline {
+  flex-shrink: 0;
+}
+
+.header-learning {
+  margin-top: 8px;
+}
+
+.badge.regime-badge.up {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green);
+}
+
+.badge.regime-badge.down {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red);
+}
+
+.badge.regime-badge.neutral {
+  background: var(--surface2);
+  color: var(--muted);
 }
 
 .subtitle {
@@ -196,6 +221,24 @@ h1 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 20px;
   width: 100%;
+}
+
+/* Vanha stats-grid (tuotanto ennen uutta HTML:ää) — 5 laatikkoa täysleveäksi */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.stats-grid .winloss-card {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.stats-grid .error-banner {
+  grid-column: 1 / -1;
 }
 
 .error-banner {
@@ -994,7 +1037,8 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .stats-row {
+  .stats-row,
+  .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -1008,7 +1052,8 @@ h1 {
 }
 
 @media (max-width: 520px) {
-  .stats-row {
+  .stats-row,
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 
