@@ -250,6 +250,7 @@ const els = {
   wlDayLoss: document.getElementById("wl-day-loss"),
   wlDayNet: document.getElementById("wl-day-net"),
   statNext: document.getElementById("stat-next"),
+  statUptime: document.getElementById("stat-uptime"),
   lastUpdate: document.getElementById("last-update"),
   marketList: document.getElementById("market-list"),
   marketCount: document.getElementById("market-count"),
@@ -274,12 +275,35 @@ function clearError() {
   els.errorBanner.textContent = "";
 }
 
+function formatUptime(startedAtIso) {
+  if (!startedAtIso) return "—";
+  const start = new Date(startedAtIso);
+  if (Number.isNaN(start.getTime())) return "—";
+  let diffMs = Date.now() - start.getTime();
+  if (diffMs < 0) diffMs = 0;
+  const totalMin = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const mins = totalMin % 60;
+  const parts = [];
+  if (days > 0) parts.push(`${days} pv`);
+  parts.push(`${hours} t`);
+  parts.push(`${mins} min`);
+  return `Pyörinyt ${parts.join(" ")}`;
+}
+
+function renderUptime() {
+  if (!els.statUptime) return;
+  els.statUptime.textContent = formatUptime(state.botStartedAt);
+}
+
 function renderAll(lastUpdate) {
   if (lastUpdate) {
     els.lastUpdate.textContent = `Päivitetty ${formatTime(lastUpdate)}`;
   }
   els.statNext.textContent = `${countdown}s`;
   els.statNext.classList.add("status-running");
+  renderUptime();
   renderStats();
   renderMarketList();
   renderPortfolio();
@@ -788,6 +812,7 @@ function startCountdown() {
   countdownTimer = setInterval(() => {
     if (countdown > 0) countdown--;
     els.statNext.textContent = `${countdown}s`;
+    renderUptime();
   }, 1000);
 }
 

@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from trading.models import BotState
@@ -6,6 +7,32 @@ from .bitfinex import normalize_symbol
 from .session_state import default_state
 
 logger = __import__("logging").getLogger(__name__)
+
+
+def _ensure_bot_started_at(state: dict[str, Any]) -> bool:
+    """Aseta botStartedAt kerran — ensimmäisestä kaupasta tai ympäristömuuttujasta."""
+    if state.get("botStartedAt"):
+        return False
+
+    env = os.environ.get("BOT_STARTED_AT", "").strip()
+    if env:
+        state["botStartedAt"] = env
+        return True
+
+    trades = state.get("portfolio", {}).get("trades", [])
+    timestamps = [
+        t["timestamp"]
+        for t in trades
+        if t.get("type") in ("buy", "sell") and t.get("timestamp")
+    ]
+    if timestamps:
+        state["botStartedAt"] = min(timestamps)
+        return True
+
+    from datetime import datetime, timezone
+
+    state["botStartedAt"] = datetime.now(timezone.utc).isoformat()
+    return True
 
 
 def _normalize_state_symbols(state: dict[str, Any]) -> bool:
@@ -61,11 +88,14 @@ def load_state() -> dict[str, Any]:
     if created:
         state = obj.data
         state["running"] = True
+        _ensure_bot_started_at(state)
         save_state(state)
         return state
     state = obj.data
     changed = _normalize_state_symbols(state)
     if _repair_legacy_tax_withdrawals(state):
+        changed = True
+    if _ensure_bot_started_at(state):
         changed = True
     if changed:
         save_state(state)
