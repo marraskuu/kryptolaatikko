@@ -18,10 +18,6 @@ PRICE_INTERVAL_SEC = 15
 TRADE_INTERVAL_SEC = 60
 LEARNING_CHECK_SEC = 300
 BOT_STALE_SEC = 90
-EMERGENCY_WAKE_COOLDOWN = 45
-EMERGENCY_WAKE_AFTER_SEC = 120
-
-_last_emergency_wake = 0.0
 
 
 def _schedule_analysis_tick() -> None:
@@ -172,32 +168,10 @@ def bot_is_stale(state: dict) -> bool:
 
 
 def maybe_wake_bot(state: dict) -> None:
-    """Herätä botti jos tila on vanhentunut — kutsutaan API-pyynnöistä."""
-    global _last_emergency_wake
-
+    """Herätä botti taustalla — ei koskaan blokkaa API-pyyntöä."""
     ensure_bot_worker()
-    stale_sec = bot_stale_seconds(state)
-    if stale_sec < BOT_STALE_SEC:
+    if not bot_is_stale(state):
         return
-
-    logger.warning("Botti näyttää jumiutuneen (%.0f s) — herätetään worker", stale_sec)
-    now = time.time()
-    if stale_sec >= EMERGENCY_WAKE_AFTER_SEC and now - _last_emergency_wake >= EMERGENCY_WAKE_COOLDOWN:
-        _last_emergency_wake = now
-        try:
-            refresh_prices()
-            with _cycle_thread_lock:
-                if not _cycle_thread_running:
-                    _cycle_thread_running = True
-                    _schedule_analysis_tick()
-                    threading.Thread(
-                        target=_run_trading_cycle_async,
-                        name="emergency-trading-cycle",
-                        daemon=True,
-                    ).start()
-            return
-        except Exception:
-            logger.exception("Hätäherätys epäonnistui")
-
+    logger.warning("Botti näyttää jumiutuneen (%.0f s) — taustaherätys", bot_stale_seconds(state))
     threading.Thread(target=refresh_prices, name="bot-wake-refresh", daemon=True).start()
     threading.Thread(target=_refresh_learning_report_async, name="bot-wake-learning", daemon=True).start()
