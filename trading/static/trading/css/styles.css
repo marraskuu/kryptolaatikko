@@ -109,6 +109,14 @@ h1 {
   white-space: nowrap;
 }
 
+.badge-row {
+  display: contents;
+}
+
+.header-badges .badge-row .badge {
+  flex: unset;
+}
+
 .header-learning {
   margin-top: 8px;
 }
@@ -1044,7 +1052,7 @@ h1 {
     flex-wrap: wrap;
     margin-left: 0;
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .stats-row,
@@ -1061,13 +1069,116 @@ h1 {
   }
 }
 
+@media (max-width: 640px) {
+  .app {
+    padding: 16px 12px;
+  }
+
+  .header-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .header-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .header-regime-inline {
+    width: 100%;
+  }
+
+  .header-regime-inline .regime-chip {
+    white-space: normal;
+    display: block;
+    width: 100%;
+    line-height: 1.45;
+    text-align: left;
+  }
+
+  .header-badges .badge {
+    width: 100%;
+    text-align: center;
+  }
+
+  .header-badges .badge-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .header-badges .badge-row .badge {
+    flex: 1;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+  }
+
+  .stat-card {
+    padding: 16px;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .winloss-row.winloss-head {
+    display: none;
+  }
+
+  .winloss-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .winloss-row:last-child {
+    border-bottom: none;
+  }
+
+  .winloss-period {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .winloss-win,
+  .winloss-loss,
+  .winloss-net {
+    white-space: normal;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .winloss-win::before {
+    content: "Voitolliset: ";
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .winloss-loss::before {
+    content: "Tappiolliset: ";
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .winloss-net::before {
+    content: "Yhteensä: ";
+    color: var(--muted);
+    font-weight: 500;
+  }
+}
+
 @media (max-width: 520px) {
   .stats-row,
   .stats-grid {
     grid-template-columns: 1fr;
-  }
-
-  .winloss-row {
-    column-gap: 16px;
   }
 }
