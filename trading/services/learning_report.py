@@ -440,10 +440,10 @@ def _narrative_pending_stale(state: dict[str, Any], report: dict[str, Any]) -> b
 
 
 def _last_report_ms(state: dict[str, Any]) -> int:
-    for key in ("lastLearningReportAt", "lastLearningNarrativeAt"):
-        parsed = _parse_time(state.get(key))
-        if parsed:
-            return int(parsed.timestamp() * 1000)
+    """Milloin rule-pohjainen raportti viimeksi rakennettu."""
+    parsed = _parse_time(state.get("lastLearningReportAt"))
+    if parsed:
+        return int(parsed.timestamp() * 1000)
     cached = state.get("learningReport") or {}
     parsed = _parse_time(cached.get("timestamp"))
     if parsed:
@@ -451,20 +451,27 @@ def _last_report_ms(state: dict[str, Any]) -> int:
     return 0
 
 
-def _next_narrative_sec(last_ms: int, now_ms: int | None = None) -> int:
+def _last_narrative_ms(state: dict[str, Any]) -> int:
+    """Milloin Gemini-kertomus viimeksi onnistui."""
+    parsed = _parse_time(state.get("lastLearningNarrativeAt"))
+    if parsed:
+        return int(parsed.timestamp() * 1000)
+    return 0
+
+
+def _next_narrative_sec(last_narrative_ms: int, now_ms: int | None = None) -> int:
     now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
-    if not last_ms:
+    if not last_narrative_ms:
         return 0
-    elapsed_sec = (now_ms - last_ms) // 1000
+    elapsed_sec = (now_ms - last_narrative_ms) // 1000
     return max(0, LEARNING_REPORT_INTERVAL_SEC - elapsed_sec)
 
 
 def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any]) -> dict[str, Any]:
     """Palauta tallennettu raportti — päivitä vain laskurit ja narratiivi."""
     report = dict(cached)
-    last_ms = _last_report_ms(state)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
+    report["nextNarrativeInSec"] = _next_narrative_sec(_last_narrative_ms(state), now_ms)
     narrative = state.get("learningNarrative")
     if narrative:
         report["narrative"] = narrative
@@ -481,14 +488,13 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
 
 
 def clear_stale_narrative_error(state: dict[str, Any]) -> bool:
-    """Poista tallennettu virhe jos kertomusta ei vielä ole — sallii uudelleenyrityksen deployn jälkeen."""
+    """Poista tunnettu vanhentunut virhe (korjattu bugi) — sallii uudelleenyrityksen."""
     if _has_narrative_story(state, state.get("learningReport")):
         return False
-    had_error = bool(
-        state.get("learningNarrativeError")
-        or (state.get("learningReport") or {}).get("narrativeError")
+    err = state.get("learningNarrativeError") or (state.get("learningReport") or {}).get(
+        "narrativeError"
     )
-    if not had_error:
+    if not err or "_model_candidates" not in str(err):
         return False
     state.pop("learningNarrativeError", None)
     cached = state.get("learningReport")
@@ -499,6 +505,29 @@ def clear_stale_narrative_error(state: dict[str, Any]) -> bool:
     return True
 
 
+def needs_narrative_refresh(state: dict[str, Any]) -> bool:
+    """Tarvitaanko Gemini-kertomus (6 h välein, uudelleenyritys jos puuttuu tai epäonnistui)."""
+    from .gemini import is_configured
+
+    if not is_configured():
+        return False
+    cached = state.get("learningReport")
+    if not cached:
+        return False
+    report = _merge_cached_learning_report(state, cached)
+    if _has_narrative_story(state, report):
+        return False
+    if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
+        return _narrative_pending_stale(state, report)
+    if state.get("learningNarrativeError") or report.get("narrativeError"):
+        return True
+    last_ms = _last_narrative_ms(state)
+    if not last_ms:
+        return True
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    return (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000
+
+
 def needs_learning_report_refresh(state: dict[str, Any]) -> bool:
     """Tarvitaanko oppimisraporttiin kirjoitus/Gemini-kutsu (ei joka minuutti)."""
     cached = state.get("learningReport")
@@ -507,15 +536,7 @@ def needs_learning_report_refresh(state: dict[str, Any]) -> bool:
     due = not cached or not last_ms or (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000
     if due:
         return True
-    if not cached:
-        return False
-    report = _merge_cached_learning_report(state, cached)
-    narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
-    if narrative_error and not _has_narrative_story(state, report):
-        return True
-    if _narrative_pending_stale(state, report):
-        return True
-    return False
+    return needs_narrative_refresh(state)
 
 
 def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:

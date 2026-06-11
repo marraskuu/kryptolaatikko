@@ -841,11 +841,13 @@ function renderLearningReportMeta(report) {
     parts.push("Gemini kirjoittaa kertomusta…");
   } else if (last) {
     parts.push(`Gemini ${formatTime(last)}`);
+  } else if (next === 0) {
+    parts.push("Gemini-kertomus tulossa");
   } else {
     parts.push("Gemini odottaa seuraavaa kierrosta");
   }
-  if (next != null && !report.narrativePending) {
-    parts.push(`seuraava raportti ${formatDurationSec(next)} kuluttua`);
+  if (next != null && next > 0 && !report.narrativePending) {
+    parts.push(`seuraava kertomus ${formatDurationSec(next)} kuluttua`);
   }
   els.learningReportMeta.textContent = parts.join(" · ");
 }
@@ -915,9 +917,11 @@ function renderLearningReport() {
       '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa kertomusta… (päivittyy automaattisesti)</p></div>';
   } else if (report.narrativeError) {
     narrativeHtml = `<div class="learning-narrative learning-narrative-error"><p>${escapeHtml(report.narrativeError)}</p></div>`;
+  } else if (!report.lastNarrativeAt && report.nextNarrativeInSec > 0) {
+    narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>Seuraava Gemini-kertomus ${formatDurationSec(report.nextNarrativeInSec)} kuluttua (6 h välein).</p></div>`;
   } else if (!report.lastNarrativeAt) {
     narrativeHtml =
-      '<div class="learning-narrative learning-narrative-pending"><p>Ensimmäinen Gemini-kertomus tulee seuraavalla kaupankäyntikierroksella (~1 min).</p></div>';
+      '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa ensimmäistä kertomusta… (päivittyy automaattisesti)</p></div>';
   }
 
   const sectionsHtml = (report.sections || [])
