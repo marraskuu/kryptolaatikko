@@ -3,8 +3,6 @@ import os
 import threading
 import time
 
-from django.conf import settings
-
 from .engine import execute_trading_cycle, refresh_prices
 from .session_state import log_ai_event
 
