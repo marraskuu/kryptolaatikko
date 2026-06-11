@@ -51,30 +51,33 @@ body::before {
 
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 28px;
   width: 100%;
 }
 
-.header-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  flex: 0 1 auto;
+.header-body {
+  flex: 1;
   min-width: 0;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
 }
 
 .header-badges {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-self: flex-start;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .logo {
@@ -93,10 +96,7 @@ h1 {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-.header-text {
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 .header-regime-inline {
@@ -1036,12 +1036,14 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .header {
+  .header-title-row {
     flex-wrap: wrap;
   }
 
   .header-badges {
-    flex: 1 1 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+    width: 100%;
     justify-content: flex-end;
   }
 
