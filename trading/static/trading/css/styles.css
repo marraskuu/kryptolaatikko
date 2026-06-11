@@ -99,13 +99,15 @@ h1 {
   flex-shrink: 0;
 }
 
-.header-regime-inline {
+.header-regime-inline,
+.header-chip-inline {
   flex-shrink: 0;
   display: flex;
   align-items: center;
 }
 
-.header-regime-inline .regime-chip {
+.header-regime-inline .regime-chip,
+.header-chip-inline .metric-chip {
   white-space: nowrap;
 }
 
@@ -1088,8 +1090,18 @@ h1 {
     width: 100%;
   }
 
-  .header-regime-inline {
+  .header-regime-inline,
+  .header-chip-inline {
     width: 100%;
+  }
+
+  .header-regime-inline .regime-chip,
+  .header-chip-inline .metric-chip {
+    white-space: normal;
+    display: block;
+    width: 100%;
+    line-height: 1.45;
+    text-align: left;
   }
 
   .header-regime-inline .regime-chip {

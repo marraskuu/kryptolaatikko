@@ -257,6 +257,7 @@ const els = {
   aiDecision: document.getElementById("ai-decision"),
   headerRegime: document.getElementById("header-regime"),
   headerRegimeInline: document.getElementById("header-regime-inline"),
+  headerMarketLearningInline: document.getElementById("header-market-learning-inline"),
   portfolioBody: document.getElementById("portfolio-body"),
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
@@ -284,6 +285,9 @@ function renderAll(lastUpdate) {
   renderPortfolio();
   renderTradeLog();
   renderAIDecision(state.lastAIReport);
+  if (els.headerMarketLearningInline) {
+    els.headerMarketLearningInline.innerHTML = renderMarketLearningChip();
+  }
   if (els.headerRegimeInline) {
     els.headerRegimeInline.innerHTML = renderRegimeChip();
   }
@@ -645,6 +649,19 @@ function renderRegimeChip() {
   return `<span class="metric-chip regime-chip ${r.cls}">${r.label}${btc}${breadth}</span>`;
 }
 
+function renderMarketLearningChip() {
+  const ml = state.marketLearning;
+  if (!ml || (!ml.bucketsLearned && !ml.bucketsTracked)) return "";
+  let title = "Koko markkinan varjo-oppiminen (signaalit → toteutunut 1h/4h tuotto)";
+  if (ml.best?.setup) {
+    title += `\nParas: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`;
+  }
+  if (ml.worst?.setup) {
+    title += `\nHuonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`;
+  }
+  return `<span class="metric-chip" title="${title}">📊 ${ml.bucketsLearned} asetelmaa opittu</span>`;
+}
+
 function renderLearningChips() {
   const regime = state.regime;
   const learning = state.learning;
@@ -671,17 +688,6 @@ function renderLearningChips() {
   const ownSetups = learning?.setup_memory ? Object.keys(learning.setup_memory).length : 0;
   if (ownSetups > 0) {
     html += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
-  }
-  const ml = state.marketLearning;
-  if (ml && (ml.bucketsLearned || ml.bucketsTracked)) {
-    let title = "Koko markkinan varjo-oppiminen (signaalit → toteutunut 1h/4h tuotto)";
-    if (ml.best?.setup) {
-      title += `\nParas: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`;
-    }
-    if (ml.worst?.setup) {
-      title += `\nHuonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`;
-    }
-    html += `<span class="metric-chip" title="${title}">📊 ${ml.bucketsLearned} asetelmaa opittu</span>`;
   }
   return html;
 }
