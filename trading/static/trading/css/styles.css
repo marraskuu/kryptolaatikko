@@ -283,6 +283,17 @@ h1 {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
+.stat-card-next {
+  min-height: 100%;
+}
+
+.stat-card-next .stat-uptime {
+  margin-top: auto;
+  padding-top: 12px;
+  color: var(--green);
+  font-weight: 600;
+}
+
 .stat-label {
   font-size: 0.75rem;
   text-transform: uppercase;
