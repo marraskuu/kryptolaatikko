@@ -620,8 +620,10 @@ def maybe_refresh_narrative(
     due = (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000 if last_ms else True
     narrative = state.get("learningNarrative")
     pending_stale = _narrative_pending_stale(state, report)
+    narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
+    retry_after_error = bool(narrative_error) and not _has_narrative_story(state, report)
 
-    if not due and not pending_stale:
+    if not due and not pending_stale and not retry_after_error:
         report["narrative"] = narrative
         report["lastNarrativeAt"] = last_at
         report["narrativeError"] = state.get("learningNarrativeError")
