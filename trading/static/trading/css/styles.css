@@ -185,16 +185,16 @@ h1 {
 .stats-section {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
+  align-items: stretch;
+  gap: 20px;
   margin-bottom: 24px;
   width: 100%;
 }
 
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
   width: 100%;
 }
 
@@ -259,8 +259,7 @@ h1 {
 .stat-change.neutral { color: var(--muted); }
 
 .winloss-card {
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
 }
 
 .winloss-table {
@@ -268,16 +267,16 @@ h1 {
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
 }
 
 .winloss-row {
   display: grid;
-  grid-template-columns: auto auto auto auto;
-  column-gap: 28px;
+  grid-template-columns: minmax(6.5rem, 0.7fr) 1fr 1fr minmax(5.5rem, 0.55fr);
+  column-gap: 20px;
   row-gap: 6px;
   align-items: center;
+  width: 100%;
 }
 
 .winloss-row.winloss-head .winloss-win,
