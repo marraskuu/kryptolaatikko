@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 
 from .services.export_excel import build_tax_excel
+from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
 
@@ -20,52 +21,23 @@ def index(request):
 @csrf_exempt
 @require_GET
 def api_health(request):
-    """Kevyt healthcheck — ei herätä bottia eikä koske tietokantaa."""
-    return JsonResponse({"ok": True, "appBuild": getattr(settings, "APP_BUILD", "dev")})
+    """
+    Terveystarkastus.
+
+    Oletus (kevyt): DB + worker + portfolio — nopea Railway-healthcheck.
+    ?deep=1: myös Bitfinex + Gemini.
+    """
+    deep = request.GET.get("deep", "").lower() in ("1", "true", "yes")
+    payload = run_health_check(deep=deep)
+    payload["appBuild"] = getattr(settings, "APP_BUILD", "dev")
+    status_code = 200 if payload.get("ok") else 503
+    response = JsonResponse(payload, status=status_code)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _db_diagnostics() -> dict:
-    """Kevyt diagnostiikka: säilyykö tila deployien yli (MySQL) vai ei (SQLite)."""
-    import os
-
-    from django.db import connection
-
-    engine = connection.settings_dict.get("ENGINE", "")
-    short = engine.rsplit(".", 1)[-1]
-    persistent = short not in ("sqlite3",)
-
-    from urllib.parse import urlparse
-
-    url_vars = ("MYSQL_URL", "DATABASE_URL", "MYSQL_PUBLIC_URL")
-    parts_vars = ("MYSQLHOST", "MYSQL_HOST", "MYSQLDATABASE", "MYSQL_DATABASE")
-    env_present = {k: bool(os.environ.get(k, "").strip()) for k in url_vars + parts_vars}
-    unresolved = {
-        k: True
-        for k in url_vars
-        if "${" in os.environ.get(k, "") or "${{" in os.environ.get(k, "")
-    }
-
-    url_schemes = {}
-    for k in url_vars:
-        raw = os.environ.get(k, "").strip()
-        if not raw:
-            continue
-        cleaned = raw.strip("'\"").strip()
-        url_schemes[k] = {
-            "scheme": urlparse(cleaned).scheme or "(none)",
-            "len": len(cleaned),
-            "quoted": raw != cleaned,
-        }
-
-    return {
-        "engine": short,
-        "persistent": persistent,
-        "host": connection.settings_dict.get("HOST") or None,
-        "name": connection.settings_dict.get("NAME") if persistent else "ephemeral",
-        "envPresent": env_present,
-        "unresolvedRefs": unresolved,
-        "urlSchemes": url_schemes,
-    }
+    return db_diagnostics()
 
 
 @csrf_exempt

@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+from typing import Any
 
 from .engine import execute_trading_cycle, refresh_prices
 from .session_state import log_ai_event
@@ -154,6 +155,19 @@ def start_bot_worker() -> None:
 def ensure_bot_worker() -> None:
     """Käynnistä worker uudelleen jos se on sammunut (deploy/uudelleenkäynnistys)."""
     start_bot_worker()
+
+
+def get_worker_status() -> dict[str, Any]:
+    """Julkinen worker-tila terveystarkastusta varten."""
+    disabled = os.environ.get("DISABLE_BOT_WORKER") == "1"
+    alive = _worker_alive()
+    return {
+        "disabled": disabled,
+        "alive": alive,
+        "priceIntervalSec": PRICE_INTERVAL_SEC,
+        "tradeIntervalSec": TRADE_INTERVAL_SEC,
+        "staleThresholdSec": BOT_STALE_SEC,
+    }
 
 
 def bot_stale_seconds(state: dict) -> float:
