@@ -17,6 +17,9 @@ MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
 ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
+# Kun suurin osa pääomasta on käteisenä, sijoita aggressiivisesti (ei 30 min taukoa).
+IDLE_CASH_DEPLOY_PCT = 0.35
+IDLE_CASH_MIN_EUR = 150
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
@@ -879,6 +882,81 @@ def in_churn_cooldown(portfolio_data: dict[str, Any]) -> bool:
     if elapsed is None:
         return False
     return elapsed < MIN_ROTATION_INTERVAL_SEC
+
+
+def _is_idle_cash(cash: float, total_value: float) -> bool:
+    if cash < IDLE_CASH_MIN_EUR:
+        return False
+    if total_value <= 0:
+        return True
+    return cash / total_value >= IDLE_CASH_DEPLOY_PCT
+
+
+def _symbols_for_idle_deploy(
+    ranked: list[dict[str, Any]],
+    limit: int,
+    *,
+    blocked_buys: set[str],
+    blocked_setups: set[str],
+    regime: str,
+) -> list[str]:
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for r in ranked:
+        sym = normalize_symbol(r["symbol"])
+        if sym in seen:
+            continue
+        analysis = r.get("analysis") or {}
+        if not entry_eligible(analysis):
+            continue
+        if _is_buy_blocked(
+            sym,
+            analysis,
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        ):
+            continue
+        symbols.append(sym)
+        seen.add(sym)
+        if len(symbols) >= limit:
+            break
+    return symbols
+
+
+def _release_idle_dust_holdings(
+    decisions: list[dict[str, Any]],
+    holdings: dict[str, Any],
+    analyses: dict[str, dict[str, Any]],
+    *,
+    blocked_buys: set[str],
+) -> None:
+    """Myy alle 1 € / cooldown-kohteet — vapauttaa pääoman uudelleenallokaatioon."""
+    for symbol, holding in list(holdings.items()):
+        if is_stablecoin(symbol):
+            continue
+        analysis = analyses.get(symbol)
+        if not analysis:
+            continue
+        norm = normalize_symbol(symbol)
+        price = float(analysis.get("currentPrice") or 0)
+        if price <= 0:
+            continue
+        cant_add = not entry_price_ok(analysis) or norm in blocked_buys
+        if not cant_add:
+            continue
+        for d in decisions:
+            if d.get("type") == "sell" and d.get("symbol") == symbol:
+                break
+        else:
+            _append_sell_decision(
+                decisions,
+                symbol,
+                holding["amount"],
+                price,
+                "Vapaa käteinen — myydään kohde johon ei voi lisätä (hinta/cooldown)",
+                analysis,
+            )
 
 
 def analyze_market(candles: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1950,6 +2028,37 @@ def make_trading_decisions(
     alloc_symbols = list(
         dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
     )[:MAX_POSITIONS]
+    idle_cash = _is_idle_cash(cash, total_value)
+    if idle_cash:
+        _release_idle_dust_holdings(
+            decisions, holdings, analyses, blocked_buys=blocked_buys
+        )
+        idle_symbols = _symbols_for_idle_deploy(
+            ranked_buyable,
+            MAX_POSITIONS,
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
+        if idle_symbols:
+            focus_buyable = [
+                normalize_symbol(s)
+                for s in alloc_symbols
+                if entry_eligible(analyses.get(s))
+                and not _is_buy_blocked(
+                    s,
+                    analyses.get(s),
+                    blocked_buys=blocked_buys,
+                    blocked_setups=blocked_setups,
+                    regime=regime,
+                )
+            ]
+            if len(focus_buyable) < 1:
+                concentration_mode = False
+            alloc_symbols = idle_symbols
+            top_symbols = set(alloc_symbols)
+            top_norms = {normalize_symbol(s) for s in top_symbols}
+
     weights = _compute_allocation_weights(
         gemini_insights, alloc_symbols, analyses, gemini_active
     )
@@ -1957,7 +2066,7 @@ def make_trading_decisions(
         weights = diversify_weights(weights, analyses)
 
     skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
-    if not churn_cooldown or concentration_mode:
+    if not churn_cooldown or concentration_mode or idle_cash:
         _deploy_cash_to_targets(
             decisions,
             holdings,
@@ -1988,6 +2097,7 @@ def make_trading_decisions(
         "topSymbols": list(top_symbols),
         "geminiActive": gemini_active,
         "concentrationMode": concentration_mode,
+        "idleCashDeploy": idle_cash,
     }
 
 
