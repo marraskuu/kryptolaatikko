@@ -1172,9 +1172,11 @@ def generate_learning_narrative(
     roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
-    prompt = f"""Olet krypto-simulaattorin oppimisraportin kirjoittaja. Kirjoita sijoittajalle selkeä, vapaamuotoinen kertomus suomeksi.
+    prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
 
 TÄRKEÄÄ:
+- Sovelluksen nimi on aina "Krypto Simulaattori" (ei "Kryptosimuattori" eikä muita kirjoitusmuotoja).
+- Älä tervehdi — ei "Hei sijoittaja" eikä muita tervehdyksiä. Aloita suoraan asiasta.
 - Kaikki säätöpäätökset on JO toteutettu koodissa (learning.py). Älä keksi uusia automaattisia sääntöjä.
 - Perustu vain annettuun dataan — älä keksi kauppoja tai lukuja.
 - "story" = pääteksti: luettava kertomus 3–5 kappaletta (ei luetteloa).
@@ -1230,7 +1232,9 @@ Vastaa VAIN validilla JSON:lla:
                 "source": "gemini",
                 "model": model,
             }
-            return narrative, {
+            from .learning_report import sanitize_learning_narrative
+
+            return sanitize_learning_narrative(narrative), {
                 "ok": True,
                 "message": "Oppimisraportti päivitetty",
                 "provider": "gemini",

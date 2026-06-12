@@ -4,9 +4,42 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+_GREETING_LINE_RE = re.compile(r"^\s*Hei\s+sijoittaja,?\s*$", re.I)
+_GREETING_PREFIX_RE = re.compile(r"^\s*Hei\s+sijoittaja,?\s*", re.I)
+_NAME_FIXES = (
+    (re.compile(r"Kryptosimuattori", re.I), "Krypto Simulaattori"),
+    (re.compile(r"krypto-simulaattori", re.I), "Krypto Simulaattori"),
+)
+
+
+def _sanitize_narrative_text(text: str) -> str:
+    if not text:
+        return text
+    for pattern, replacement in _NAME_FIXES:
+        text = pattern.sub(replacement, text)
+    text = _GREETING_PREFIX_RE.sub("", text)
+    lines = text.split("\n")
+    while lines and _GREETING_LINE_RE.match(lines[0]):
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Poista tervehdykset ja korjaa sovelluksen nimi kertomuksessa."""
+    if not narrative:
+        return narrative
+    cleaned = dict(narrative)
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas"):
+        if cleaned.get(key):
+            cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
+    return cleaned
 
 from .bitfinex import get_crypto_label, normalize_symbol
 
@@ -476,7 +509,7 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     report = dict(cached)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     report["nextNarrativeInSec"] = _next_narrative_sec(_last_narrative_ms(state), now_ms)
-    narrative = state.get("learningNarrative")
+    narrative = sanitize_learning_narrative(state.get("learningNarrative"))
     if narrative:
         report["narrative"] = narrative
         report["narrativePending"] = False
@@ -574,6 +607,7 @@ def _apply_narrative_to_state(
     report: dict[str, Any],
     narrative: dict[str, Any],
 ) -> None:
+    narrative = sanitize_learning_narrative(narrative) or narrative
     state["lastLearningNarrativeAt"] = _now_iso()
     state["learningNarrative"] = narrative
     state["learningReportSnapshot"] = report.get("snapshot")
@@ -683,7 +717,7 @@ def maybe_refresh_narrative(
             last_ms = int(parsed.timestamp() * 1000)
 
     due = (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000 if last_ms else True
-    narrative = state.get("learningNarrative")
+    narrative = sanitize_learning_narrative(state.get("learningNarrative"))
     pending_stale = _narrative_pending_stale(state, report)
     narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
     retry_after_error = bool(narrative_error) and not _has_narrative_story(state, report)
