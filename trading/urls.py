@@ -12,4 +12,9 @@ urlpatterns = [
         views.api_historical_backfill,
         name="api_historical_backfill",
     ),
+    path(
+        "api/admin/visitor-stats/",
+        views.api_visitor_stats,
+        name="api_visitor_stats",
+    ),
 ]

@@ -12,21 +12,17 @@ from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
+from .services.visitor_analytics import record_page_visit
 
 logger = logging.getLogger(__name__)
 
 
 def index(request):
-    return render(
-        request,
-        "trading/index.html",
-        {
-            "plausible_domain": getattr(settings, "PLAUSIBLE_DOMAIN", ""),
-            "plausible_script_url": getattr(
-                settings, "PLAUSIBLE_SCRIPT_URL", "https://plausible.io/js/script.js"
-            ),
-        },
-    )
+    try:
+        record_page_visit(request)
+    except Exception:
+        logger.exception("Käyntitallennus epäonnistui")
+    return render(request, "trading/index.html")
 
 
 @csrf_exempt
@@ -144,4 +140,27 @@ def api_historical_backfill(request):
 
     payload = {"scheduled": False, "force": force, "async": False, "result": result}
     payload.update(get_backfill_status())
+    return JsonResponse(payload)
+
+
+@csrf_exempt
+@require_GET
+def api_visitor_stats(request):
+    """
+    Kävijätilastot (Django PageVisit).
+
+    GET /api/admin/visitor-stats/?key=SECRET_KEY&days=30
+    """
+    if not _check_admin_key(request):
+        return JsonResponse({"error": "unauthorized"}, status=403)
+
+    from .services.visitor_analytics import get_visitor_stats
+
+    try:
+        days = int(request.GET.get("days", "30"))
+    except ValueError:
+        days = 30
+
+    payload = get_visitor_stats(days=days)
+    payload["appBuild"] = getattr(settings, "APP_BUILD", "dev")
     return JsonResponse(payload)
