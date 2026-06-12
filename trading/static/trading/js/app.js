@@ -1012,6 +1012,18 @@ function renderAIDecision(report) {
 
 function getTradePnlBadge(trade) {
   if (trade.type === "tax") return "";
+
+  function signedEurSuffix(value) {
+    if (!Number.isFinite(value)) return "";
+    const sign = value >= 0 ? "+" : "−";
+    const abs = Math.abs(value);
+    const formatted = abs.toLocaleString("fi-FI", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: abs < 1 ? 4 : 2,
+    });
+    return ` (${sign}${formatted} €)`;
+  }
+
   if (trade.type === "sell") {
     const costBasis = trade.costBasis ?? trade.eurTotal - (trade.profitLoss ?? trade.profit ?? 0);
     const profitLoss = trade.profitLoss ?? trade.profit ?? trade.eurTotal - costBasis;
@@ -1019,15 +1031,16 @@ function getTradePnlBadge(trade) {
     const pct = (profitLoss / costBasis) * 100;
     const cls = pct >= 0 ? "up" : "down";
     const sign = pct >= 0 ? "+" : "";
-    return `<span class="trade-pnl ${cls}">Myynti ${sign}${pct.toFixed(2)} %</span>`;
+    return `<span class="trade-pnl ${cls}">Myynti ${sign}${pct.toFixed(2)} %${signedEurSuffix(profitLoss)}</span>`;
   }
   const ticker = state.tickers[trade.symbol];
   if (!ticker || !trade.price) return "";
   const stillHeld = Object.prototype.hasOwnProperty.call(state.portfolio.holdings || {}, trade.symbol);
   const pct = ((ticker.last - trade.price) / trade.price) * 100;
+  const unrealizedEur = (ticker.last - trade.price) * (trade.amount || 0);
   const cls = pct >= 0 ? "up" : "down";
   const sign = pct >= 0 ? "+" : "";
-  return `<span class="trade-pnl ${cls}">Nyt ${sign}${pct.toFixed(2)} %${stillHeld ? "" : " · myyty"}</span>`;
+  return `<span class="trade-pnl ${cls}">Nyt ${sign}${pct.toFixed(2)} %${signedEurSuffix(unrealizedEur)}${stillHeld ? "" : " · myyty"}</span>`;
 }
 
 function renderTradeLog() {
