@@ -20,7 +20,7 @@ from .bitfinex import is_stablecoin, normalize_symbol
 
 logger = logging.getLogger(__name__)
 
-GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "45"))
+GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "35"))
 FEE_RATE = 0.0  # Bitfinex poisti kaupankäyntikulut kokonaan
 TAX_RATE = 0.30
 MIN_ROTATION_INTERVAL_MIN = 30
@@ -90,7 +90,10 @@ def _post_with_retry(
     last_response: requests.Response | None = None
     request_timeout = timeout if timeout is not None else GEMINI_TIMEOUT
     for attempt in range(GEMINI_MAX_RETRIES + 1):
-        response = requests.post(url, headers=headers, json=payload, timeout=request_timeout)
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=request_timeout)
+        except requests.Timeout:
+            raise
         last_response = response
         if response.status_code not in RETRYABLE_STATUS:
             return response

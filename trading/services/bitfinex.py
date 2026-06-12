@@ -1,9 +1,15 @@
+import logging
+import os
 import time
 from typing import Any
 
 import requests
 
 BITFINEX_DIRECT = "https://api-pub.bitfinex.com/v2"
+BITFINEX_TIMEOUT = int(os.environ.get("BITFINEX_TIMEOUT", "12"))
+BITFINEX_TICKER_TIMEOUT = int(os.environ.get("BITFINEX_TICKER_TIMEOUT", "25"))
+
+logger = logging.getLogger(__name__)
 
 QUOTE_CURRENCIES = ["UST", "USD", "EUR"]
 STABLECOIN_BASES = {
@@ -77,9 +83,9 @@ def parse_pair_symbol(symbol: str) -> dict[str, str] | None:
     return None
 
 
-def _bitfinex_fetch(path: str) -> list | dict:
+def _bitfinex_fetch(path: str, *, timeout: int | None = None) -> list | dict:
     url = f"{BITFINEX_DIRECT}{path}"
-    res = requests.get(url, timeout=30)
+    res = requests.get(url, timeout=timeout or BITFINEX_TIMEOUT)
     try:
         res.raise_for_status()
     except requests.HTTPError:
@@ -123,7 +129,7 @@ def _to_eur(price: float, quote: str, eur_rate: float) -> float:
 
 def fetch_all_markets() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
     global _crypto_meta
-    data = _bitfinex_fetch("/tickers?symbols=ALL")
+    data = _bitfinex_fetch("/tickers?symbols=ALL", timeout=BITFINEX_TICKER_TIMEOUT)
     if not isinstance(data, list):
         raise RuntimeError("Unexpected API response")
 
@@ -205,6 +211,9 @@ def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[d
         if exc.response is not None and exc.response.status_code in (404, 429):
             return []
         raise
+    except requests.RequestException as exc:
+        logger.warning("Candles fetch failed for %s: %s", symbol, exc)
+        return []
     if not isinstance(data, list):
         raise RuntimeError("Unexpected API response")
 

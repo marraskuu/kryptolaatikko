@@ -11,6 +11,7 @@ from .ai_trader import (
     build_decision_report,
     build_deep_analysis,
     compute_market_regime,
+    DEEP_ANALYSIS_TIME_BUDGET_SEC,
     enrich_analyses_for_gemini,
     format_initial_buy_reason,
     make_trading_decisions,
@@ -71,7 +72,10 @@ def _refresh_analyses(state: dict[str, Any]) -> None:
 
 def _enrich_holdings(state: dict[str, Any]) -> None:
     """Päivitä omistettujen kolikoiden ATR/EMA/momentum tuoreesta candle-datasta joka kierros."""
+    deadline = time.time() + DEEP_ANALYSIS_TIME_BUDGET_SEC
     for symbol in list(state["portfolio"].get("holdings", {}).keys()):
+        if time.time() >= deadline:
+            break
         ticker = state["tickers"].get(symbol)
         if not ticker:
             continue

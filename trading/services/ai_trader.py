@@ -1,5 +1,7 @@
 import logging
 import math
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -17,7 +19,8 @@ ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
-GEMINI_DEEP_ANALYSIS_LIMIT = 25
+GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
+DEEP_ANALYSIS_TIME_BUDGET_SEC = int(os.environ.get("DEEP_ANALYSIS_TIME_BUDGET_SEC", "45"))
 
 # A: ATR-pohjainen riski (tasapainoinen taso)
 ATR_STOP_MULT = 1.5          # stop = entry - 1.5 * ATR%
@@ -506,7 +509,14 @@ def enrich_analyses_for_gemini(
     limit: int = GEMINI_DEEP_ANALYSIS_LIMIT,
 ) -> None:
     """Päivittää top-symboleille kynttiläpohjaisen RSI/EMA/momentum-analyysin."""
+    deadline = time.time() + DEEP_ANALYSIS_TIME_BUDGET_SEC
     for symbol in symbols_for_deep_analysis(tickers, portfolio, limit):
+        if time.time() >= deadline:
+            logger.warning(
+                "Deep analysis time budget (%ss) exhausted — skipping remaining symbols",
+                DEEP_ANALYSIS_TIME_BUDGET_SEC,
+            )
+            break
         ticker = tickers.get(symbol)
         if not ticker:
             continue
