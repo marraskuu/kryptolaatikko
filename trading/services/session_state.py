@@ -109,6 +109,12 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     pnl = portfolio.get_pnl(total_value)
     tax = portfolio.get_tax_summary(tickers or {})
     realized = portfolio.get_realized_breakdown()
+    unrealized_pnl = portfolio.get_unrealized_pnl(tickers or {})
+    realized_pnl = sum(
+        float(t.get("profitLoss") or 0.0)
+        for t in portfolio.trades
+        if t.get("type") == "sell"
+    )
 
     trade_interval = TRADE_INTERVAL_MS // 1000
     last_trade_ms = state.get("lastTradeTick") or 0
@@ -143,6 +149,8 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "holdingsValue": max(0.0, total_value - portfolio.cash),
             "pnl": pnl["pnl"],
             "pnlPct": pnl["pnlPct"],
+            "unrealizedPnl": round(unrealized_pnl, 2),
+            "realizedPnl": round(realized_pnl, 2),
             "cash": portfolio.cash,
             "tradeCount": len([t for t in portfolio.trades if t["type"] != "tax"]),
             "taxCurrentYear": tax["currentYearTax"],

@@ -346,6 +346,13 @@ h1 {
   width: 100%;
 }
 
+.winloss-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .winloss-table {
   display: flex;
   flex-direction: column;

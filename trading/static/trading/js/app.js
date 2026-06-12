@@ -254,6 +254,7 @@ const els = {
   wlYearWin: document.getElementById("wl-year-win"),
   wlYearLoss: document.getElementById("wl-year-loss"),
   wlYearNet: document.getElementById("wl-year-net"),
+  wlPnlSplit: document.getElementById("wl-pnl-split"),
   wlMonthWin: document.getElementById("wl-month-win"),
   wlMonthLoss: document.getElementById("wl-month-loss"),
   wlMonthNet: document.getElementById("wl-month-net"),
@@ -434,6 +435,16 @@ function renderStats() {
   els.statTaxEstimate.textContent = `Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
 
   renderWinLoss(s.realizedBreakdown);
+
+  if (els.wlPnlSplit) {
+    const unreal = s.unrealizedPnl ?? 0;
+    const real = s.realizedPnl ?? 0;
+    const uSign = unreal >= 0 ? "+" : "−";
+    const rSign = real >= 0 ? "+" : "−";
+    els.wlPnlSplit.textContent =
+      `Avoimet positiot: ${uSign}${formatEur(Math.abs(unreal)).replace("€", "").trim()} € · ` +
+      `Kaikki myynnit: ${rSign}${formatEur(Math.abs(real)).replace("€", "").trim()} €`;
+  }
 
   const pnl = s.pnl ?? 0;
   const pnlPct = s.pnlPct ?? 0;

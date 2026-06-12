@@ -222,12 +222,25 @@ class Portfolio:
         self.trades.insert(0, trade)
         return True
 
+    def _holding_mark_price(
+        self,
+        symbol: str,
+        holding: dict[str, float],
+        tickers: dict[str, dict[str, Any]],
+    ) -> float | None:
+        from .bitfinex import resolve_holding_ticker
+
+        _resolved, ticker = resolve_holding_ticker(symbol, tickers)
+        if ticker:
+            return float(ticker["last"])
+        return float(holding["avgPrice"])
+
     def get_total_value(self, tickers: dict[str, dict[str, Any]]) -> float:
         holdings_value = 0.0
         for symbol, holding in self.holdings.items():
-            ticker = tickers.get(symbol)
-            if ticker:
-                holdings_value += holding["amount"] * ticker["last"]
+            price = self._holding_mark_price(symbol, holding, tickers)
+            if price is not None:
+                holdings_value += holding["amount"] * price
         return self.cash + holdings_value
 
     def get_pnl(self, total_value: float) -> dict[str, float]:
@@ -235,13 +248,23 @@ class Portfolio:
         pnl_pct = (pnl / self.data["initialCapital"]) * 100
         return {"pnl": pnl, "pnlPct": pnl_pct}
 
+    def get_unrealized_pnl(self, tickers: dict[str, dict[str, Any]]) -> float:
+        """Avoimien positioiden markkina-arvo vs. hankintameno (voi olla negatiivinen)."""
+        total = 0.0
+        for symbol, holding in self.holdings.items():
+            price = self._holding_mark_price(symbol, holding, tickers)
+            if price is None:
+                continue
+            total += (price - holding["avgPrice"]) * holding["amount"]
+        return total
+
     def get_unrealized_profit(self, tickers: dict[str, dict[str, Any]]) -> float:
         unrealized = 0.0
         for symbol, holding in self.holdings.items():
-            ticker = tickers.get(symbol)
-            if not ticker:
+            price = self._holding_mark_price(symbol, holding, tickers)
+            if price is None:
                 continue
-            gain = (ticker["last"] - holding["avgPrice"]) * holding["amount"]
+            gain = (price - holding["avgPrice"]) * holding["amount"]
             if gain > 0:
                 unrealized += gain
         return unrealized

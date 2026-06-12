@@ -83,6 +83,28 @@ def parse_pair_symbol(symbol: str) -> dict[str, str] | None:
     return None
 
 
+def resolve_holding_ticker(
+    symbol: str,
+    tickers: dict[str, dict[str, Any]],
+) -> tuple[str, dict[str, Any]] | tuple[None, None]:
+    """Etsi kurssi omistukselle — kokeile vaihtoehtoisia quote-paria (USD↔UST)."""
+    symbol = normalize_symbol(symbol)
+    ticker = tickers.get(symbol)
+    if ticker:
+        return symbol, ticker
+
+    parsed = parse_pair_symbol(symbol)
+    if not parsed:
+        return None, None
+
+    base = parsed["base"]
+    for quote in QUOTE_CURRENCIES:
+        alt = f"t{base}{quote}"
+        if alt != symbol and alt in tickers:
+            return alt, tickers[alt]
+    return None, None
+
+
 def _bitfinex_fetch(path: str, *, timeout: int | None = None) -> list | dict:
     url = f"{BITFINEX_DIRECT}{path}"
     res = requests.get(url, timeout=timeout or BITFINEX_TIMEOUT)
