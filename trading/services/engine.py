@@ -277,11 +277,16 @@ def execute_trading_cycle() -> dict[str, Any]:
                 )
                 portfolio_for_snap = Portfolio(state["portfolio"])
                 snap_value = portfolio_for_snap.get_total_value(state["tickers"])
-                state["lastGeminiSnapshot"] = {
-                    "timestamp": _now_iso(),
-                    "top_picks": list(gemini_insights.get("top_picks") or []),
-                    "total_value": round(snap_value, 2),
-                }
+                from .gemini import build_gemini_snapshot
+
+                state["lastGeminiSnapshot"] = build_gemini_snapshot(
+                    gemini_insights,
+                    state["tickers"],
+                    state["analyses"],
+                    snap_value,
+                    regime_info,
+                    get_crypto_label,
+                )
             else:
                 # Kutsu epäonnistui — käytä viimeisintä onnistunutta analyysiä
                 gemini_insights = state.get("geminiInsights")

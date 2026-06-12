@@ -45,7 +45,7 @@ ROADMAP_ITEMS = (
         "label": "Richer markkina-ämpärit",
         "metric": "buckets_learned",
         "target": 18,
-        "action": "Laajempi setup-avain market_learning.py",
+        "action": "Regiimi×24h×MTF×RSI×vol×deep + fallback (käytössä)",
     },
 )
 

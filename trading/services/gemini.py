@@ -18,6 +18,7 @@ import requests
 
 from .bitfinex import is_stablecoin, normalize_symbol
 from .ai_trader import MIN_ENTRY_VOLUME_EUR, entry_volume_ok
+from .market_learning import setup_key_for_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +497,200 @@ def _build_last_gemini_review(
     }
 
 
+def _pick_entry_row(
+    sym: str,
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    regime: dict[str, Any] | None,
+    label_fn,
+) -> dict[str, Any] | None:
+    norm = normalize_symbol(sym)
+    tk = tickers.get(sym) or tickers.get(norm)
+    if not tk or tk.get("last", 0) <= 0:
+        return None
+    analysis = analyses.get(sym) or analyses.get(norm) or {}
+    merged = {**analysis, "volumeEur": analysis.get("volumeEur") or tk.get("volumeEur", 0)}
+    return {
+        "symbol": norm,
+        "label": label_fn(sym),
+        "price_eur": round(float(tk["last"]), 6),
+        "volume_eur": round(float(merged.get("volumeEur") or 0), 0),
+        "change_24h_pct": round(float(tk.get("changePct") or merged.get("changePct") or 0), 2),
+        "setup": setup_key_for_analysis(merged, regime or "neutral"),
+        "rsi": round(float(merged.get("rsi", 50)), 1) if merged.get("rsi") is not None else None,
+        "mtf_align": merged.get("mtfAlign"),
+        "technical_score": merged.get("score"),
+        "deep_analysis": not merged.get("quick", True),
+    }
+
+
+def build_gemini_snapshot(
+    gemini_insights: dict[str, Any],
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    total_value: float,
+    regime: dict[str, Any] | None,
+    label_fn,
+) -> dict[str, Any]:
+    """Tallenna rikas snapshot pick-tulosten laskentaa varten seuraavalla kierroksella."""
+    picks = [
+        normalize_symbol(str(s))
+        for s in (gemini_insights.get("top_picks") or [])
+        if isinstance(s, str) and not is_stablecoin(str(s))
+    ]
+    pick_set = set(picks)
+    pick_entries: list[dict[str, Any]] = []
+    for sym in picks:
+        row = _pick_entry_row(sym, tickers, analyses, regime, label_fn)
+        if row:
+            pick_entries.append(row)
+
+    candidates: list[tuple[float, float, str, dict[str, Any], dict[str, Any]]] = []
+    for sym, tk in tickers.items():
+        if is_stablecoin(sym):
+            continue
+        norm = normalize_symbol(sym)
+        if norm in pick_set:
+            continue
+        vol = float(tk.get("volumeEur") or 0)
+        if vol < MIN_ENTRY_VOLUME_EUR:
+            continue
+        analysis = analyses.get(sym) or analyses.get(norm) or {}
+        rank = float(analysis.get("score", 0)) + float(analysis.get("condAdjust") or 0)
+        candidates.append((rank, vol, sym, tk, analysis))
+    candidates.sort(key=lambda x: (-x[0], -x[1]))
+
+    skipped: list[dict[str, Any]] = []
+    for _, _, sym, _, _ in candidates:
+        row = _pick_entry_row(sym, tickers, analyses, regime, label_fn)
+        if row:
+            skipped.append(row)
+        if len(skipped) >= 5:
+            break
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "top_picks": picks,
+        "total_value": round(float(total_value), 2),
+        "regime": (regime or {}).get("regime"),
+        "picks": pick_entries,
+        "skipped_candidates": skipped,
+    }
+
+
+def _return_since_entry(entry_price: float, current_price: float) -> float | None:
+    if entry_price <= 0 or current_price <= 0:
+        return None
+    return round(((current_price - entry_price) / entry_price) * 100, 2)
+
+
+def _build_gemini_pick_scorecard(
+    snapshot: dict[str, Any] | None,
+    tickers: dict[str, dict[str, Any]],
+    total_value: float,
+    label_fn,
+) -> dict[str, Any] | None:
+    """Pick-kohtainen palaute edellisestä Geminin syväanalyysistä."""
+    if not snapshot or not snapshot.get("picks"):
+        return None
+
+    try:
+        snap_time = _parse_trade_time(snapshot["timestamp"])
+        minutes_ago = int((datetime.now(timezone.utc) - snap_time).total_seconds() / 60)
+    except (ValueError, TypeError, KeyError):
+        minutes_ago = None
+
+    snap_value = float(snapshot.get("total_value") or 0)
+    portfolio_change_pct = None
+    if snap_value > 0:
+        portfolio_change_pct = round(((total_value - snap_value) / snap_value) * 100, 2)
+
+    pick_outcomes: list[dict[str, Any]] = []
+    for p in snapshot.get("picks") or []:
+        sym = p.get("symbol")
+        if not sym:
+            continue
+        tk = tickers.get(sym) or tickers.get(f"t{sym}")
+        current = float(tk["last"]) if tk and tk.get("last") else None
+        entry = float(p.get("price_eur") or 0)
+        ret = _return_since_entry(entry, current) if current else None
+        pick_outcomes.append(
+            {
+                "label": p.get("label") or label_fn(sym),
+                "symbol": sym,
+                "return_since_pct": ret,
+                "entry_setup": p.get("setup"),
+                "entry_volume_eur": p.get("volume_eur"),
+                "entry_rsi": p.get("rsi"),
+                "entry_mtf_align": p.get("mtf_align"),
+                "entry_score": p.get("technical_score"),
+            }
+        )
+
+    skipped_outcomes: list[dict[str, Any]] = []
+    for s in snapshot.get("skipped_candidates") or []:
+        sym = s.get("symbol")
+        if not sym:
+            continue
+        tk = tickers.get(sym) or tickers.get(f"t{sym}")
+        current = float(tk["last"]) if tk and tk.get("last") else None
+        entry = float(s.get("price_eur") or 0)
+        ret = _return_since_entry(entry, current) if current else None
+        skipped_outcomes.append(
+            {
+                "label": s.get("label") or label_fn(sym),
+                "symbol": sym,
+                "return_since_pct": ret,
+                "entry_setup": s.get("setup"),
+            }
+        )
+
+    valid_picks = [p for p in pick_outcomes if p.get("return_since_pct") is not None]
+    valid_skipped = [s for s in skipped_outcomes if s.get("return_since_pct") is not None]
+    best_pick = max(valid_picks, key=lambda x: x["return_since_pct"]) if valid_picks else None
+    worst_pick = min(valid_picks, key=lambda x: x["return_since_pct"]) if valid_picks else None
+    best_skipped = (
+        max(valid_skipped, key=lambda x: x["return_since_pct"]) if valid_skipped else None
+    )
+
+    lessons: list[str] = []
+    if best_pick and best_skipped:
+        gap = best_pick["return_since_pct"] - best_skipped["return_since_pct"]
+        if gap < -0.5:
+            lessons.append(
+                f"Ohitit paremman: {best_skipped['label']} "
+                f"{best_skipped['return_since_pct']:+.1f} % vs paras pick "
+                f"{best_pick['label']} {best_pick['return_since_pct']:+.1f} %"
+            )
+        elif gap > 0.5:
+            lessons.append(
+                f"Pickit voittivat ohitetut — jatka samankaltaista valintaa "
+                f"({best_pick['label']} {best_pick['return_since_pct']:+.1f} %)"
+            )
+    if worst_pick and worst_pick.get("return_since_pct", 0) < -1.0:
+        lessons.append(
+            f"Vältä vastaavia: {worst_pick['label']} "
+            f"{worst_pick['return_since_pct']:+.1f} % (setup {worst_pick.get('entry_setup')})"
+        )
+    if portfolio_change_pct is not None:
+        if portfolio_change_pct >= 0.5:
+            lessons.append(f"Salkku {portfolio_change_pct:+.1f} % pick-jakson aikana")
+        elif portfolio_change_pct <= -0.5:
+            lessons.append(f"Salkku heikkeni {portfolio_change_pct:+.1f} % — tiukempi valinta")
+
+    return {
+        "minutes_since_snapshot": minutes_ago,
+        "snapshot_regime": snapshot.get("regime"),
+        "portfolio_change_pct_since": portfolio_change_pct,
+        "pick_outcomes": pick_outcomes,
+        "skipped_outcomes": skipped_outcomes,
+        "best_pick": best_pick,
+        "worst_pick": worst_pick,
+        "best_skipped": best_skipped,
+        "lessons": lessons,
+    }
+
+
 def _build_costs_and_churn(
     all_trades: list[dict[str, Any]],
     now: datetime,
@@ -550,6 +745,7 @@ def _build_trade_history_summary(
     label_fn,
     total_value: float,
     last_gemini_snapshot: dict[str, Any] | None = None,
+    tickers: dict[str, dict[str, Any]] | None = None,
     limit: int = 15,
 ) -> dict[str, Any]:
     """Palauttaa Geminille kauppahistorian ja suorituskyvyn — palautekierros."""
@@ -603,6 +799,9 @@ def _build_trade_history_summary(
         "costs_and_churn": _build_costs_and_churn(all_trades, now),
         "last_gemini_review": _build_last_gemini_review(
             last_gemini_snapshot, total_value, label_fn
+        ),
+        "pick_scorecard": _build_gemini_pick_scorecard(
+            last_gemini_snapshot, tickers or {}, total_value, label_fn
         ),
     }
 
@@ -732,7 +931,7 @@ def advise_portfolio(
         for sym, h in holdings.items()
     ]
     trade_history = _build_trade_history_summary(
-        portfolio, label_fn, total_value, last_gemini_snapshot
+        portfolio, label_fn, total_value, last_gemini_snapshot, tickers
     )
     costs = trade_history.get("costs_and_churn") or {}
     regime_json = json.dumps(regime or {}, ensure_ascii=False)
@@ -754,9 +953,10 @@ Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 - Painota kauppatyyppejä joilla positiivinen expectancy
 - blocked_buys = älä osta näitä nyt (tuore tappio); losers = vältä, winners = suosi
 
-Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = "regiimi|24h-haarukka"):
+Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = regiimi|24h|MTF|RSI|vol|deep):
 {market_setups_json}
 - best = historiallisesti tuottoisin asetelma, worst = häviävin → vältä worst-tyyppisiä ostoja
+- setup-avain on rikas (esim. bull|u2|mtf+|rsi_md|vol_lg|deep) — vertaa pick_scorecardin entry_setup-kenttiin
 
 Kustannukset:
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
@@ -775,7 +975,9 @@ Kauppahistoria ja palaute (opettele näistä — älä toista tappiollisia linja
 Historian käyttö:
 - recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
 - by_symbol: symbolikohtainen netto, voitto/tappio-määrät, keskimääräinen pitoaika — vältä toistuvasti tappiollisia
-- last_gemini_review: arvioi edellisen päätöksesi onnistuminen ennen uutta rotaatiota
+- pick_scorecard: JOKAISEN edellisen top_pick:in tuotto % snapshotista — vertaa skipped_outcomes / best_skipped (ohitettu paras)
+- last_gemini_review: salkun kokonaismuutos edellisestä analyysistä
+- pick_scorecard.lessons: tiivistetyt opit — sovella ennen uusia top_picks-valintoja
 - costs_and_churn: kuluja ei ole — keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä
 - Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä (RSI<40, EMA bullish)
 - Voittavilla symboleilla pidä pidempään (katso avg_hold_hours_on_wins)
