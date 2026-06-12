@@ -43,8 +43,10 @@ ROTATION_EDGE_MARGIN_PCT = 0.3
 ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
 
 # 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
-STAGNANT_HOURS = 8.0
-STAGNANT_HOURS_NEUTRAL = 6.0
+STUCK_POSITION_HOURS = 4.0       # positio ei liiku — myydään riippumatta markkinan 24h-noususta
+STAGNANT_HOURS_NEUTRAL = 4.0
+STAGNANT_HOURS_BEAR = 5.0
+STAGNANT_HOURS_BULL = 6.0
 STAGNANT_MAX_PROFIT_PCT = 0.5
 FAST_EXIT_LOSS_PCT = -1.5
 
@@ -490,7 +492,39 @@ def _is_buy_blocked(
 
 
 def _stagnant_hours(regime: str) -> float:
-    return STAGNANT_HOURS_NEUTRAL if regime == "neutral" else STAGNANT_HOURS
+    if regime == "bull":
+        return STAGNANT_HOURS_BULL
+    if regime == "bear":
+        return STAGNANT_HOURS_BEAR
+    return STAGNANT_HOURS_NEUTRAL
+
+
+def _position_stuck(profit_pct: float, age_h: float | None) -> bool:
+    """Positio ei tuota — myydään vaikka markkina nousisi (24h)."""
+    return (
+        age_h is not None
+        and age_h >= STUCK_POSITION_HOURS
+        and profit_pct < STAGNANT_MAX_PROFIT_PCT
+    )
+
+
+def _market_stagnant_exit(
+    profit_pct: float,
+    age_h: float | None,
+    regime: str,
+    analysis: dict[str, Any],
+) -> bool:
+    """Heikko markkina + pitkä pito ilman voittoa — ei bull-regiimissä."""
+    change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
+    stagnant_h = _stagnant_hours(regime)
+    return (
+        age_h is not None
+        and age_h >= stagnant_h
+        and profit_pct < STAGNANT_MAX_PROFIT_PCT
+        and not _in_uptrend(analysis)
+        and regime != "bull"
+        and change_24h <= 0
+    )
 
 
 def _fast_loss_exit_reason(
@@ -1712,6 +1746,23 @@ def make_trading_decisions(
             )
             continue
 
+        age_h = _holding_age_hours(holding.get("openedAt"))
+        if _position_stuck(profit_pct, age_h):
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": (
+                        f"Positio jämähtänyt {age_h:.0f} h ({profit_pct:+.1f} %) — "
+                        f"myydään riippumatta markkinan noususta"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+            continue
+
         if profit_pct > 0 and _in_uptrend(analysis):
             decisions.append(
                 {
@@ -1729,18 +1780,7 @@ def make_trading_decisions(
         gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
-        # 2: Aikastoppi — jämähtänyt positio (pitkä pito, ei voittoa, ei nousuputkea,
-        # ei bull-regiimi) myydään kokonaan, jotta pääoma vapautuu parempaan kohteeseen.
-        age_h = _holding_age_hours(holding.get("openedAt"))
-        stagnant_h = _stagnant_hours(regime)
-        if (
-            age_h is not None
-            and age_h >= stagnant_h
-            and profit_pct < STAGNANT_MAX_PROFIT_PCT
-            and not _in_uptrend(analysis)
-            and regime != "bull"
-            and change_24h <= 0
-        ):
+        if _market_stagnant_exit(profit_pct, age_h, regime, analysis):
             decisions.append(
                 {
                     "type": "sell",
