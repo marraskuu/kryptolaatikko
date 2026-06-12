@@ -40,6 +40,8 @@ SYMBOL_BONUS_CAP = 3.0           # rankingin maksimibonus
 CHRONIC_LOSER_LOSSES = 3         # 0 voittoa & näin monta tappiota → estä osto kokonaan
 MIN_SAMPLES_GEMINI_CONF = 2      # per confidence-taso (5–10)
 MIN_GEMINI_CONF_TAGGED = 6         # tagattuja Gemini-myyntejä ennen conf-oppimista
+MIN_SAMPLES_PROFIT_TAKE_LIGHT = 6  # kevyt voitto-otto-viritys
+MIN_SAMPLES_PROFIT_TAKE_FULL = 15  # täysi ATR/regiimi-viritys
 
 
 def _category(reason: str) -> str:
@@ -288,6 +290,60 @@ def _apply_category_tuning(
     }, notes
 
 
+def _compute_profit_take_tuning(
+    stats: dict[str, dict[str, float]],
+) -> tuple[dict[str, Any], list[str]]:
+    """Expectancy-pohjainen voitto-otto: kevyt ≥6 kauppaa, täysi ≥15."""
+    pt = stats.get("profit_take", {})
+    n = int(pt.get("trades", 0))
+    exp = float(pt.get("expectancy_eur", 0.0))
+    config: dict[str, Any] = {
+        "trigger_scale": 1.0,
+        "pullback_scale": 1.0,
+        "partial_trigger_scale": 1.0,
+        "partial_fraction_scale": 1.0,
+        "partial_enabled": True,
+        "samples": n,
+        "expectancy_eur": round(exp, 3),
+        "level": "off",
+    }
+    notes: list[str] = []
+    if n < MIN_SAMPLES_PROFIT_TAKE_LIGHT:
+        return config, notes
+
+    config["level"] = "light"
+    if exp < -0.15:
+        config["trigger_scale"] = 0.82
+        config["pullback_scale"] = 0.85
+        notes.append(f"voitto-otto tiukempi ({exp:+.2f} €/kauppa)")
+    elif exp < 0:
+        config["trigger_scale"] = 0.92
+        config["pullback_scale"] = 0.92
+        notes.append(f"voitto-otto varovainen ({exp:+.2f} €/kauppa)")
+    elif exp > 0.25:
+        config["trigger_scale"] = 1.08
+        config["pullback_scale"] = 1.12
+        notes.append(f"voitto-otto löysempi ({exp:+.2f} €/kauppa)")
+
+    if n >= MIN_SAMPLES_PROFIT_TAKE_FULL:
+        config["level"] = "full"
+        if exp < -0.1:
+            config["trigger_scale"] = min(float(config["trigger_scale"]), 0.75)
+            config["pullback_scale"] = min(float(config["pullback_scale"]), 0.78)
+            config["partial_trigger_scale"] = 1.15
+            if exp < -0.25:
+                config["partial_enabled"] = False
+            notes.append("voitto-otto täysi: lukitse voitto aiemmin")
+        elif exp > 0.3:
+            config["trigger_scale"] = max(float(config["trigger_scale"]), 1.12)
+            config["pullback_scale"] = max(float(config["pullback_scale"]), 1.18)
+            config["partial_trigger_scale"] = 0.9
+            config["partial_fraction_scale"] = 0.85
+            notes.append("voitto-otto täysi: anna voittojen juosta")
+
+    return config, notes
+
+
 def _gemini_confidence_from_trade(trade: dict[str, Any]) -> int | None:
     raw = trade.get("geminiConfidence")
     if raw is not None:
@@ -424,6 +480,10 @@ def _compute_regime_tuning(
             if params["max_new_positions"] != MAX_POSITIONS:
                 overrides["max_new_positions"] = params["max_new_positions"]
 
+        pt_cfg, _ = _compute_profit_take_tuning(stats)
+        if pt_cfg.get("level") in ("light", "full"):
+            overrides["profit_take_tuning"] = pt_cfg
+
         if overrides:
             tuning[reg] = overrides
     return tuning, regime_stats
@@ -473,7 +533,12 @@ def merge_regime_tuning(learning: dict[str, Any], regime: str) -> dict[str, Any]
     merged = dict(learning)
     overrides = (learning.get("regime_tuning") or {}).get(regime) or {}
     if overrides:
-        merged.update(overrides)
+        merged.update({k: v for k, v in overrides.items() if k != "profit_take_tuning"})
+        pt_override = overrides.get("profit_take_tuning")
+        if pt_override:
+            base_pt = dict(merged.get("profit_take_tuning") or {})
+            base_pt.update(pt_override)
+            merged["profit_take_tuning"] = base_pt
     merged["active_regime"] = regime
     return merged
 
@@ -485,6 +550,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
 
     stats = _aggregate_category_stats(sells)
     global_params, tune_notes = _apply_category_tuning(stats, min_samples=MIN_SAMPLES)
+    profit_take_tuning, pt_notes = _compute_profit_take_tuning(stats)
 
     rotation_enabled = global_params["rotation_enabled"]
     rotation_scale = global_params["rotation_scale"]
@@ -507,7 +573,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     setup_memory = _compute_setup_memory(linked)
     regime_tuning, regime_stats = _compute_regime_tuning(sells)
 
-    notes = list(tune_notes) + conf_notes
+    notes = list(tune_notes) + pt_notes + conf_notes
     tagged = sum(1 for t in sells if t.get("regime") in ("bull", "neutral", "bear"))
     if tagged < MIN_SAMPLES_REGIME:
         notes.append(f"regiimioppiminen {tagged}/{MIN_SAMPLES_REGIME} myyntiä")
@@ -558,4 +624,5 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "gemini_confidence_stats": conf_tuning["gemini_confidence_stats"],
         "gemini_confidence_scales": gemini_confidence_scales,
         "gemini_confidence_tagged": conf_tuning["gemini_confidence_tagged"],
+        "profit_take_tuning": profit_take_tuning,
     }

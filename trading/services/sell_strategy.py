@@ -22,6 +22,23 @@ PARTIAL_TAKE_TRIGGER_PCT = 3.0  # ensimmäinen porras kun voitto ylittää täm�
 PARTIAL_TAKE_FRACTION = 0.30    # kotiuta 30 % positiosta portaassa 1
 
 
+def default_profit_take_config() -> dict[str, Any]:
+    return {
+        "trigger_scale": 1.0,
+        "pullback_scale": 1.0,
+        "partial_trigger_scale": 1.0,
+        "partial_fraction_scale": 1.0,
+        "partial_enabled": True,
+    }
+
+
+def _scaled_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    merged = default_profit_take_config()
+    if config:
+        merged.update(config)
+    return merged
+
+
 def default_watch_state() -> dict[str, Any]:
     return {
         "active": False,
@@ -33,22 +50,27 @@ def default_watch_state() -> dict[str, Any]:
     }
 
 
-def _trigger_pct(atr_pct: float | None) -> float:
+def _trigger_pct(atr_pct: float | None, config: dict[str, Any]) -> float:
+    scale = float(config.get("trigger_scale", 1.0))
     if atr_pct and atr_pct > 0:
         return min(
-            PROFIT_TRIGGER_CAP_PCT,
-            max(PROFIT_TRIGGER_FLOOR_PCT, PROFIT_TRIGGER_ATR_MULT * atr_pct),
+            PROFIT_TRIGGER_CAP_PCT * scale,
+            max(
+                PROFIT_TRIGGER_FLOOR_PCT * scale,
+                PROFIT_TRIGGER_ATR_MULT * scale * atr_pct,
+            ),
         )
-    return PROFIT_TRIGGER_PCT
+    return PROFIT_TRIGGER_PCT * scale
 
 
-def _pullback_threshold_pct(atr_pct: float | None) -> float:
+def _pullback_threshold_pct(atr_pct: float | None, config: dict[str, Any]) -> float:
+    scale = float(config.get("pullback_scale", 1.0))
     if atr_pct and atr_pct > 0:
         return min(
-            PULLBACK_CAP_PCT,
-            max(PULLBACK_FLOOR_PCT, PULLBACK_ATR_MULT * atr_pct),
+            PULLBACK_CAP_PCT * scale,
+            max(PULLBACK_FLOOR_PCT * scale, PULLBACK_ATR_MULT * scale * atr_pct),
         )
-    return PULLBACK_FROM_PEAK_PCT
+    return PULLBACK_FROM_PEAK_PCT * scale
 
 
 def update_profit_sell(
@@ -58,18 +80,27 @@ def update_profit_sell(
     avg_price: float,
     now_ms: int | None = None,
     atr_pct: float | None = None,
+    profit_take_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
+    cfg = _scaled_config(profit_take_config)
     state = dict(states.get(symbol) or default_watch_state())
     profit_pct = ((current_price - avg_price) / avg_price) * 100 if avg_price else 0
-    wait_sec = STABILIZE_WAIT_MS // 1000
-    trigger_pct = _trigger_pct(atr_pct)
-    pullback_threshold = _pullback_threshold_pct(atr_pct)
+    trigger_pct = _trigger_pct(atr_pct, cfg)
+    pullback_threshold = _pullback_threshold_pct(atr_pct, cfg)
     covers_cost = profit_pct > ROUND_TRIP_COST_PCT
+    partial_trigger = PARTIAL_TAKE_TRIGGER_PCT * float(cfg.get("partial_trigger_scale", 1.0))
+    partial_fraction = min(
+        0.9,
+        max(0.1, PARTIAL_TAKE_FRACTION * float(cfg.get("partial_fraction_scale", 1.0))),
+    )
 
-    # 2: Porras 1 — kotiuta osa heti kun voitto ylittää portaan ensimmäisen kerran,
-    # ja jätä loppu trailing-stopille. Ei toistu samalla positiolla (tier1Taken).
-    if not state.get("tier1Taken") and profit_pct >= PARTIAL_TAKE_TRIGGER_PCT and covers_cost:
+    if (
+        cfg.get("partial_enabled", True)
+        and not state.get("tier1Taken")
+        and profit_pct >= partial_trigger
+        and covers_cost
+    ):
         state["tier1Taken"] = True
         if not state["active"]:
             state["active"] = True
@@ -80,15 +111,15 @@ def update_profit_sell(
         states[symbol] = state
         return {
             "shouldSell": True,
-            "sellFraction": PARTIAL_TAKE_FRACTION,
+            "sellFraction": partial_fraction,
             "profitPct": profit_pct,
             "reason": (
-                f"Voitto +{profit_pct:.1f} % — kotiutetaan {PARTIAL_TAKE_FRACTION * 100:.0f} % "
+                f"Voitto +{profit_pct:.1f} % — kotiutetaan {partial_fraction * 100:.0f} % "
                 f"(porras 1), loppu jää trailing-stopille nousua varten"
             ),
             "status": "tier1",
             "statusText": (
-                f"+{profit_pct:.1f} % — kotiutettu {PARTIAL_TAKE_FRACTION * 100:.0f} %, "
+                f"+{profit_pct:.1f} % — kotiutettu {partial_fraction * 100:.0f} %, "
                 f"loppu trailaten"
             ),
             "state": state,
@@ -118,7 +149,6 @@ def update_profit_sell(
         state["peakTime"] = now
         state["armed"] = False
     elif current_price > state["peakPrice"]:
-        # Uusi huippu — nousuputki jatkuu, ei myydä
         state["peakPrice"] = current_price
         state["peakTime"] = now
         state["armed"] = False
@@ -131,7 +161,6 @@ def update_profit_sell(
     if elapsed >= STABILIZE_WAIT_MS:
         state["armed"] = True
 
-    # E: realisoidaan vain jos voitto kattaa edestakaiset kulut
     should_sell = False
     reason = ""
     if state["armed"] and peak > 0 and pullback_pct >= pullback_threshold and covers_cost:

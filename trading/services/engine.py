@@ -87,9 +87,17 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
             logger.warning("Holding enrich failed for %s", symbol, exc_info=True)
 
 
+def _profit_take_config(state: dict[str, Any], regime: str) -> dict[str, Any]:
+    from .learning import merge_regime_tuning
+
+    learning = merge_regime_tuning(state.get("learning") or {}, regime)
+    return dict(learning.get("profit_take_tuning") or {})
+
+
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:
     executed: list[dict[str, Any]] = []
     regime = (state.get("regime") or {}).get("regime", "neutral")
+    pt_cfg = _profit_take_config(state, regime)
     for symbol, holding in list(portfolio.holdings.items()):
         ticker = state["tickers"].get(symbol)
         if not ticker:
@@ -102,6 +110,7 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
             ticker["last"],
             holding["avgPrice"],
             atr_pct=atr_pct,
+            profit_take_config=pt_cfg,
         )
         state["profitWatch"][symbol] = result
 
