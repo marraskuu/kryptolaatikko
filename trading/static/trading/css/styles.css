@@ -440,6 +440,54 @@ h1 {
   font-weight: 600;
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.trade-log-filters {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+}
+
+.trade-filter-btn {
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.trade-filter-btn:hover {
+  color: var(--text);
+}
+
+.trade-filter-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.trade-filter-btn[data-trade-filter="buy"].active {
+  color: var(--green, #4ade80);
+}
+
+.trade-filter-btn[data-trade-filter="sell"].active {
+  color: var(--red, #f87171);
+}
+
 .badge {
   font-size: 0.7rem;
   padding: 4px 10px;

@@ -143,9 +143,16 @@
       <section class="panel wide">
         <div class="panel-header">
           <h2>Kauppahistoria</h2>
-          <a id="btn-export" class="btn btn-secondary btn-sm" href="/api/export/" title="Lataa Excel verottajalle">
-            ⬇ Lataa Excel
-          </a>
+          <div class="panel-header-actions">
+            <div class="trade-log-filters" role="group" aria-label="Suodata kauppoja">
+              <button type="button" class="trade-filter-btn active" data-trade-filter="all">Kaikki</button>
+              <button type="button" class="trade-filter-btn" data-trade-filter="buy">Ostot</button>
+              <button type="button" class="trade-filter-btn" data-trade-filter="sell">Myynnit</button>
+            </div>
+            <a id="btn-export" class="btn btn-secondary btn-sm" href="/api/export/" title="Lataa Excel verottajalle">
+              ⬇ Lataa Excel
+            </a>
+          </div>
         </div>
         <div class="trade-log" id="trade-log">
           <p class="empty-log">Ei kauppoja vielä.</p>
@@ -164,6 +171,6 @@
     </div>
   </div>
 
-  <script src="{% static 'trading/js/app.js' %}?v=13"></script>
+  <script src="{% static 'trading/js/app.js' %}?v=14"></script>
 </body>
 </html>

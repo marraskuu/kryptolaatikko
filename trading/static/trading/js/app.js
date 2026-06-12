@@ -14,6 +14,7 @@ let state = {
 };
 
 let marketSearch = "";
+let tradeLogFilter = "all";
 let pollTimer = null;
 let countdownTimer = null;
 let lastLearningReportBodyKey = "";
@@ -1036,7 +1037,23 @@ function renderTradeLog() {
     return;
   }
 
-  els.tradeLog.innerHTML = trades
+  const filtered =
+    tradeLogFilter === "all"
+      ? trades
+      : trades.filter((t) => t.type === tradeLogFilter);
+
+  if (!filtered.length) {
+    const emptyMsg =
+      tradeLogFilter === "buy"
+        ? "Ei ostoja."
+        : tradeLogFilter === "sell"
+          ? "Ei myyntejä."
+          : "Ei kauppoja vielä.";
+    els.tradeLog.innerHTML = `<p class="empty-log">${emptyMsg}</p>`;
+    return;
+  }
+
+  els.tradeLog.innerHTML = filtered
     .slice(0, 50)
     .map((trade) => {
       const label = getCryptoLabel(trade.symbol);
@@ -1089,6 +1106,16 @@ async function poll() {
 els.marketSearch.addEventListener("input", (e) => {
   marketSearch = e.target.value;
   renderMarketList();
+});
+
+document.querySelectorAll("[data-trade-filter]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    tradeLogFilter = btn.dataset.tradeFilter || "all";
+    document.querySelectorAll("[data-trade-filter]").forEach((b) => {
+      b.classList.toggle("active", b === btn);
+    });
+    renderTradeLog();
+  });
 });
 
 const botUrlEl = document.getElementById("bot-url");
