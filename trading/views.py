@@ -1,4 +1,6 @@
 import logging
+import os
+import secrets
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -84,3 +86,53 @@ def api_export(request):
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def _admin_task_key() -> str:
+    return os.environ.get("ADMIN_TASK_KEY") or settings.SECRET_KEY
+
+
+def _check_admin_key(request) -> bool:
+    supplied = request.GET.get("key", "")
+    expected = _admin_task_key()
+    if not supplied or not expected:
+        return False
+    return secrets.compare_digest(supplied, expected)
+
+
+@csrf_exempt
+@require_GET
+def api_historical_backfill(request):
+    """
+    Historiallinen backfill ilman Railway-konsolia.
+
+    GET /api/admin/historical-backfill/?key=SECRET_KEY&force=1
+    Oletus: taustasäie (async=1). Tila: /api/state/ marketLearning.
+    """
+    if not _check_admin_key(request):
+        return JsonResponse({"error": "unauthorized"}, status=403)
+
+    from .services.market_learning_backfill import (
+        get_backfill_status,
+        maybe_schedule_historical_backfill,
+        run_historical_backfill,
+    )
+
+    force = request.GET.get("force", "").lower() in ("1", "true", "yes")
+    run_async = request.GET.get("async", "1").lower() not in ("0", "false", "no")
+
+    if run_async:
+        started = maybe_schedule_historical_backfill(force=force)
+        payload = {"scheduled": started, "force": force, "async": True}
+        payload.update(get_backfill_status())
+        return JsonResponse(payload)
+
+    try:
+        result = run_historical_backfill()
+    except Exception as exc:
+        logger.exception("Historical backfill failed")
+        return JsonResponse({"error": str(exc)}, status=500)
+
+    payload = {"scheduled": False, "force": force, "async": False, "result": result}
+    payload.update(get_backfill_status())
+    return JsonResponse(payload)

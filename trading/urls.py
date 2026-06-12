@@ -7,4 +7,9 @@ urlpatterns = [
     path("api/health/", views.api_health, name="api_health"),
     path("api/state/", views.api_state, name="api_state"),
     path("api/export/", views.api_export, name="api_export"),
+    path(
+        "api/admin/historical-backfill/",
+        views.api_historical_backfill,
+        name="api_historical_backfill",
+    ),
 ]

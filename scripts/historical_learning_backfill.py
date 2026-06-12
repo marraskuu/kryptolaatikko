@@ -6,7 +6,11 @@ Käyttö (paikallinen):
   python manage.py historical_backfill --force
   python scripts/historical_learning_backfill.py --force
 
-Railway Console (suositus):
+Railway Console (jos python manage.py ei toimi — konsolissa ei aina Djangoa):
+  Avaa selaimessa (SECRET_KEY Railway Variables -kohdasta):
+  https://hiekkalaatikko.pro/api/admin/historical-backfill/?key=SALAINEN&force=1
+
+Paikallinen / konsoli (kun Django asennettu):
   python manage.py historical_backfill --force
 """
 

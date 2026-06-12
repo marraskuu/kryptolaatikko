@@ -16,7 +16,7 @@ from trading.services.market_learning_backfill import (
 
 
 class Command(BaseCommand):
-    help = "Historiallinen varjo-oppiminen Bitfinex-kynttilöistä"
+    help = "Historiallinen varjo-oppiminen Bitfinex-kynttilöistä (tai GET /api/admin/historical-backfill/)"
 
     def add_arguments(self, parser) -> None:
         parser.add_argument(
