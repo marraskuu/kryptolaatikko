@@ -137,7 +137,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
 
     gemini_pick_tracking = None
     if tickers:
-        from .gemini import get_crypto_label
+        from .bitfinex import get_crypto_label
         from .gemini_pick_tracking import build_pick_tracking
 
         gemini_pick_tracking = build_pick_tracking(
