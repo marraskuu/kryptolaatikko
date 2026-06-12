@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250613a"
+APP_BUILD = "20250613b"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")
@@ -180,3 +180,7 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+from .sentry import init_sentry
+
+init_sentry(debug=DEBUG, release=APP_BUILD)
