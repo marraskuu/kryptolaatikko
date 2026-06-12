@@ -23,10 +23,17 @@ GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "1
 DEEP_ANALYSIS_TIME_BUDGET_SEC = int(os.environ.get("DEEP_ANALYSIS_TIME_BUDGET_SEC", "45"))
 
 # A: ATR-pohjainen riski (tasapainoinen taso)
-ATR_STOP_MULT = 1.5          # stop = entry - 1.5 * ATR%
-STOP_FLOOR_PCT = -1.5        # stop ei tiukempi kuin -1.5 %
-STOP_CAP_PCT = -8.0          # stop ei löysempi kuin -8 %
+ATR_STOP_MULT = 1.5          # oletus neutraalissa (legacy-viite)
+STOP_FLOOR_PCT = -1.5        # legacy-viite neutraalille
+STOP_CAP_PCT = -8.0          # legacy-viite neutraalille
 DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
+
+# Regiimi + ATR stop-loss — bull: anna hengittää, bear: leikkaa nopeammin.
+REGIME_STOP_PROFILES: dict[str, dict[str, float]] = {
+    "bull": {"atr_mult": 1.75, "floor": -2.25, "cap": -9.0},
+    "neutral": {"atr_mult": 1.5, "floor": -1.5, "cap": -8.0},
+    "bear": {"atr_mult": 1.15, "floor": -1.15, "cap": -5.5},
+}
 ROUND_TRIP_COST_PCT = 0.0    # Bitfinex: ei kaupankäyntikuluja
 
 # 1: Etuviisas rotaatio — kuluja ei enää ole, mutta vältetään silti turha
@@ -43,6 +50,10 @@ STAGNANT_MAX_PROFIT_PCT = 0.5
 CORR_THRESHOLD = 0.85
 CORR_MIN_SAMPLES = 8
 CLUSTER_WEIGHT_CAP = 0.6
+
+# Likviditeetti — uudet ostot vain riittävän volyymin pariin (24 h Bitfinex).
+MIN_ENTRY_VOLUME_EUR = 100_000
+MIN_ENTRY_VOLUME_PREFERRED_EUR = 250_000
 
 # Keskittymistila — 1–2 vahvaa nostetta, isompi panos kun signaali selvä.
 CONCENTRATION_MAX_POSITIONS = 2
@@ -79,6 +90,47 @@ def _edge_pct(analysis: dict[str, Any] | None) -> float:
 def _rotation_worthwhile(holding_analysis: dict[str, Any], best_target_edge: float) -> bool:
     """Kannattaako rotaatio: parhaan kohteen edun on ylitettävä nykyisen selvällä marginaalilla."""
     return (best_target_edge - _edge_pct(holding_analysis)) >= ROTATION_MIN_EDGE_PCT
+
+
+def volume_eur(analysis: dict[str, Any] | None) -> float:
+    if not analysis:
+        return 0.0
+    return float(analysis.get("volumeEur") or 0)
+
+
+def entry_volume_ok(analysis: dict[str, Any] | None) -> bool:
+    return volume_eur(analysis) >= MIN_ENTRY_VOLUME_EUR
+
+
+def volume_rank_adjust(analysis: dict[str, Any]) -> float:
+    v = volume_eur(analysis)
+    if v >= 2_000_000:
+        return 2.0
+    if v >= 500_000:
+        return 1.0
+    if v >= MIN_ENTRY_VOLUME_PREFERRED_EUR:
+        return 0.5
+    if v >= MIN_ENTRY_VOLUME_EUR:
+        return 0.0
+    if v >= 50_000:
+        return -3.0
+    return -5.0
+
+
+def _volume_k_label(analysis: dict[str, Any]) -> str:
+    return f"{volume_eur(analysis) / 1000:.0f} k€"
+
+
+def _liquid_crypto_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [c for c in items if entry_volume_ok(c.get("analysis"))]
+
+
+def _low_volume_holding_release_ok(profit_pct: float, analysis: dict[str, Any]) -> bool:
+    if entry_volume_ok(analysis):
+        return False
+    if profit_pct >= PROFIT_TAKE_TRIGGER_PCT and _in_uptrend(analysis):
+        return False
+    return True
 
 
 def _holding_age_hours(opened_at: Any) -> float | None:
@@ -142,6 +194,8 @@ def _strong_conviction_candidate(
     symbol: str,
 ) -> bool:
     if _is_overheated_for_concentration(analysis):
+        return False
+    if not entry_volume_ok(analysis):
         return False
     change_24h = float(analysis.get("changePct") or analysis.get("momentum") or 0)
     change_4h = float(analysis.get("change4hPct") or analysis.get("momentum") or 0)
@@ -288,10 +342,43 @@ def _atr_pct(analysis: dict[str, Any]) -> float:
     return float(val)
 
 
-def dynamic_stop_pct(analysis: dict[str, Any]) -> float:
-    """ATR-pohjainen stop-loss-prosentti (negatiivinen), tasapainoisin rajoin."""
-    stop = -ATR_STOP_MULT * _atr_pct(analysis)
-    return max(STOP_CAP_PCT, min(STOP_FLOOR_PCT, stop))
+def default_stop_tuning() -> dict[str, float]:
+    return {"atr_scale": 1.0, "floor_scale": 1.0, "cap_scale": 1.0}
+
+
+def dynamic_stop_pct(
+    analysis: dict[str, Any],
+    regime: str = "neutral",
+    stop_tuning: dict[str, Any] | None = None,
+) -> float:
+    """ATR- ja regiimipohjainen stop-loss (negatiivinen %), oppimisen hienosäätö."""
+    profile = REGIME_STOP_PROFILES.get(regime, REGIME_STOP_PROFILES["neutral"])
+    tuning = default_stop_tuning()
+    if stop_tuning:
+        for key in tuning:
+            if key in stop_tuning:
+                tuning[key] = float(stop_tuning[key])
+
+    atr_mult = profile["atr_mult"] * tuning["atr_scale"]
+    floor = profile["floor"] * tuning["floor_scale"]
+    cap = profile["cap"] * tuning["cap_scale"]
+
+    stop = -atr_mult * _atr_pct(analysis)
+    return max(cap, min(floor, stop))
+
+
+def format_stop_loss_reason(
+    profit_pct: float,
+    stop_pct: float,
+    regime: str,
+) -> str:
+    regime_note = ""
+    if regime in ("bull", "bear"):
+        regime_note = f", {regime}-regiimi"
+    return (
+        f"Stop-loss {profit_pct:.1f} % (ATR-raja {stop_pct:.1f} %{regime_note}) — "
+        f"rajataan tappio, pääoma parempaan"
+    )
 
 
 def _find_btc_symbol(tickers: dict[str, dict[str, Any]]) -> str | None:
@@ -463,6 +550,17 @@ def analyze_ticker_quick(ticker: dict[str, Any]) -> dict[str, Any]:
     if ticker["volumeEur"] > 2_000_000 and change_pct > 0:
         score += 1
         reasons.append("Vahva volyymi nousussa")
+    vol = float(ticker.get("volumeEur") or 0)
+    if vol < MIN_ENTRY_VOLUME_EUR:
+        score -= 4
+        reasons.append(
+            f"Matala volyymi ({vol / 1000:.0f} k€) — ei kelpaa uusille ostoille"
+        )
+    elif vol < MIN_ENTRY_VOLUME_PREFERRED_EUR:
+        score -= 1
+        reasons.append(
+            f"Volyymi alle {MIN_ENTRY_VOLUME_PREFERRED_EUR / 1000:.0f} k€ — varovainen"
+        )
 
     action = "hold"
     if score >= 3:
@@ -916,7 +1014,11 @@ def _deploy_cash_to_targets(
     blocked_buys = blocked_buys or set()
     # D: älä sijoita käteistä kolikkoon, joka on tappio-cooldownissa (vältä keskihinnan
     # alaspäin keskiarvoistamista häviäjään).
-    buy_targets = [s for s in target_symbols if normalize_symbol(s) not in blocked_buys]
+    buy_targets = [
+        s
+        for s in target_symbols
+        if normalize_symbol(s) not in blocked_buys and entry_volume_ok(analyses.get(s))
+    ]
 
     for symbol in list(holdings.keys()):
         if symbol in skip_sell_symbols or is_stablecoin(symbol):
@@ -934,6 +1036,17 @@ def _deploy_cash_to_targets(
         norm = normalize_symbol(symbol)
 
         if norm in normalized_targets or symbol in target_symbols:
+            if not entry_volume_ok(analysis):
+                sell_amount = amount * ROTATION_TRIM_FRACTION
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    price,
+                    f"Matala volyymi ({_volume_k_label(analysis)}) — vapautetaan likvidimpiin",
+                    analysis,
+                )
+                continue
             target = _target_holding_value(symbol, total_value, weights)
             excess = current_value - target
             if excess >= MIN_TRADE_EUR:
@@ -1090,17 +1203,23 @@ def _technical_leader_symbols(
         [
             (sym, a)
             for sym, a in analyses.items()
-            if not is_stablecoin(sym) and a.get("currentPrice", 0) > 0
+            if not is_stablecoin(sym)
+            and a.get("currentPrice", 0) > 0
+            and entry_volume_ok(a)
         ],
         key=lambda x: (
             -x[1].get("score", 0),
             -(x[1].get("changePct") or x[1].get("momentum") or 0),
+            -(x[1].get("volumeEur") or 0),
         ),
     )
     return [normalize_symbol(sym) for sym, _ in ranked[:limit]]
 
 
-def _gemini_desired_symbols(gemini_insights: dict[str, Any] | None) -> list[str]:
+def _gemini_desired_symbols(
+    gemini_insights: dict[str, Any] | None,
+    analyses: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
     """Gemini valitsee 1–5 kohdetta — ei pakota viittä."""
     if not gemini_insights:
         return []
@@ -1111,15 +1230,20 @@ def _gemini_desired_symbols(gemini_insights: dict[str, Any] | None) -> list[str]
         if sym and sym not in seen and not is_stablecoin(sym):
             seen.add(sym)
             result.append(sym)
-    if result:
-        return result[:MAX_POSITIONS]
-    for raw, signal in (gemini_insights.get("signals") or {}).items():
-        if signal.get("action") != "buy" or signal.get("confidence", 0) < 6:
-            continue
-        sym = normalize_symbol(str(raw))
-        if sym and sym not in seen and not is_stablecoin(sym):
-            seen.add(sym)
-            result.append(sym)
+    if not result:
+        for raw, signal in (gemini_insights.get("signals") or {}).items():
+            if signal.get("action") != "buy" or signal.get("confidence", 0) < 6:
+                continue
+            sym = normalize_symbol(str(raw))
+            if sym and sym not in seen and not is_stablecoin(sym):
+                seen.add(sym)
+                result.append(sym)
+    if analyses:
+        result = [
+            sym
+            for sym in result
+            if entry_volume_ok(analyses.get(sym) or analyses.get(normalize_symbol(sym)))
+        ]
     return result[:MAX_POSITIONS]
 
 
@@ -1145,7 +1269,7 @@ def _build_top_cryptos(
     target_count: int,
     gemini_insights: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    desired = _gemini_desired_symbols(gemini_insights)
+    desired = _gemini_desired_symbols(gemini_insights, analyses)
     if desired:
         return _to_crypto_items(desired, analyses, gemini_boost=True)
 
@@ -1201,7 +1325,8 @@ def make_trading_decisions(
             "rank": analysis["score"]
             + _mem_adjust(symbol)
             + float(analysis.get("condAdjust") or 0)
-            + _setup_adjust(analysis),
+            + _setup_adjust(analysis)
+            + volume_rank_adjust(analysis),
         }
         for symbol, analysis in analyses.items()
         if analysis.get("currentPrice", 0) > 0 and not is_stablecoin(symbol)
@@ -1219,28 +1344,36 @@ def make_trading_decisions(
         r
         for r in ranked
         if _entry_ok(r["analysis"], regime)
+        and entry_volume_ok(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
         and r["rank"] >= entry_score_min
     ]
-    ranked_buyable = (
-        buyable
-        or [r for r in ranked if normalize_symbol(r["symbol"]) not in blocked_buys]
-        or ranked
-    )
+    ranked_liquid = [
+        r
+        for r in ranked
+        if entry_volume_ok(r["analysis"])
+        and normalize_symbol(r["symbol"]) not in blocked_buys
+    ]
+    ranked_buyable = buyable or ranked_liquid
 
     target_count = MAX_POSITIONS
     gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
-    desired = _gemini_desired_symbols(gemini_insights) if gemini_active else []
+    desired = _gemini_desired_symbols(gemini_insights, analyses) if gemini_active else []
 
     if gemini_active and desired:
         top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)
     elif gemini_active:
         leaders = _technical_leader_symbols(analyses, MAX_POSITIONS)
-        symbols = list(dict.fromkeys(leaders + list(holdings.keys())))
+        liquid_held = [
+            s for s in holdings if entry_volume_ok(analyses.get(s))
+        ]
+        symbols = list(dict.fromkeys(leaders + liquid_held))
         top_cryptos = _to_crypto_items(symbols, analyses)
     else:
         fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
         top_cryptos = _build_top_cryptos(ranked_buyable, analyses, fallback_n, gemini_insights)
+
+    top_cryptos = _liquid_crypto_items(top_cryptos)
 
     if not top_cryptos and gemini_picks:
         gemini_top = _to_crypto_items(gemini_picks, analyses, gemini_boost=True)
@@ -1277,6 +1410,8 @@ def make_trading_decisions(
             picks = ranked_buyable[: min(2, max_new_positions, len(ranked_buyable))]
         elif ranked_buyable:
             picks = ranked_buyable[:1]
+        if picks:
+            picks = _liquid_crypto_items(picks)
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
                 picks, gemini_insights, regime, rotation_enabled
@@ -1318,6 +1453,38 @@ def make_trading_decisions(
             if holding["avgPrice"]
             else 0
         )
+
+        if not entry_volume_ok(analysis):
+            if profit_pct <= -0.3:
+                decisions.append(
+                    {
+                        "type": "sell",
+                        "symbol": symbol,
+                        "amount": holding["amount"],
+                        "eurAmount": holding_value,
+                        "reason": (
+                            f"Matala volyymi ({_volume_k_label(analysis)}) + "
+                            f"tappio {profit_pct:.1f} % — myydään"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+                continue
+            if _low_volume_holding_release_ok(profit_pct, analysis):
+                sell_amount = holding["amount"] * rotation_trim
+                if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
+                    _append_sell_decision(
+                        decisions,
+                        symbol,
+                        sell_amount,
+                        analysis["currentPrice"],
+                        (
+                            f"Matala volyymi ({_volume_k_label(analysis)}) — "
+                            f"vapautetaan likvidimpiin kohteisiin"
+                        ),
+                        analysis,
+                    )
+                    continue
 
         norm_hold = normalize_symbol(symbol)
         if concentration_mode and norm_hold not in top_norms:
@@ -1377,7 +1544,11 @@ def make_trading_decisions(
             )
             continue
 
-        stop_pct = dynamic_stop_pct(analysis)
+        stop_pct = dynamic_stop_pct(
+            analysis,
+            regime,
+            learning.get("stop_tuning"),
+        )
         if profit_pct <= stop_pct:
             decisions.append(
                 {
@@ -1385,10 +1556,7 @@ def make_trading_decisions(
                     "symbol": symbol,
                     "amount": holding["amount"],
                     "eurAmount": holding_value,
-                    "reason": (
-                        f"Stop-loss {profit_pct:.1f} % (ATR-raja {stop_pct:.1f} %) — "
-                        f"rajataan tappio, pääoma parempaan"
-                    ),
+                    "reason": format_stop_loss_reason(profit_pct, stop_pct, regime),
                     "analysis": analysis,
                 }
             )

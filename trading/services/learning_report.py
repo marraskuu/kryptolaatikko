@@ -296,6 +296,7 @@ def build_learning_report(
         ("rotation", "Rotaatio"),
         ("gemini_sell", "Gemini-myynnit"),
         ("profit_take", "Voitto-otto"),
+        ("stop_loss", "Stop-loss"),
     ):
         cat = stats.get(key) or {}
         n = int(cat.get("trades") or 0)
@@ -365,6 +366,9 @@ def build_learning_report(
             parts.append(f"Gemini min {overrides['gemini_sell_min_confidence']}")
         if overrides.get("entry_score_min", 1) > 1:
             parts.append(f"score ≥{overrides['entry_score_min']}")
+        st = overrides.get("stop_tuning") or {}
+        if st.get("level") in ("light", "full"):
+            parts.append(f"stop-loss {st.get('level')}")
         reg_lines.append("Regiimisäätö: " + ", ".join(parts) if parts else "Regiimisäätö aktiivinen")
     else:
         reg_lines.append(f"Regiimikohtainen viritys: {tagged}/4 tagattua myyntiä")

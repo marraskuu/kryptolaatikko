@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from .bitfinex import is_stablecoin, normalize_symbol
+from .ai_trader import MIN_ENTRY_VOLUME_EUR, entry_volume_ok
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ def _build_scan_leaders(
         if is_stablecoin(symbol):
             continue
         analysis = analyses.get(symbol, {})
-        if analysis.get("currentPrice", 0) <= 0:
+        if analysis.get("currentPrice", 0) <= 0 or not entry_volume_ok(analysis):
             continue
         change_24h = analysis.get("changePct")
         if change_24h is None:
@@ -198,11 +199,14 @@ def _technical_top_picks(
         [
             (sym, a)
             for sym, a in analyses.items()
-            if not is_stablecoin(sym) and a.get("currentPrice", 0) > 0
+            if not is_stablecoin(sym)
+            and a.get("currentPrice", 0) > 0
+            and entry_volume_ok(a)
         ],
         key=lambda x: (
             -x[1].get("score", 0),
             -(x[1].get("changePct") or x[1].get("momentum") or 0),
+            -(x[1].get("volumeEur") or 0),
         ),
     )
     return [normalize_symbol(sym) for sym, _ in ranked[:limit]]
@@ -778,16 +782,17 @@ Historian käyttö:
 
 Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
-2. Osta nousussa olevia, korkean volyymin kohteita — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend
+2. Osta nousussa olevia, korkean volyymin kohteita (vähintään {MIN_ENTRY_VOLUME_EUR // 1000} k€ / 24 h) — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend, volume_eur
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti MUTTA älä churnaa (max 1 rotaatio / 30 min)
 4. Salkussa 1–5 kryptoa — valitse ITSE montako (top_picks 1–5 kohdetta). EI pakko viittä; 1 vahva riittää. Jos 1–2 kohteessa on selvä kova noste (confidence ≥8, 24h ≥4 %), keskitä pääoma niihin (esim. 70/30 tai 100 % yhteen). KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
 5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
 6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
-8. Stop-loss noin -2 %: älä anna tappioiden kasvaa
+8. Stop-loss ATR + regiimi: bullissa löysempi (~-2,2 %), bearissa tiukempi (~-1,2 %), volatiliteetti skaalaa rajaa
 9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa
-10. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
-11. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
+10. ÄLÄ valitse top_picks-kohteita joiden volume_eur < {MIN_ENTRY_VOLUME_EUR} — matala volyymi lukitsee pääoman
+11. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
+12. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
