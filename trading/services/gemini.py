@@ -17,7 +17,7 @@ from typing import Any
 import requests
 
 from .bitfinex import is_stablecoin, normalize_symbol
-from .ai_trader import MIN_ENTRY_VOLUME_EUR, entry_volume_ok
+from .ai_trader import MIN_ENTRY_PRICE_EUR, MIN_ENTRY_VOLUME_EUR, entry_volume_ok
 from .market_learning import setup_key_for_analysis
 
 logger = logging.getLogger(__name__)
@@ -993,8 +993,9 @@ Kaupankäyntisäännöt (voitto edellä):
 8. Stop-loss ATR + regiimi: bullissa löysempi (~-2,2 %), bearissa tiukempi (~-1,2 %), volatiliteetti skaalaa rajaa
 9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa
 10. ÄLÄ valitse top_picks-kohteita joiden volume_eur < {MIN_ENTRY_VOLUME_EUR} — matala volyymi lukitsee pääoman
-11. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
-12. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
+11. ÄLÄ valitse top_picks-kohteita joiden hinta < {MIN_ENTRY_PRICE_EUR:.0f} € (esim. DOGE) — alle euron kolikot eivät kelpaa uusille ostoille
+12. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
+13. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen

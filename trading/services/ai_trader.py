@@ -58,6 +58,8 @@ CLUSTER_WEIGHT_CAP = 0.6
 # Likviditeetti — uudet ostot vain riittävän volyymin pariin (24 h Bitfinex).
 MIN_ENTRY_VOLUME_EUR = 100_000
 MIN_ENTRY_VOLUME_PREFERRED_EUR = 250_000
+# Nimellishinta — vältä selvästi alle euron kolikoita (DOGE tms.) uusissa ostoissa.
+MIN_ENTRY_PRICE_EUR = 1.0
 
 # Keskittymistila — 1–2 vahvaa nostetta, isompi panos kun signaali selvä.
 CONCENTRATION_MAX_POSITIONS = 2
@@ -106,6 +108,17 @@ def entry_volume_ok(analysis: dict[str, Any] | None) -> bool:
     return volume_eur(analysis) >= MIN_ENTRY_VOLUME_EUR
 
 
+def entry_price_ok(analysis: dict[str, Any] | None) -> bool:
+    if not analysis:
+        return False
+    price = float(analysis.get("currentPrice") or 0)
+    return price >= MIN_ENTRY_PRICE_EUR
+
+
+def entry_eligible(analysis: dict[str, Any] | None) -> bool:
+    return entry_volume_ok(analysis) and entry_price_ok(analysis)
+
+
 def volume_rank_adjust(analysis: dict[str, Any]) -> float:
     v = volume_eur(analysis)
     if v >= 2_000_000:
@@ -126,7 +139,7 @@ def _volume_k_label(analysis: dict[str, Any]) -> str:
 
 
 def _liquid_crypto_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [c for c in items if entry_volume_ok(c.get("analysis"))]
+    return [c for c in items if entry_eligible(c.get("analysis"))]
 
 
 def _low_volume_holding_release_ok(profit_pct: float, analysis: dict[str, Any]) -> bool:
@@ -456,6 +469,8 @@ def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
     """C + B: hyväksy tekninen sisäänosto vain kun aikajänteet linjassa ja regiimi sallii."""
     if analysis.get("action") == "sell" or analysis.get("condBlocked"):
         return False
+    if not entry_price_ok(analysis):
+        return False
     mtf = analysis.get("mtfAlign", 0)
     change_24h = analysis.get("changePct")
     if change_24h is None:
@@ -483,6 +498,8 @@ def _is_buy_blocked(
     if not analysis:
         return True
     if normalize_symbol(symbol) in blocked_buys:
+        return True
+    if not entry_price_ok(analysis):
         return True
     if analysis.get("condBlocked"):
         return True
@@ -664,6 +681,13 @@ def analyze_ticker_quick(ticker: dict[str, Any]) -> dict[str, Any]:
         score -= 1
         reasons.append(
             f"Volyymi alle {MIN_ENTRY_VOLUME_PREFERRED_EUR / 1000:.0f} k€ — varovainen"
+        )
+
+    last = float(ticker.get("last") or 0)
+    if last > 0 and last < MIN_ENTRY_PRICE_EUR:
+        score -= 4
+        reasons.append(
+            f"Hinta alle {MIN_ENTRY_PRICE_EUR:.0f} € ({last:.4f} €) — ei uusille ostoille"
         )
 
     action = "hold"
@@ -1132,7 +1156,7 @@ def _deploy_cash_to_targets(
             blocked_setups=blocked_setups,
             regime=regime,
         )
-        and entry_volume_ok(analyses.get(s))
+        and entry_eligible(analyses.get(s))
     ]
 
     for symbol in list(holdings.keys()):
@@ -1460,7 +1484,7 @@ def make_trading_decisions(
         r
         for r in ranked
         if _entry_ok(r["analysis"], regime)
-        and entry_volume_ok(r["analysis"])
+        and entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
         and not _is_buy_blocked(
             r["symbol"],
@@ -1474,7 +1498,7 @@ def make_trading_decisions(
     ranked_liquid = [
         r
         for r in ranked
-        if entry_volume_ok(r["analysis"])
+        if entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
         and not _is_buy_blocked(
             r["symbol"],
