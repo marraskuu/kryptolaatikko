@@ -44,7 +44,9 @@ ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
 
 # 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
 STAGNANT_HOURS = 8.0
+STAGNANT_HOURS_NEUTRAL = 6.0
 STAGNANT_MAX_PROFIT_PCT = 0.5
+FAST_EXIT_LOSS_PCT = -1.5
 
 # 3: Hajautussuoja — rajoita korkeasti korreloivan klusterin yhteispaino.
 CORR_THRESHOLD = 0.85
@@ -450,19 +452,87 @@ def compute_market_regime(
 
 def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
     """C + B: hyväksy tekninen sisäänosto vain kun aikajänteet linjassa ja regiimi sallii."""
-    if analysis.get("action") == "sell":
+    if analysis.get("action") == "sell" or analysis.get("condBlocked"):
         return False
     mtf = analysis.get("mtfAlign", 0)
     change_24h = analysis.get("changePct")
     if change_24h is None:
         change_24h = analysis.get("momentum") or 0
+    change_4h = analysis.get("change4hPct")
     if regime == "bear":
-        # Karhumarkkinassa vain selvästi linjassa nousevat, ei putoavia veitsiä
-        return mtf >= 1 and change_24h > -1
+        # Karhu: vain selvä moniaikainen nousu, ei putoavia veitsiä
+        if change_4h is not None and change_4h <= 0:
+            return False
+        return mtf >= 2 and change_24h > -1
     if regime == "bull":
         return mtf >= 0
-    # neutraali: ei täysin laskevaa linjausta
-    return mtf >= 0 and change_24h > -3
+    # neutraali: vaadi selkeä linjaus ja positiivinen 24h
+    return mtf >= 1 and change_24h > 0
+
+
+def _is_buy_blocked(
+    symbol: str,
+    analysis: dict[str, Any] | None,
+    *,
+    blocked_buys: set[str],
+    blocked_setups: set[str],
+    regime: str,
+) -> bool:
+    if not analysis:
+        return True
+    if normalize_symbol(symbol) in blocked_buys:
+        return True
+    if analysis.get("condBlocked"):
+        return True
+    from .market_learning import setup_key_for_analysis
+
+    return setup_key_for_analysis(analysis, regime) in blocked_setups
+
+
+def _stagnant_hours(regime: str) -> float:
+    return STAGNANT_HOURS_NEUTRAL if regime == "neutral" else STAGNANT_HOURS
+
+
+def _fast_loss_exit_reason(
+    symbol: str,
+    profit_pct: float,
+    analysis: dict[str, Any],
+    regime: str,
+    symbol_memory: dict[str, dict[str, Any]],
+    blocked_setups: set[str],
+) -> str | None:
+    """Täysi myynti lievässä tappiossa jos kohde/asetelma on jo merkitty huonoksi."""
+    if profit_pct > FAST_EXIT_LOSS_PCT:
+        return None
+    norm = normalize_symbol(symbol)
+    mem = symbol_memory.get(symbol) or symbol_memory.get(norm) or {}
+    if mem.get("chronic"):
+        return (
+            f"Krooninen häviäjä — täysi myynti {profit_pct:.1f} % "
+            f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+        )
+    if mem.get("blocked"):
+        return (
+            f"Symboli cooldownissa — täysi myynti {profit_pct:.1f} % "
+            f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+        )
+    if _is_buy_blocked(
+        symbol,
+        analysis,
+        blocked_buys=set(),
+        blocked_setups=blocked_setups,
+        regime=regime,
+    ):
+        if analysis.get("condBlocked"):
+            return (
+                f"Huono markkina-asetelma — täysi myynti {profit_pct:.1f} % "
+                f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+            )
+        return (
+            f"Huono oma asetelma — täysi myynti {profit_pct:.1f} % "
+            f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+        )
+    return None
 
 
 def _in_uptrend(analysis: dict[str, Any]) -> bool:
@@ -1008,16 +1078,27 @@ def _deploy_cash_to_targets(
     best_target_edge: float = 0.0,
     concentration_mode: bool = False,
     concentration_trim: float = CONCENTRATION_TRIM_FRACTION,
+    *,
+    blocked_setups: set[str] | None = None,
+    regime: str = "neutral",
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
     blocked_buys = blocked_buys or set()
+    blocked_setups = blocked_setups or set()
     # D: älä sijoita käteistä kolikkoon, joka on tappio-cooldownissa (vältä keskihinnan
     # alaspäin keskiarvoistamista häviäjään).
     buy_targets = [
         s
         for s in target_symbols
-        if normalize_symbol(s) not in blocked_buys and entry_volume_ok(analyses.get(s))
+        if not _is_buy_blocked(
+            s,
+            analyses.get(s),
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
+        and entry_volume_ok(analyses.get(s))
     ]
 
     for symbol in list(holdings.keys()):
@@ -1305,6 +1386,7 @@ def make_trading_decisions(
     # D: symbolimuisti — opi omista onnistumisista/epäonnistumisista per kolikko
     symbol_memory = learning.get("symbol_memory") or {}
     blocked_buys = {normalize_symbol(s) for s in (learning.get("blocked_buys") or [])}
+    blocked_setups = set(learning.get("blocked_setups") or [])
     entry_score_min = int(learning.get("entry_score_min", 1))
     max_new_positions = max(1, int(learning.get("max_new_positions", MAX_POSITIONS)))
     setup_memory = learning.get("setup_memory") or {}
@@ -1346,6 +1428,13 @@ def make_trading_decisions(
         if _entry_ok(r["analysis"], regime)
         and entry_volume_ok(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
+        and not _is_buy_blocked(
+            r["symbol"],
+            r["analysis"],
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
         and r["rank"] >= entry_score_min
     ]
     ranked_liquid = [
@@ -1353,6 +1442,13 @@ def make_trading_decisions(
         for r in ranked
         if entry_volume_ok(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
+        and not _is_buy_blocked(
+            r["symbol"],
+            r["analysis"],
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
     ]
     ranked_buyable = buyable or ranked_liquid
 
@@ -1374,6 +1470,17 @@ def make_trading_decisions(
         top_cryptos = _build_top_cryptos(ranked_buyable, analyses, fallback_n, gemini_insights)
 
     top_cryptos = _liquid_crypto_items(top_cryptos)
+    top_cryptos = [
+        c
+        for c in top_cryptos
+        if not _is_buy_blocked(
+            c["symbol"],
+            c.get("analysis"),
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
+    ]
 
     if not top_cryptos and gemini_picks:
         gemini_top = _to_crypto_items(gemini_picks, analyses, gemini_boost=True)
@@ -1383,6 +1490,17 @@ def make_trading_decisions(
     concentration_mode, top_cryptos, concentration_reason = _resolve_concentration(
         top_cryptos, gemini_insights, regime, rotation_enabled
     )
+    top_cryptos = [
+        c
+        for c in top_cryptos
+        if not _is_buy_blocked(
+            c["symbol"],
+            c.get("analysis"),
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+        )
+    ]
     if concentration_mode:
         logger.info("Concentration mode active: %s", concentration_reason)
 
@@ -1412,6 +1530,17 @@ def make_trading_decisions(
             picks = ranked_buyable[:1]
         if picks:
             picks = _liquid_crypto_items(picks)
+            picks = [
+                c
+                for c in picks
+                if not _is_buy_blocked(
+                    c["symbol"],
+                    c.get("analysis"),
+                    blocked_buys=blocked_buys,
+                    blocked_setups=blocked_setups,
+                    regime=regime,
+                )
+            ]
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
                 picks, gemini_insights, regime, rotation_enabled
@@ -1453,6 +1582,27 @@ def make_trading_decisions(
             if holding["avgPrice"]
             else 0
         )
+
+        fast_exit = _fast_loss_exit_reason(
+            symbol,
+            profit_pct,
+            analysis,
+            regime,
+            symbol_memory,
+            blocked_setups,
+        )
+        if fast_exit:
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": fast_exit,
+                    "analysis": analysis,
+                }
+            )
+            continue
 
         if not entry_volume_ok(analysis):
             if profit_pct <= -0.3:
@@ -1582,9 +1732,10 @@ def make_trading_decisions(
         # 2: Aikastoppi — jämähtänyt positio (pitkä pito, ei voittoa, ei nousuputkea,
         # ei bull-regiimi) myydään kokonaan, jotta pääoma vapautuu parempaan kohteeseen.
         age_h = _holding_age_hours(holding.get("openedAt"))
+        stagnant_h = _stagnant_hours(regime)
         if (
             age_h is not None
-            and age_h >= STAGNANT_HOURS
+            and age_h >= stagnant_h
             and profit_pct < STAGNANT_MAX_PROFIT_PCT
             and not _in_uptrend(analysis)
             and regime != "bull"
@@ -1758,6 +1909,8 @@ def make_trading_decisions(
             best_target_edge,
             concentration_mode=concentration_mode,
             concentration_trim=concentration_trim,
+            blocked_setups=blocked_setups,
+            regime=regime,
         )
 
     for d in decisions:

@@ -28,6 +28,7 @@ LEARNING_WINDOW = 40
 MIN_SAMPLES = 6
 MIN_SAMPLES_REGIME = 4   # regiimikohtainen (vähemmän otosta per regiimi)
 MIN_SAMPLES_SETUP = 4    # oma sisäänostoasetelma
+SETUP_BLOCK_EXP = -0.2   # alle tämän €/kauppa → estä uudet ostot asetelmalla
 SETUP_PENALTY_CAP = -3.0
 SETUP_BONUS_CAP = 2.0
 
@@ -274,8 +275,8 @@ def _apply_category_tuning(
             max_new_positions = 2
             notes.append(f"valikoivampi ({overall_exp:+.2f} €/kauppa)")
         elif overall_exp < 0:
-            entry_score_min = 3
-            max_new_positions = 3
+            entry_score_min = max(entry_score_min, 2)
+            max_new_positions = min(max_new_positions, 3)
             notes.append(f"tarkempi ({overall_exp:+.2f} €/kauppa)")
         elif overall_exp > 0.3:
             notes.append(f"linja ok ({overall_exp:+.2f} €/kauppa)")
@@ -563,8 +564,9 @@ def _compute_setup_memory(
         net = b["net"]
         exp = net / n
         adjust = 0.0
-        if exp < -0.2:
-            adjust = max(SETUP_PENALTY_CAP, -1.0 + exp)
+        blocked = exp < SETUP_BLOCK_EXP
+        if blocked:
+            adjust = SETUP_PENALTY_CAP
         elif exp > 0.3:
             adjust = min(SETUP_BONUS_CAP, 0.5 + exp)
         memory[setup] = {
@@ -573,6 +575,7 @@ def _compute_setup_memory(
             "expectancy_eur": round(exp, 3),
             "win_rate": round(b["wins"] / n, 2),
             "score_adjust": round(adjust, 2),
+            "blocked": blocked,
         }
     return memory
 
@@ -632,6 +635,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
 
     linked = _sells_with_entry_context(all_trades)
     setup_memory = _compute_setup_memory(linked)
+    blocked_setups: list[str] = []
     regime_tuning, regime_stats = _compute_regime_tuning(sells)
 
     notes = list(tune_notes) + pt_notes + stop_notes + conf_notes
@@ -645,8 +649,11 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     if setup_memory:
         good = sum(1 for m in setup_memory.values() if m.get("score_adjust", 0) > 0)
         bad = sum(1 for m in setup_memory.values() if m.get("score_adjust", 0) < 0)
+        blocked_setups = [k for k, m in setup_memory.items() if m.get("blocked")]
         if good or bad:
             notes.append(f"asetelmat: {good} hyvää, {bad} huonoa")
+        if blocked_setups:
+            notes.append(f"{len(blocked_setups)} asetelmaa estetty")
 
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
@@ -681,6 +688,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "regime_tuning": regime_tuning,
         "regime_stats": regime_stats,
         "setup_memory": setup_memory,
+        "blocked_setups": blocked_setups,
         "regime_tagged_sells": tagged,
         "gemini_confidence_stats": conf_tuning["gemini_confidence_stats"],
         "gemini_confidence_scales": gemini_confidence_scales,

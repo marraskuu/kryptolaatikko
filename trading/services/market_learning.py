@@ -36,6 +36,8 @@ MAX_SCORE_ADJUST = 4.0         # C: vahvempi vaikutus — nojaa voittaviin asete
 W_1H = 0.6
 W_4H = 0.4
 EXP_TO_SCORE = 2.0             # C: +1 % opittu odotus → +2.0 score (clampattu)
+BLOCK_EXP_PCT = -0.35            # varjo-oppiminen: alle tämän % → estä osto
+BLOCK_EXP_PCT_LIGHT = -0.55      # tiukempi kynnys pienemmällä otoksella
 
 _DEFAULT = {"obs": [], "stats": {}, "lastSample": 0}
 
@@ -244,6 +246,23 @@ def step(
     return stats, summary
 
 
+def condition_blocks_entry(analysis: dict[str, Any], regime: Any, stats: dict[str, Any]) -> bool:
+    """Estä osto jos varjo-oppiminen näyttää selvästi tappiollisen asetelman."""
+    for key in _bucket_keys_fallback(analysis, regime):
+        st = stats.get(key)
+        if not st:
+            continue
+        exp = _horizon_expectancy(st)
+        if exp is None:
+            continue
+        n = _bucket_sample_count(st)
+        if n >= MIN_SAMPLES and exp < BLOCK_EXP_PCT:
+            return True
+        if n >= MIN_SAMPLES_LIGHT and exp < BLOCK_EXP_PCT_LIGHT:
+            return True
+    return False
+
+
 def condition_adjust(analysis: dict[str, Any], regime: Any, stats: dict[str, Any]) -> float:
     """Opittu score-säätö — fallback karkeampaan avaimeen jos otos pieni."""
     for key in _bucket_keys_fallback(analysis, regime):
@@ -261,10 +280,11 @@ def condition_adjust(analysis: dict[str, Any], regime: Any, stats: dict[str, Any
 
 
 def apply(analyses: dict[str, dict[str, Any]], regime: Any, stats: dict[str, Any]) -> None:
-    """Liitä opittu olosuhdesäätö jokaiseen analyysiin (condAdjust)."""
+    """Liitä opittu olosuhdesäätö ja esto jokaiseen analyysiin (condAdjust / condBlocked)."""
     for sym, analysis in analyses.items():
         if is_stablecoin(sym):
             continue
+        analysis["condBlocked"] = condition_blocks_entry(analysis, regime, stats)
         analysis["condAdjust"] = round(condition_adjust(analysis, regime, stats), 2)
 
 
