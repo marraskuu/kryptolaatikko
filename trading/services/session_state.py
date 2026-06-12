@@ -156,6 +156,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "taxCurrentYear": tax["currentYearTax"],
             "taxCurrentYearLabel": tax["currentYear"],
             "taxCurrentYearRealized": tax["currentYearRealized"],
+            "taxCurrentYearGrossWins": tax["currentYearGrossWins"],
             "taxPreviousYear": tax["previousYearTax"],
             "taxPreviousYearLabel": tax["previousYear"],
             "taxPreviousYearRealized": tax["previousYearRealized"],

@@ -433,7 +433,12 @@ function renderStats() {
       els.statTaxPrevious.textContent = "";
     }
   }
-  els.statTaxEstimate.textContent = `Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
+  const grossWins = s.taxCurrentYearGrossWins;
+  const taxBasis =
+    grossWins != null && grossWins > 0
+      ? `Voitoilliset myynnit ${formatEur(grossWins)} · `
+      : "";
+  els.statTaxEstimate.textContent = `${taxBasis}Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
 
   renderWinLoss(s.realizedBreakdown);
 

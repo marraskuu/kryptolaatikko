@@ -281,6 +281,40 @@ class Portfolio:
             by_year[year] = by_year.get(year, 0.0) + float(t.get("profitLoss") or 0.0)
         return by_year
 
+    def _sell_tax_by_year(self) -> dict[int, float]:
+        """30 % vero voitollisista myynneistä per vuosi (tappiot eivät vähennä tätä arviota).
+
+        Jokaisesta voitollisesta myynnistä kirjataan tax myyntihetkellä. Veroa ei
+        vähennetä salkusta — tämä on ilmoitusvelvollisuuden arvio.
+        """
+        by_year: dict[int, float] = {}
+        for t in self.trades:
+            if t.get("type") != "sell":
+                continue
+            year = _year_of(t.get("timestamp"))
+            if year is None:
+                continue
+            pl = float(t.get("profitLoss") or 0.0)
+            tax = float(t.get("tax") or 0.0)
+            if tax <= 0 and pl > 0.01:
+                tax = pl * TAX_RATE
+            by_year[year] = by_year.get(year, 0.0) + tax
+        return by_year
+
+    def _realized_gross_wins_by_year(self) -> dict[int, float]:
+        """Voitolliset myynnit yhteensä (€) per kalenterivuosi."""
+        by_year: dict[int, float] = {}
+        for t in self.trades:
+            if t.get("type") != "sell":
+                continue
+            year = _year_of(t.get("timestamp"))
+            if year is None:
+                continue
+            pl = float(t.get("profitLoss") or 0.0)
+            if pl > 0.01:
+                by_year[year] = by_year.get(year, 0.0) + pl
+        return by_year
+
     def get_realized_breakdown(self) -> dict[str, dict[str, Any]]:
         """Voitto-/tappiomyyntien lukumäärät ja eurot kolmelta jaksolta.
 
@@ -326,15 +360,13 @@ class Portfolio:
         """Verot myyntivoitoista kalenterivuosittain (1.1.–31.12.).
 
         Veroa ei vähennetä salkusta — tämä on arvio siitä, paljonko pääomatuloveroa
-        (30 %) on tulossa maksettavaksi kultakin vuodelta toteutuneista myyntivoitoista
-        (tappiot vähentävät saman vuoden voittoja).
+        (30 %) on tulossa maksettavaksi voitollisista myynneistä kullekin vuodelle.
         """
         by_year = self.realized_profit_by_year()
+        tax_by_year = self._sell_tax_by_year()
+        gross_wins_by_year = self._realized_gross_wins_by_year()
         current_year = datetime.now(timezone.utc).year
         previous_year = current_year - 1
-
-        def tax_for(year: int) -> float:
-            return max(0.0, by_year.get(year, 0.0)) * TAX_RATE
 
         unrealized = self.get_unrealized_profit(tickers)
         estimated_tax = unrealized * TAX_RATE
@@ -342,15 +374,21 @@ class Portfolio:
         return {
             "currentYear": current_year,
             "currentYearRealized": round(by_year.get(current_year, 0.0), 2),
-            "currentYearTax": round(tax_for(current_year), 2),
+            "currentYearGrossWins": round(gross_wins_by_year.get(current_year, 0.0), 2),
+            "currentYearTax": round(tax_by_year.get(current_year, 0.0), 2),
             "previousYear": previous_year,
             "previousYearRealized": (
                 round(by_year[previous_year], 2) if previous_year in by_year else None
             ),
+            "previousYearGrossWins": (
+                round(gross_wins_by_year[previous_year], 2)
+                if previous_year in gross_wins_by_year
+                else None
+            ),
             "previousYearTax": (
-                round(tax_for(previous_year), 2) if previous_year in by_year else None
+                round(tax_by_year[previous_year], 2) if previous_year in tax_by_year else None
             ),
             "estimatedTax": round(estimated_tax, 2),
             "unrealizedProfit": round(unrealized, 2),
-            "totalTaxOwed": round(self.data.get("totalTaxPaid", 0.0), 2),
+            "totalTaxOwed": round(sum(tax_by_year.values()), 2),
         }
