@@ -547,6 +547,8 @@ function renderMarketList() {
       const signal = analysis?.action === "buy" ? "▲" : analysis?.action === "sell" ? "▼" : "●";
       const positionPct = isHeld ? getPositionPct(sym) : null;
       const change24Label = formatPct(ticker.changePct ?? 0);
+      const holdingDuration = isHeld ? formatHoldingDuration(sym) : "";
+      const holdingDurationSuffix = holdingDuration ? ` — ${holdingDuration}` : "";
 
       let changeHtml;
       if (isHeld && positionPct != null) {
@@ -583,6 +585,7 @@ function renderMarketList() {
           const valueStr = `${formatEur(pnl.currentValue).replace("€", "").trim()} €`;
           holdingPrefix = `<span class="holding-value ${valueCls}">${valueStr}</span> `;
         }
+        watchText = `${watchText}${holdingDurationSuffix}`;
         badge = `<span class="market-row-badge">${holdingPrefix}${watchText}</span>`;
       } else if (isHeld) {
         const pnl = getPositionPnl(sym);
@@ -593,7 +596,7 @@ function renderMarketList() {
           const valueStr = `${formatEur(pnl.currentValue).replace("€", "").trim()} €`;
           holdingPrefix = `<span class="holding-value ${valueCls}">${valueStr}</span> `;
         }
-        badge = `<span class="market-row-badge">${holdingPrefix}${signal} Salkussa</span>`;
+        badge = `<span class="market-row-badge">${holdingPrefix}${signal} Salkussa${holdingDurationSuffix}</span>`;
       } else if (isTarget) {
         badge = `<span class="market-row-badge market-row-badge-target">◎ Gemini-valinta</span>`;
       }
@@ -814,6 +817,21 @@ function formatDurationSec(sec) {
   const m = Math.floor((sec % 3600) / 60);
   if (h > 0) return `${h} t ${m} min`;
   return `${m} min`;
+}
+
+function formatHoldingDuration(symbol) {
+  const key = normalizeSymbol(symbol);
+  const holding = state.portfolio.holdings?.[key] || state.portfolio.holdings?.[symbol];
+  const openedAt = holding?.openedAt;
+  if (!openedAt) return "";
+  const start = Date.parse(String(openedAt).replace("Z", "+00:00"));
+  if (!Number.isFinite(start)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}min`;
+  if (m > 0) return `${m}min`;
+  return "<1min";
 }
 
 function escapeHtml(text) {
