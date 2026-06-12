@@ -283,7 +283,14 @@ def execute_trading_cycle() -> dict[str, Any]:
                 portfolio_for_snap = Portfolio(state["portfolio"])
                 snap_value = portfolio_for_snap.get_total_value(state["tickers"])
                 from .gemini import build_gemini_snapshot
+                from .gemini_pick_tracking import archive_previous_snapshot
 
+                archive_previous_snapshot(
+                    state,
+                    state["tickers"],
+                    snap_value,
+                    get_crypto_label,
+                )
                 state["lastGeminiSnapshot"] = build_gemini_snapshot(
                     gemini_insights,
                     state["tickers"],

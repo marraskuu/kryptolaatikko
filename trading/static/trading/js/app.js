@@ -182,6 +182,7 @@ function applyPayload(data) {
     learningReport: data.learningReport ?? state.learningReport,
     learning: data.learning ?? state.learning,
     marketLearning: data.marketLearning ?? state.marketLearning,
+    geminiPickTracking: data.geminiPickTracking ?? state.geminiPickTracking,
     botStartedAt: data.botStartedAt ?? state.botStartedAt,
     lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
     tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
@@ -813,6 +814,23 @@ function renderLearningChips() {
   if (ownSetups > 0) {
     html += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
   }
+  const gpt = state.geminiPickTracking;
+  const gpStats = gpt?.stats;
+  if (gpStats?.picks_tracked >= 3 && gpStats.win_rate_pct != null) {
+    const title = [
+      `${gpStats.rounds} Gemini-kierrosta arkistoitu`,
+      `${gpStats.picks_tracked} pickiä seurattu`,
+      `Keskituotto ${gpStats.avg_return_pct >= 0 ? "+" : ""}${gpStats.avg_return_pct} %`,
+      gpStats.pick_beats_skipped_pct != null
+        ? `Pickit voittivat ohitetun ${gpStats.pick_beats_skipped_pct} %`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    html += `<span class="metric-chip" title="${escapeHtml(title)}">🎯 Gemini ${gpStats.win_rate_pct}%</span>`;
+  } else if (gpt?.current?.pick_outcomes?.length) {
+    html += `<span class="metric-chip" title="Seurataan edellisen Geminin pickien tuottoa">🎯 Gemini seuraa</span>`;
+  }
   return html;
 }
 
@@ -865,6 +883,52 @@ function resolveLearningReport() {
     sections.push({ icon: "🧠", title: "Kauppojen oppiminen", lines: [learning.note] });
   }
   return { sections, changes: [], roadmap: [], narrative: null };
+}
+
+function renderGeminiPickTrackingHtml() {
+  const gpt = state.geminiPickTracking;
+  if (!gpt) return "";
+
+  const lines = [];
+  const current = gpt.current;
+  if (current?.pick_outcomes?.length) {
+    const mins = current.minutes_since_snapshot;
+    lines.push(
+      `<strong>Odottaa arkistointia</strong>${mins != null ? ` (${mins} min sitten)` : ""}:`
+    );
+    for (const p of current.pick_outcomes) {
+      const ret = p.return_since_pct;
+      if (ret == null) continue;
+      lines.push(`${escapeHtml(p.label)}: ${ret >= 0 ? "+" : ""}${ret.toFixed(1)} %`);
+    }
+    for (const lesson of current.lessons || []) {
+      lines.push(escapeHtml(lesson));
+    }
+  }
+
+  const stats = gpt.stats;
+  if (stats?.picks_tracked >= 1) {
+    lines.push(
+      `<strong>Historia:</strong> ${stats.rounds} kierrosta · ${stats.picks_tracked} pickiä · osuu ${stats.win_rate_pct} % · keski ${stats.avg_return_pct >= 0 ? "+" : ""}${stats.avg_return_pct} %`
+    );
+  }
+
+  for (const rnd of gpt.recent || []) {
+    const ts = (rnd.timestamp || "").slice(0, 16).replace("T", " ");
+    const pickStr = (rnd.picks || [])
+      .filter((p) => p.return_pct != null)
+      .map((p) => `${p.label} ${p.return_pct >= 0 ? "+" : ""}${p.return_pct.toFixed(1)}%`)
+      .join(", ");
+    if (pickStr) lines.push(`${ts} (${rnd.regime || "?"}): ${escapeHtml(pickStr)}`);
+  }
+
+  if (!lines.length) return "";
+
+  return `
+    <div class="learning-section">
+      <h4>🎯 Gemini-pick-seuranta</h4>
+      <ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>
+    </div>`;
 }
 
 function renderLearningReportMeta(report) {
@@ -995,6 +1059,7 @@ function renderLearningReport() {
 
   els.learningReport.innerHTML = `
     ${narrativeHtml}
+    ${renderGeminiPickTrackingHtml()}
     <div class="learning-sections">${sectionsHtml}</div>
     ${changesHtml}
     ${roadmapHtml}

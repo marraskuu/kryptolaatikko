@@ -135,6 +135,15 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
 
         learning_report = _merge_cached_learning_report(state, learning_report)
 
+    gemini_pick_tracking = None
+    if tickers:
+        from .gemini import get_crypto_label
+        from .gemini_pick_tracking import build_pick_tracking
+
+        gemini_pick_tracking = build_pick_tracking(
+            state, tickers, total_value, get_crypto_label
+        )
+
     return {
         "running": state.get("running", True),
         "portfolio": portfolio.to_dict(),
@@ -175,5 +184,6 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "learning": state.get("learning"),
         "marketLearning": state.get("marketLearning"),
         "learningReport": learning_report,
+        "geminiPickTracking": gemini_pick_tracking,
         "botStartedAt": state.get("botStartedAt"),
     }
