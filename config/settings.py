@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250612x"
+APP_BUILD = "20250612y"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")
@@ -31,6 +31,12 @@ if CUSTOM_DOMAIN:
     for host in (CUSTOM_DOMAIN, f"www.{CUSTOM_DOMAIN}"):
         if host not in ALLOWED_HOSTS:
             ALLOWED_HOSTS.append(host)
+
+# Plausible — kävijäanalytiikka (https://plausible.io). Oletus: CUSTOM_DOMAIN.
+PLAUSIBLE_DOMAIN = os.environ.get("PLAUSIBLE_DOMAIN", "").strip() or CUSTOM_DOMAIN
+PLAUSIBLE_SCRIPT_URL = os.environ.get(
+    "PLAUSIBLE_SCRIPT_URL", "https://plausible.io/js/script.js"
+).strip()
 
 CSRF_TRUSTED_ORIGINS = [
     o.strip()

@@ -17,7 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def index(request):
-    return render(request, "trading/index.html")
+    return render(
+        request,
+        "trading/index.html",
+        {
+            "plausible_domain": getattr(settings, "PLAUSIBLE_DOMAIN", ""),
+            "plausible_script_url": getattr(
+                settings, "PLAUSIBLE_SCRIPT_URL", "https://plausible.io/js/script.js"
+            ),
+        },
+    )
 
 
 @csrf_exempt
