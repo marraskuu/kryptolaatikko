@@ -21,24 +21,39 @@ class Command(BaseCommand):
             return
 
         User = get_user_model()
-        if User.objects.filter(username=username).exists():
-            reset = os.environ.get("DJANGO_SUPERUSER_RESET", "").lower() in ("1", "true", "yes")
-            if not reset:
-                self.stdout.write(f"ensure_superuser: käyttäjä {username!r} on jo olemassa")
+        try:
+            if User.objects.filter(username=username).exists():
+                reset = os.environ.get("DJANGO_SUPERUSER_RESET", "").lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+                if not reset:
+                    self.stdout.write(f"ensure_superuser: käyttäjä {username!r} on jo olemassa")
+                    return
+                user = User.objects.get(username=username)
+                user.set_password(password)
+                if email:
+                    user.email = email
+                user.is_staff = True
+                user.is_superuser = True
+                user.save()
+                self.stdout.write(
+                    self.style.SUCCESS(f"ensure_superuser: salasana päivitetty ({username})")
+                )
                 return
-            user = User.objects.get(username=username)
-            user.set_password(password)
-            if email:
-                user.email = email
-            user.is_staff = True
-            user.is_superuser = True
-            user.save()
-            self.stdout.write(self.style.SUCCESS(f"ensure_superuser: salasana päivitetty ({username})"))
-            return
 
-        User.objects.create_superuser(
-            username=username,
-            email=email or f"{username}@localhost",
-            password=password,
-        )
-        self.stdout.write(self.style.SUCCESS(f"ensure_superuser: luotu {username}"))
+            User.objects.create_superuser(
+                username=username,
+                email=email or f"{username}@localhost",
+                password=password,
+            )
+            self.stdout.write(self.style.SUCCESS(f"ensure_superuser: luotu {username}"))
+        except Exception as exc:
+            # Älä kaada deploya — heikko salasana / DB-virhe ei saa pysäyttää bottia.
+            self.stderr.write(
+                self.style.ERROR(
+                    f"ensure_superuser epäonnistui ({username}): {exc} — "
+                    "tarkista salasanan vahvuus tai luo käyttäjä manuaalisesti"
+                )
+            )
