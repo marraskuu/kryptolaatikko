@@ -44,6 +44,17 @@ CORR_THRESHOLD = 0.85
 CORR_MIN_SAMPLES = 8
 CLUSTER_WEIGHT_CAP = 0.6
 
+# Keskittymistila — 1–2 vahvaa nostetta, isompi panos kun signaali selvä.
+CONCENTRATION_MAX_POSITIONS = 2
+CONCENTRATION_MIN_GEMINI_CONF = 8
+CONCENTRATION_MIN_CHANGE_24H = 4.0
+CONCENTRATION_MIN_CHANGE_4H = 2.5
+CONCENTRATION_MIN_EDGE = 3.5
+CONCENTRATION_MIN_CHANGE_24H_TECH = 6.0
+CONCENTRATION_TRIM_FRACTION = 0.85
+CONCENTRATION_MAX_RSI = 78
+CONCENTRATION_OVERBOUGHT_CHANGE_24H = 12.0
+
 
 def _edge_pct(analysis: dict[str, Any] | None) -> float:
     """Lyhyen aikavälin odotetun liikkeen estimaatti (%), rajattu — rotaation etuvertailuun."""
@@ -115,9 +126,89 @@ def _analysis_for(analyses: dict[str, dict[str, Any]], norm: str) -> dict[str, A
     return None
 
 
+def _is_overheated_for_concentration(analysis: dict[str, Any]) -> bool:
+    rsi = analysis.get("rsi")
+    change = float(analysis.get("changePct") or analysis.get("momentum") or 0)
+    return (
+        rsi is not None
+        and float(rsi) > CONCENTRATION_MAX_RSI
+        and change > CONCENTRATION_OVERBOUGHT_CHANGE_24H
+    )
+
+
+def _strong_conviction_candidate(
+    analysis: dict[str, Any],
+    gemini_insights: dict[str, Any] | None,
+    symbol: str,
+) -> bool:
+    if _is_overheated_for_concentration(analysis):
+        return False
+    change_24h = float(analysis.get("changePct") or analysis.get("momentum") or 0)
+    change_4h = float(analysis.get("change4hPct") or analysis.get("momentum") or 0)
+    sig = _gemini_signal(gemini_insights, symbol) if gemini_insights else None
+    if (
+        sig
+        and sig.get("action") == "buy"
+        and int(sig.get("confidence", 0)) >= CONCENTRATION_MIN_GEMINI_CONF
+        and (
+            change_24h >= CONCENTRATION_MIN_CHANGE_24H
+            or change_4h >= CONCENTRATION_MIN_CHANGE_4H
+        )
+    ):
+        return True
+    edge = _edge_pct(analysis)
+    mtf = float(analysis.get("mtfAlign") or 0)
+    if (
+        edge >= CONCENTRATION_MIN_EDGE
+        and change_24h >= CONCENTRATION_MIN_CHANGE_24H_TECH
+        and mtf >= 1
+    ):
+        if analysis.get("emaBullish") or edge >= CONCENTRATION_MIN_EDGE + 1.0:
+            return True
+    return False
+
+
+def _conviction_score(item: dict[str, Any], gemini_insights: dict[str, Any] | None) -> float:
+    analysis = item.get("analysis") or {}
+    sym = item.get("symbol", "")
+    sig = _gemini_signal(gemini_insights, sym) if gemini_insights else None
+    score = _edge_pct(analysis) * 2.0 + float(analysis.get("score", 0)) * 0.5
+    change_24h = float(analysis.get("changePct") or analysis.get("momentum") or 0)
+    score += min(change_24h, 15.0) * 0.3
+    if sig and sig.get("action") == "buy":
+        score += (int(sig.get("confidence", 5)) - 5) * 1.5
+    return score
+
+
+def _resolve_concentration(
+    candidates: list[dict[str, Any]],
+    gemini_insights: dict[str, Any] | None,
+    regime: str,
+    rotation_enabled: bool,
+) -> tuple[bool, list[dict[str, Any]], str]:
+    """Palauttaa (aktiivinen, 1–2 parasta kohdetta, syy)."""
+    if regime == "bear" or not rotation_enabled or not candidates:
+        return False, candidates, ""
+    strong = [
+        c
+        for c in candidates
+        if _strong_conviction_candidate(c.get("analysis") or {}, gemini_insights, c["symbol"])
+    ]
+    if not strong:
+        return False, candidates, ""
+    strong.sort(key=lambda c: -_conviction_score(c, gemini_insights))
+    focused = strong[:CONCENTRATION_MAX_POSITIONS]
+    labels = ", ".join(c["symbol"] for c in focused)
+    best_a = focused[0].get("analysis") or {}
+    ch = float(best_a.get("changePct") or best_a.get("momentum") or 0)
+    reason = f"Keskittymistila — vahva noste ({ch:+.1f} % 24h), fokus: {labels}"
+    return True, focused, reason
+
+
 def diversify_weights(
     weights: dict[str, float],
     analyses: dict[str, dict[str, Any]],
+    cluster_weight_cap: float = CLUSTER_WEIGHT_CAP,
 ) -> dict[str, float]:
     """3: Rajaa korkeasti korreloivan klusterin yhteispaino CLUSTER_WEIGHT_CAP:iin.
 
@@ -164,7 +255,7 @@ def diversify_weights(
 
     adjusted = dict(weights)
     total = sum(adjusted[s] for s in syms) or 1.0
-    cap = CLUSTER_WEIGHT_CAP * total
+    cap = cluster_weight_cap * total
 
     freed = 0.0
     under: list[str] = []
@@ -817,6 +908,8 @@ def _deploy_cash_to_targets(
     skip_sell_symbols: set[str],
     blocked_buys: set[str] | None = None,
     best_target_edge: float = 0.0,
+    concentration_mode: bool = False,
+    concentration_trim: float = CONCENTRATION_TRIM_FRACTION,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -854,20 +947,31 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
         elif target_symbols:
-            # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
-            # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
-            weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
-            if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
-                continue
-            sell_amount = amount * ROTATION_TRIM_FRACTION
-            _append_sell_decision(
-                decisions,
-                symbol,
-                sell_amount,
-                price,
-                f"{label_fn(symbol)} ei valinnoissa — myydään osa",
-                analysis,
-            )
+            if concentration_mode:
+                sell_amount = amount * concentration_trim
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    price,
+                    f"Keskittymistila — {label_fn(symbol)} ei fokuksessa, vapautetaan pääomaa",
+                    analysis,
+                )
+            else:
+                # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
+                # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
+                weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
+                if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
+                    continue
+                sell_amount = amount * ROTATION_TRIM_FRACTION
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    price,
+                    f"{label_fn(symbol)} ei valinnoissa — myydään osa",
+                    analysis,
+                )
 
     sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
     buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "buy")
@@ -953,10 +1057,12 @@ def _plan_initial_allocation(
     gemini_insights: dict[str, Any] | None,
     gemini_active: bool,
     analyses: dict[str, dict[str, Any]],
+    concentration_mode: bool = False,
 ) -> list[dict[str, Any]]:
     symbols = [item["symbol"] for item in picks]
     weights = _compute_allocation_weights(gemini_insights, symbols, analyses, gemini_active)
-    weights = diversify_weights(weights, analyses)
+    if not (concentration_mode and len(symbols) <= CONCENTRATION_MAX_POSITIONS):
+        weights = diversify_weights(weights, analyses)
     investable = cash / (1 + FEE_RATE)
     planned: list[dict[str, Any]] = []
     remaining = investable
@@ -1141,9 +1247,16 @@ def make_trading_decisions(
         if gemini_top:
             top_cryptos = gemini_top
 
+    concentration_mode, top_cryptos, concentration_reason = _resolve_concentration(
+        top_cryptos, gemini_insights, regime, rotation_enabled
+    )
+    if concentration_mode:
+        logger.info("Concentration mode active: %s", concentration_reason)
+
     target_count = max(1, len(top_cryptos)) if top_cryptos else 1
 
     top_symbols = {c["symbol"] for c in top_cryptos}
+    top_norms = {normalize_symbol(s) for s in top_symbols}
     # 1: paras saatavilla oleva kohde-edge kuluviisasta rotaatiovertailua varten
     best_target_edge = max(
         (_edge_pct(c.get("analysis")) for c in top_cryptos if c.get("analysis")),
@@ -1152,6 +1265,9 @@ def make_trading_decisions(
 
     decisions: list[dict[str, Any]] = []
     churn_cooldown = in_churn_cooldown(portfolio_data)
+    concentration_trim = (
+        CONCENTRATION_TRIM_FRACTION if concentration_mode else rotation_trim
+    )
 
     if len(holdings) == 0 and cash > 100:
         picks: list[dict[str, Any]] = []
@@ -1162,14 +1278,20 @@ def make_trading_decisions(
         elif ranked_buyable:
             picks = ranked_buyable[:1]
         if picks:
+            empty_conc, picks, empty_conc_reason = _resolve_concentration(
+                picks, gemini_insights, regime, rotation_enabled
+            )
+            if empty_conc:
+                logger.info("Concentration mode (empty portfolio): %s", empty_conc_reason)
             return {
                 "decisions": [],
                 "targetCount": len(picks),
                 "topSymbols": [c["symbol"] for c in picks],
                 "initialAllocation": _plan_initial_allocation(
-                    picks, cash, gemini_insights, gemini_active, analyses
+                    picks, cash, gemini_insights, gemini_active, analyses, empty_conc
                 ),
                 "geminiActive": gemini_active,
+                "concentrationMode": empty_conc,
             }
 
     for symbol, holding in holdings.items():
@@ -1196,6 +1318,50 @@ def make_trading_decisions(
             if holding["avgPrice"]
             else 0
         )
+
+        norm_hold = normalize_symbol(symbol)
+        if concentration_mode and norm_hold not in top_norms:
+            edge_here = _edge_pct(analysis)
+            gap = best_target_edge - edge_here
+            if profit_pct <= -0.5:
+                decisions.append(
+                    {
+                        "type": "sell",
+                        "symbol": symbol,
+                        "amount": holding["amount"],
+                        "eurAmount": holding_value,
+                        "reason": (
+                            f"Keskittymistila — tappiolla {profit_pct:.1f} %, "
+                            f"vapautetaan fokuksen kohteisiin"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+                continue
+            skip_consolidate = (
+                profit_pct >= PROFIT_TAKE_TRIGGER_PCT
+                and _in_uptrend(analysis)
+                and gap < ROTATION_MIN_EDGE_PCT * 2
+            ) or (
+                profit_pct > 0
+                and _in_uptrend(analysis)
+                and gap < ROTATION_MIN_EDGE_PCT
+            )
+            if not skip_consolidate:
+                sell_amount = holding["amount"] * concentration_trim
+                if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
+                    _append_sell_decision(
+                        decisions,
+                        symbol,
+                        sell_amount,
+                        analysis["currentPrice"],
+                        (
+                            f"Keskittymistila — {profit_pct:+.1f} %, "
+                            f"siirretään pääomaa vahvempaan nosteeseen"
+                        ),
+                        analysis,
+                    )
+                    continue
 
         if profit_pct >= PROFIT_TAKE_TRIGGER_PCT:
             decisions.append(
@@ -1404,11 +1570,11 @@ def make_trading_decisions(
     weights = _compute_allocation_weights(
         gemini_insights, alloc_symbols, analyses, gemini_active
     )
-    # 3: hajautussuoja — rajaa korkeasti korreloivan klusterin yhteispaino
-    weights = diversify_weights(weights, analyses)
+    if not (concentration_mode and len(alloc_symbols) <= CONCENTRATION_MAX_POSITIONS):
+        weights = diversify_weights(weights, analyses)
 
     skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
-    if not churn_cooldown:
+    if not churn_cooldown or concentration_mode:
         _deploy_cash_to_targets(
             decisions,
             holdings,
@@ -1422,6 +1588,8 @@ def make_trading_decisions(
             skip_sell_symbols,
             blocked_buys,
             best_target_edge,
+            concentration_mode=concentration_mode,
+            concentration_trim=concentration_trim,
         )
 
     for d in decisions:
@@ -1434,6 +1602,7 @@ def make_trading_decisions(
         "targetCount": len(top_cryptos) or target_count,
         "topSymbols": list(top_symbols),
         "geminiActive": gemini_active,
+        "concentrationMode": concentration_mode,
     }
 
 

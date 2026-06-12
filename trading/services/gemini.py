@@ -780,7 +780,7 @@ Kaupankäyntisäännöt (voitto edellä):
 1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
 2. Osta nousussa olevia, korkean volyymin kohteita — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend
 3. Älä pidä tappiollisia pitkään — rotaatio nopeasti MUTTA älä churnaa (max 1 rotaatio / 30 min)
-4. Salkussa 1–5 kryptoa — valitse ITSE montako (top_picks 1–5 kohdetta). EI pakko viittä; 1 vahva riittää. KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
+4. Salkussa 1–5 kryptoa — valitse ITSE montako (top_picks 1–5 kohdetta). EI pakko viittä; 1 vahva riittää. Jos 1–2 kohteessa on selvä kova noste (confidence ≥8, 24h ≥4 %), keskitä pääoma niihin (esim. 70/30 tai 100 % yhteen). KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
 5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
 6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
