@@ -8,6 +8,8 @@ import requests
 BITFINEX_DIRECT = "https://api-pub.bitfinex.com/v2"
 BITFINEX_TIMEOUT = int(os.environ.get("BITFINEX_TIMEOUT", "12"))
 BITFINEX_TICKER_TIMEOUT = int(os.environ.get("BITFINEX_TICKER_TIMEOUT", "25"))
+CANDLES_MAX_LIMIT = 10_000
+CANDLE_DEEP_LIMIT = int(os.environ.get("CANDLE_DEEP_LIMIT", "200"))
 
 logger = logging.getLogger(__name__)
 
@@ -218,38 +220,22 @@ def fetch_all_markets() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, 
     return tickers, meta_map
 
 
-def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[dict[str, Any]]:
-    symbol = normalize_symbol(symbol)
-    if not is_valid_trading_symbol(symbol):
-        return []
-
-    path = f"/candles/trade:{timeframe}:{symbol}/hist"
-    try:
-        # HUOM: EI sort=1 — Bitfinexillä sort=1 + limit palauttaa VANHIMMAT kynttilät
-        # (kolikon koko historian alusta, esim. 2016), ei tuoreimpia. Oletus (uusin
-        # ensin) antaa viimeiset `limit` kynttilää; järjestetään alla vanhin→uusin.
-        data = _bitfinex_fetch(f"{path}?limit={limit}")
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code in (404, 429):
-            return []
-        raise
-    except requests.RequestException as exc:
-        logger.warning("Candles fetch failed for %s: %s", symbol, exc)
-        return []
-    if not isinstance(data, list):
-        raise RuntimeError("Unexpected API response")
-
+def _eur_factor_for_symbol(symbol: str) -> float:
     quote = _crypto_meta.get(symbol, {}).get("quote", "USD")
-    eur_rate = 1.0
+    if quote == "EUR":
+        return 1.0
     if quote in ("USD", "UST"):
         try:
             rate_data = _bitfinex_fetch("/ticker/tEURUSD")
             if isinstance(rate_data, list):
                 eur_rate = rate_data[6] or rate_data[0] or 1.08
+                return 1.0 / float(eur_rate)
         except requests.RequestException:
-            eur_rate = 1.08
+            return 1.0 / 1.08
+    return 1.0
 
-    factor = 1.0 if quote == "EUR" else 1.0 / eur_rate
+
+def _parse_candle_rows(data: list, factor: float) -> list[dict[str, Any]]:
     candles = [
         {
             "timestamp": row[0],
@@ -260,9 +246,56 @@ def fetch_candles(symbol: str, timeframe: str = "1h", limit: int = 50) -> list[d
             "volume": row[5],
         }
         for row in data
+        if isinstance(row, list) and len(row) >= 6
     ]
-    # API palauttaa tuoreimmat ensin; kaikki indikaattorit (RSI, EMA, momentum, ATR,
-    # muutos-%) olettavat tuoreimman olevan listan lopussa (closes[-1]). Järjestetään
-    # siksi vanhin→uusin aikaleiman mukaan.
     candles.sort(key=lambda c: c["timestamp"])
     return candles
+
+
+def fetch_candles(
+    symbol: str,
+    timeframe: str = "1h",
+    limit: int = 50,
+    *,
+    start: int | None = None,
+    end: int | None = None,
+) -> list[dict[str, Any]]:
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return []
+
+    capped = max(1, min(int(limit), CANDLES_MAX_LIMIT))
+    path = f"/candles/trade:{timeframe}:{symbol}/hist"
+    params = [f"limit={capped}"]
+    if start is not None:
+        params.append(f"start={int(start)}")
+    if end is not None:
+        params.append(f"end={int(end)}")
+    query = "&".join(params)
+
+    try:
+        # HUOM: EI sort=1 — Bitfinexillä sort=1 + limit palauttaa VANHIMMAT kynttilät
+        # (kolikon koko historian alusta, esim. 2016), ei tuoreimpia. Oletus (uusin
+        # ensin) antaa viimeiset `limit` kynttilää; järjestetään alla vanhin→uusin.
+        data = _bitfinex_fetch(f"{path}?{query}")
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in (404, 429):
+            return []
+        raise
+    except requests.RequestException as exc:
+        logger.warning("Candles fetch failed for %s: %s", symbol, exc)
+        return []
+    if not isinstance(data, list):
+        raise RuntimeError("Unexpected API response")
+
+    return _parse_candle_rows(data, _eur_factor_for_symbol(symbol))
+
+
+def fetch_candle_history(
+    symbol: str,
+    timeframe: str = "1h",
+    *,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    """Hae viimeisimmät `limit` kynttilää (max 10 000 ≈ 416 pv @ 1h)."""
+    return fetch_candles(symbol, timeframe, limit=limit)

@@ -17,6 +17,7 @@ from .ai_trader import (
     make_trading_decisions,
 )
 from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
+from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
 from .trade_meta import meta_from_analysis
@@ -80,7 +81,7 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
         if not ticker:
             continue
         try:
-            candles = fetch_candles(symbol, "1h", 50)
+            candles = fetch_candles(symbol, "1h", CANDLE_DEEP_LIMIT)
             deep = build_deep_analysis(ticker, candles)
             state["analyses"][symbol] = deep
         except Exception:
@@ -239,6 +240,10 @@ def execute_trading_cycle() -> dict[str, Any]:
             ml_stats, ml_summary = market_learning.step(
                 state["tickers"], state["analyses"], regime
             )
+            from .market_learning_backfill import get_backfill_status, maybe_schedule_historical_backfill
+
+            ml_summary.update(get_backfill_status())
+            maybe_schedule_historical_backfill()
             state["marketLearning"] = ml_summary
             learning["market_setups"] = ml_summary
         except Exception:

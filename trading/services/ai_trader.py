@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from .bitfinex import is_stablecoin, normalize_symbol
+from .bitfinex import CANDLE_DEEP_LIMIT, is_stablecoin, normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -838,7 +838,7 @@ def enrich_analyses_for_gemini(
         if not ticker:
             continue
         try:
-            candles = fetch_candles_fn(symbol, "1h", 50)
+            candles = fetch_candles_fn(symbol, "1h", CANDLE_DEEP_LIMIT)
             analyses[symbol] = build_deep_analysis(ticker, candles)
         except Exception:
             logger.warning("Deep analysis failed for %s", symbol, exc_info=True)
