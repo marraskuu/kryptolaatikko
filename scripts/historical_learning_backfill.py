@@ -2,10 +2,12 @@
 """
 Historiallinen varjo-oppiminen Bitfinex-kynttilöistä (manuaali / cron).
 
-Käyttö:
-  python scripts/historical_learning_backfill.py
+Käyttö (paikallinen):
+  python manage.py historical_backfill --force
   python scripts/historical_learning_backfill.py --force
-  python scripts/historical_learning_backfill.py --symbols tBTCEUR,tETHUSD --limit 500
+
+Railway Console (suositus):
+  python manage.py historical_backfill --force
 """
 
 from __future__ import annotations
