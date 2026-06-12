@@ -80,17 +80,24 @@ def log_watch_event(state: dict[str, Any], symbol: str, watch: dict[str, Any] | 
 
 def _resolve_gemini_status(state: dict[str, Any]) -> dict[str, Any]:
     """Yhdistä live-ympäristötarkistus + viimeisin Gemini-yritys."""
+    from .gemini import _read_model
+
     live = gemini_status_snapshot()
+    configured_model = _read_model()
     saved = state.get("geminiStatus") or {}
+    base = {"configuredModel": configured_model}
     if not live.get("configured"):
-        return live
+        return {**live, **base}
     if saved.get("ok"):
-        return {**live, **saved, "provider": "gemini", "status": "ok"}
+        merged = {**live, **saved, **base, "provider": "gemini", "status": "ok"}
+        if saved.get("model") and saved["model"] != configured_model:
+            merged["lastUsedModel"] = saved["model"]
+        return merged
     if saved.get("status") == "error" or (
         saved.get("message") and "epäonnistui" in saved["message"]
     ):
-        return {**live, **saved, "status": "error"}
-    return live
+        return {**live, **saved, **base, "status": "error"}
+    return {**live, **base}
 
 
 def _ms_to_iso(ms: int | float | None) -> str | None:
