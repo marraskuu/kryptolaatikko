@@ -561,6 +561,7 @@ function renderShadowPolicy() {
   setShadowMetricValue(els.shadowPolicyFlags, policyText, policyTone);
 
   const summary = shadow.summary || {};
+  const hints = shadow.hints || [];
   const net = summary.netCounterfactualEur;
   const trades = summary.tradesLogged ?? 0;
   const days = summary.daysTracked ?? 0;
@@ -632,7 +633,6 @@ function renderShadowPolicy() {
     }
   }
 
-  const hints = shadow.hints || [];
   if (hints.length && els.shadowCounterfactualDetail && trades >= 3) {
     els.shadowCounterfactualDetail.textContent = hints[0];
     els.shadowCounterfactualDetail.title = hints[0];
