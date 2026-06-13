@@ -427,6 +427,48 @@ def record_profit_take_shadow(
     )
 
 
+def _compute_year_pnl(shadow: dict[str, Any], year: int | None = None) -> dict[str, Any]:
+    """Kumulatiivinen varjopolitiikan päivä-P/L valitulle vuodelle."""
+    year = year or datetime.now(timezone.utc).year
+    prefix = f"{year}-"
+
+    pnl_eur = 0.0
+    year_start: float | None = None
+    days_count = 0
+    earliest_key: str | None = None
+
+    for day in shadow.get("days") or []:
+        key = day.get("dayKey") or ""
+        if not key.startswith(prefix):
+            continue
+        pnl_eur += float(day.get("realPnlEur") or 0)
+        days_count += 1
+        if earliest_key is None or key < earliest_key:
+            earliest_key = key
+            start = day.get("startValue")
+            if start is not None:
+                year_start = float(start)
+
+    current_key = shadow.get("dayKey") or ""
+    today = shadow.get("today") or {}
+    if current_key.startswith(prefix):
+        pnl_eur += float(today.get("realPnlEur") or 0)
+        days_count += 1
+        if earliest_key is None or current_key < earliest_key:
+            year_start = float(shadow.get("dayStartValue") or 0) or year_start
+
+    pnl_eur = round(pnl_eur, 2)
+    pnl_pct = round((pnl_eur / year_start) * 100, 3) if year_start and year_start > 0 else None
+
+    return {
+        "year": year,
+        "pnlEur": pnl_eur,
+        "pnlPct": pnl_pct,
+        "yearStartValue": round(year_start, 2) if year_start else None,
+        "daysInYear": days_count,
+    }
+
+
 def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
     """API/UI-yhteenveto."""
     shadow = state.get("dailyPolicyShadow") or default_shadow_state()
@@ -451,12 +493,15 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
     if int(summary.get("profitTakeShadowSignals") or 0) >= 2:
         hints.append("Aikaisempi voitto-otto olisi lukinnut voittoja")
 
+    year_pnl = _compute_year_pnl(shadow)
+
     return {
         "enabled": True,
         "dayKey": shadow.get("dayKey"),
         "dayStartValue": shadow.get("dayStartValue"),
         "todayPnlEur": today.get("realPnlEur"),
         "todayPnlPct": today.get("realPnlPct"),
+        "yearPnl": year_pnl,
         "policy": policy,
         "summary": summary,
         "recentEvents": (shadow.get("events") or [])[:8],

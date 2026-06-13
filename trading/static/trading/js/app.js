@@ -311,6 +311,9 @@ const els = {
   geminiNarrativeDetail: document.getElementById("gemini-narrative-detail"),
   shadowTodayPnl: document.getElementById("shadow-today-pnl"),
   shadowDayStart: document.getElementById("shadow-day-start"),
+  shadowYearLabel: document.getElementById("shadow-year-label"),
+  shadowYearPnl: document.getElementById("shadow-year-pnl"),
+  shadowYearStart: document.getElementById("shadow-year-start"),
   shadowPolicyFlags: document.getElementById("shadow-policy-flags"),
   shadowThresholds: document.getElementById("shadow-thresholds"),
   shadowCounterfactual: document.getElementById("shadow-counterfactual"),
@@ -461,6 +464,9 @@ function renderShadowPolicy() {
   const empty = () => {
     setShadowMetricValue(els.shadowTodayPnl, "—");
     if (els.shadowDayStart) els.shadowDayStart.textContent = "Ei dataa";
+    if (els.shadowYearLabel) els.shadowYearLabel.textContent = "Varjopolitiikka · —";
+    setShadowMetricValue(els.shadowYearPnl, "—");
+    if (els.shadowYearStart) els.shadowYearStart.textContent = "Vuoden alku —";
     setShadowMetricValue(els.shadowPolicyFlags, "—", null);
     if (els.shadowPolicyFlags) els.shadowPolicyFlags.className = "shadow-metric-value shadow-metric-sm";
     if (els.shadowThresholds) els.shadowThresholds.textContent = "Testidata kerääntyy";
@@ -502,6 +508,38 @@ function renderShadowPolicy() {
     );
   } else {
     setShadowMetricValue(els.shadowTodayPnl, "Tänään —");
+  }
+
+  const yearPnl = shadow.yearPnl || {};
+  const yearNum = yearPnl.year ?? state.stats?.taxCurrentYearLabel ?? new Date().getFullYear();
+  if (els.shadowYearLabel) {
+    els.shadowYearLabel.textContent = `Varjopolitiikka · ${yearNum}`;
+  }
+  const yearEur = yearPnl.pnlEur;
+  const yearPct = yearPnl.pnlPct;
+  if (yearEur != null && yearPct != null) {
+    const sign = yearEur >= 0 ? "+" : "";
+    const tone = yearEur > 0.005 ? "positive" : yearEur < -0.005 ? "negative" : null;
+    setShadowMetricValue(
+      els.shadowYearPnl,
+      `${sign}${formatEur(yearEur).replace("€", "").trim()} € (${formatPct(yearPct)})`,
+      tone
+    );
+  } else if (yearEur != null) {
+    const sign = yearEur >= 0 ? "+" : "";
+    const tone = yearEur > 0.005 ? "positive" : yearEur < -0.005 ? "negative" : null;
+    setShadowMetricValue(els.shadowYearPnl, `${sign}${formatEur(yearEur).replace("€", "").trim()} €`, tone);
+  } else {
+    setShadowMetricValue(els.shadowYearPnl, `${yearNum} —`);
+  }
+  if (els.shadowYearStart) {
+    const yStart = yearPnl.yearStartValue;
+    const daysInYear = yearPnl.daysInYear ?? 0;
+    if (yStart != null) {
+      els.shadowYearStart.textContent = `Vuoden alku ${formatEur(yStart)} · ${daysInYear} pv`;
+    } else {
+      els.shadowYearStart.textContent = daysInYear ? `${daysInYear} pv seurattu` : "Ei vuosidataa";
+    }
   }
 
   const policy = shadow.policy || {};
