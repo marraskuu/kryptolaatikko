@@ -728,6 +728,10 @@ h1 {
 .holding-value.down { color: var(--red); }
 .holding-value.even { color: var(--yellow); }
 
+.holding-pnl-eur.up { color: var(--green); font-weight: 600; }
+.holding-pnl-eur.down { color: var(--red); font-weight: 600; }
+.holding-pnl-eur.even { color: var(--yellow); font-weight: 600; }
+
 .crypto-card {
   background: var(--surface2);
   border: 1px solid var(--border);

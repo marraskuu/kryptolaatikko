@@ -614,8 +614,10 @@ function renderMarketList() {
         if (pnl && Number.isFinite(pnl.pnlEur)) {
           const sign = pnl.pnlEur >= 0 ? "+" : "";
           const eur = `${sign}${formatEur(pnl.pnlEur).replace("€", "").trim()} €`;
+          const eurCls =
+            pnl.pnlEur > 0.005 ? "up" : pnl.pnlEur < -0.005 ? "down" : "even";
           const parts = watchText.split(" — ");
-          parts[0] = `${parts[0]} (${eur})`;
+          parts[0] = `${parts[0]} <span class="holding-pnl-eur ${eurCls}">(${eur})</span>`;
           watchText = parts.join(" — ");
 
           // Omistuksen nykyarvo "Voitto"-sanan eteen: vihreä voitolla, punainen
