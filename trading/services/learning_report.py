@@ -181,6 +181,7 @@ def _learning_snapshot(
         "bucketsTracked": ml.get("bucketsTracked"),
         "blocked_buys": sorted(normalize_symbol(s) for s in (learning.get("blocked_buys") or [])),
         "rotation_enabled": learning.get("rotation_enabled"),
+        "buy_scale": learning.get("buy_scale"),
         "gemini_sell_min_confidence": learning.get("gemini_sell_min_confidence"),
         "entry_score_min": learning.get("entry_score_min"),
         "max_new_positions": learning.get("max_new_positions"),
@@ -228,6 +229,10 @@ def _compute_changes(prev: dict[str, Any] | None, curr: dict[str, Any]) -> list[
         changes.append(
             f"Sisäänostokynnys score {prev.get('entry_score_min')} → {curr.get('entry_score_min')}"
         )
+    prev_buy = prev.get("buy_scale")
+    curr_buy = curr.get("buy_scale")
+    if prev_buy is not None and curr_buy is not None and prev_buy != curr_buy:
+        changes.append(f"Ostokertoimen skaalaus {prev_buy} → {curr_buy}")
     if prev.get("max_new_positions") != curr.get("max_new_positions"):
         changes.append(
             f"Max uudet positiot {prev.get('max_new_positions')} → {curr.get('max_new_positions')}"

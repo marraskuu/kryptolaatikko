@@ -1217,6 +1217,7 @@ def _deploy_cash_to_targets(
     *,
     blocked_setups: set[str] | None = None,
     regime: str = "neutral",
+    buy_scale: float = 1.0,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -1306,6 +1307,9 @@ def _deploy_cash_to_targets(
     sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
     buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "buy")
     available = cash + sell_proceeds - buy_spent - CASH_BUFFER_EUR
+    buy_scale = max(0.0, min(1.0, float(buy_scale)))
+    if buy_scale < 1.0:
+        available *= buy_scale
 
     if available < MIN_TRADE_EUR or not buy_targets:
         return
@@ -1514,6 +1518,7 @@ def make_trading_decisions(
     rotation_scale = float(learning.get("rotation_scale", 1.0))
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
+    buy_scale = max(0.5, min(1.0, float(learning.get("buy_scale", 1.0))))
     # A: Geminin häviömyyntien hillintä (oppimisen säätämä)
     gemini_sell_min_conf = int(learning.get("gemini_sell_min_confidence", 0))
     gemini_sell_scale = max(0.2, min(1.0, float(learning.get("gemini_sell_scale", 1.0))))
@@ -2084,6 +2089,7 @@ def make_trading_decisions(
             concentration_trim=concentration_trim,
             blocked_setups=blocked_setups,
             regime=regime,
+            buy_scale=buy_scale,
         )
 
     for d in decisions:

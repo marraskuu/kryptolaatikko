@@ -45,6 +45,8 @@ MIN_SAMPLES_PROFIT_TAKE_LIGHT = 6  # kevyt voitto-otto-viritys
 MIN_SAMPLES_PROFIT_TAKE_FULL = 15  # täysi ATR/regiimi-viritys
 MIN_SAMPLES_STOP_LIGHT = 6         # kevyt stop-loss-viritys
 MIN_SAMPLES_STOP_FULL = 15         # täysi stop-loss-viritys
+BUY_SCALE_MIN = 0.5                # pienin ostokerroin tappioputkessa
+BUY_SCALE_MAX = 1.0                # ei yli 100 % — vain hillitään huonoilla jaksoilla
 
 
 def _category(reason: str) -> str:
@@ -291,6 +293,46 @@ def _apply_category_tuning(
         "overall_expectancy_eur": round(overall_exp, 3),
         "samples": total_n,
     }, notes
+
+
+def _aggregate_win_rate(stats: dict[str, dict[str, float]]) -> tuple[int, float]:
+    wins = 0
+    n = 0
+    for block in stats.values():
+        tn = int(block.get("trades", 0))
+        n += tn
+        wins += int(round(tn * float(block.get("win_rate", 0))))
+    return n, (wins / n if n else 0.5)
+
+
+def _compute_buy_scale(
+    stats: dict[str, dict[str, float]],
+    overall_exp: float,
+    total_n: int,
+) -> tuple[float, str | None]:
+    """Pienentää ostokokoja heikolla expectancyn ja win raten jaksoilla."""
+    if total_n < MIN_SAMPLES:
+        return 1.0, None
+
+    n, win_rate = _aggregate_win_rate(stats)
+    scale = 1.0
+    if overall_exp < -0.25:
+        scale = 0.55
+    elif overall_exp < -0.12:
+        scale = 0.70
+    elif overall_exp < 0:
+        scale = 0.85
+
+    if n >= MIN_SAMPLES and win_rate < 0.38:
+        scale *= 0.88
+
+    scale = max(BUY_SCALE_MIN, min(BUY_SCALE_MAX, round(scale, 2)))
+    if scale >= 0.99:
+        return scale, None
+    return scale, (
+        f"ostokoot {scale * 100:.0f} % "
+        f"(exp {overall_exp:+.2f} €/kauppa, win {win_rate * 100:.0f} %)"
+    )
 
 
 def _compute_stop_tuning(
@@ -624,6 +666,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     max_new_positions = global_params["max_new_positions"]
     overall_exp = global_params["overall_expectancy_eur"]
     total_n = global_params["samples"]
+    buy_scale, buy_scale_note = _compute_buy_scale(stats, overall_exp, total_n)
 
     conf_tuning, conf_notes = _compute_gemini_confidence_tuning(
         sells,
@@ -639,6 +682,8 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     regime_tuning, regime_stats = _compute_regime_tuning(sells)
 
     notes = list(tune_notes) + pt_notes + stop_notes + conf_notes
+    if buy_scale_note:
+        notes.append(buy_scale_note)
     tagged = sum(1 for t in sells if t.get("regime") in ("bull", "neutral", "bear"))
     if tagged < MIN_SAMPLES_REGIME:
         notes.append(f"regiimioppiminen {tagged}/{MIN_SAMPLES_REGIME} myyntiä")
@@ -675,6 +720,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     return {
         "rotation_enabled": rotation_enabled,
         "rotation_scale": rotation_scale,
+        "buy_scale": buy_scale,
         "gemini_sell_min_confidence": gemini_sell_min_confidence,
         "gemini_sell_scale": gemini_sell_scale,
         "entry_score_min": entry_score_min,
