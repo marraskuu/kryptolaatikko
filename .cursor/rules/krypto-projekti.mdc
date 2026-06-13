@@ -1,0 +1,49 @@
+---
+description: Krypto-simulaattorin projektikonteksti — lue aina ennen muutoksia
+alwaysApply: true
+---
+
+# Krypto Simulaattori (crypto-trader-sim)
+
+Bitfinex-kurssit, paper trading 1000 €, AI-kaupankäynti (tekninen analyysi + Gemini).
+
+## Tuotanto ja repo
+
+- **Live:** https://hiekkalaatikko.pro
+- **GitHub:** https://github.com/marraskuu/kryptolaatikko
+- **Polku:** `C:\Users\chris\crypto-trader-sim`
+- **Deploy:** Railway (Django + Gunicorn + MySQL). Botti pyörii aina automaattisesti — ei start/stop/reset UI:ssa livessä.
+
+## Arkkitehtuuri
+
+- **Aktiivinen koodi:** `trading/` (Django-app), `config/` (asetukset)
+- **Legacy (älä käytä tuotannossa):** juuren `index.html`, `app.js`, `start.ps1` — vanha selainversio
+- **Tila:** `trading/models.py` → `BotState` (pk=1 salkku, pk=2 markkina-oppiminen), `trading/services/state_store.py`
+- **Botti:** `bot_worker.py`, `engine.py`, `ai_trader.py`, `gemini.py`, `market_learning.py`
+- **UI:** `trading/templates/trading/index.html`, `trading/static/trading/js/app.js`
+
+## Keskeiset säännöt (käyttäjän toiveet)
+
+- 3–4 kryptoa kerrallaan likvideistä Bitfinex-pareista
+- 30 % vero voitoista (raportointi + Excel)
+- Myynti: +3 % → odota 180 s huipun jälkeen → myy kun kurssi laskee
+- Gemini-avain vain `.env` / Railway Variables — ei committiin
+- Sentry valmiina (`config/sentry.py`), DSN Railwayyn
+
+## Kehitys
+
+```powershell
+cd C:\Users\chris\crypto-trader-sim
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
+```
+
+Paikallinen tila: `db.sqlite3` jos ei MYSQL_URL:ia. Tuotantodata Railway MySQL:ssä.
+
+## Keskustelut
+
+Jatka kaikki projektiaiheiset agent-keskustelut **tämän kansion** kautta (File → Open Folder). Älä aloita tyhjästä Home-ikkunasta — chat-historia katoaa helposti eri ikkunoihin.
+
+Vanha pitkä keskustelu (350+ viestiä): chat-id `19d86b2a-fa00-4e5b-82fb-c3afe766a51f`, transkripti `.cursor/projects/c-Users-chris-crypto-trader-sim/agent-transcripts/`.

@@ -31,6 +31,7 @@ MIN_SAMPLES_SETUP = 4    # oma sisäänostoasetelma
 SETUP_BLOCK_EXP = -0.2   # alle tämän €/kauppa → estä uudet ostot asetelmalla
 SETUP_PENALTY_CAP = -3.0
 SETUP_BONUS_CAP = 2.0
+SETUP_HIST_WEIGHT = 0.3  # historiallinen backtest painotus vs live-kaupat
 
 # Symbolimuisti
 SYMBOL_MEMORY_WINDOW = 60        # montako viimeisintä myyntiä symbolimuistiin
@@ -594,11 +595,12 @@ def _compute_regime_tuning(
     return tuning, regime_stats
 
 
-def _compute_setup_memory(
+def _aggregate_setup_from_linked(
     linked: list[dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """Oma kauppahistoria: mitkä sisäänostoasetelmat tuottavat."""
-    agg: dict[str, dict[str, float]] = defaultdict(lambda: {"n": 0, "net": 0.0, "wins": 0})
+) -> dict[str, dict[str, float]]:
+    agg: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"n": 0.0, "net": 0.0, "wins": 0.0}
+    )
     for item in linked:
         setup = item.get("entry_setup")
         if not setup:
@@ -606,17 +608,40 @@ def _compute_setup_memory(
         sell = item["sell"]
         net = _net_eur(sell)
         b = agg[setup]
-        b["n"] += 1
+        b["n"] += 1.0
         b["net"] += net
         if net > 0.01:
-            b["wins"] += 1
+            b["wins"] += 1.0
+    return agg
 
+
+def _merge_setup_aggregates(
+    live: dict[str, dict[str, float]],
+    historical: dict[str, dict[str, float]],
+    *,
+    hist_weight: float = SETUP_HIST_WEIGHT,
+) -> dict[str, dict[str, float]]:
+    merged: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"n": 0.0, "net": 0.0, "wins": 0.0}
+    )
+    for source, weight in ((live, 1.0), (historical, hist_weight)):
+        for setup, b in source.items():
+            m = merged[setup]
+            m["n"] += float(b.get("n") or 0) * weight
+            m["net"] += float(b.get("net") or 0) * weight
+            m["wins"] += float(b.get("wins") or 0) * weight
+    return merged
+
+
+def _setup_memory_from_aggregate(
+    agg: dict[str, dict[str, float]],
+) -> dict[str, dict[str, Any]]:
     memory: dict[str, dict[str, Any]] = {}
     for setup, b in agg.items():
-        n = int(b["n"])
+        n = float(b.get("n") or 0)
         if n < MIN_SAMPLES_SETUP:
             continue
-        net = b["net"]
+        net = float(b.get("net") or 0)
         exp = net / n
         adjust = 0.0
         blocked = exp < SETUP_BLOCK_EXP
@@ -625,14 +650,25 @@ def _compute_setup_memory(
         elif exp > 0.3:
             adjust = min(SETUP_BONUS_CAP, 0.5 + exp)
         memory[setup] = {
-            "trades": n,
+            "trades": round(n, 1),
             "net_eur": round(net, 2),
             "expectancy_eur": round(exp, 3),
-            "win_rate": round(b["wins"] / n, 2),
+            "win_rate": round(float(b.get("wins") or 0) / n, 2),
             "score_adjust": round(adjust, 2),
             "blocked": blocked,
         }
     return memory
+
+
+def _compute_setup_memory(
+    linked: list[dict[str, Any]],
+    historical: dict[str, dict[str, float]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Oma kauppahistoria + historiallinen round-trip-backtest (painotettu)."""
+    live_agg = _aggregate_setup_from_linked(linked)
+    hist_agg = historical or {}
+    merged = _merge_setup_aggregates(live_agg, hist_agg)
+    return _setup_memory_from_aggregate(merged)
 
 
 def merge_regime_tuning(learning: dict[str, Any], regime: str) -> dict[str, Any]:
@@ -690,7 +726,11 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         gemini_sell_min_confidence = conf_tuning["gemini_sell_min_confidence"]
 
     linked = _sells_with_entry_context(all_trades)
-    setup_memory = _compute_setup_memory(linked)
+    from .setup_historical_backfill import get_setup_backfill_status, load_setup_stats
+
+    setup_history = load_setup_stats()
+    setup_memory = _compute_setup_memory(linked, setup_history)
+    setup_backfill_status = get_setup_backfill_status()
     blocked_setups: list[str] = []
     regime_tuning, regime_stats = _compute_regime_tuning(sells)
 
@@ -712,6 +752,9 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
             notes.append(f"asetelmat: {good} hyvää, {bad} huonoa")
         if blocked_setups:
             notes.append(f"{len(blocked_setups)} asetelmaa estetty")
+    hist_ready = setup_backfill_status.get("setupHistorySetupsReady")
+    if hist_ready:
+        notes.append(f"historia {hist_ready} setuppia (paino {SETUP_HIST_WEIGHT:.0%})")
 
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
@@ -748,6 +791,7 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "regime_stats": regime_stats,
         "setup_memory": setup_memory,
         "blocked_setups": blocked_setups,
+        "setup_backfill": setup_backfill_status,
         "regime_tagged_sells": tagged,
         "gemini_confidence_stats": conf_tuning["gemini_confidence_stats"],
         "gemini_confidence_scales": gemini_confidence_scales,

@@ -66,4 +66,9 @@ class Command(BaseCommand):
                 raise SystemExit(1)
 
         result = run_historical_backfill(symbols, candle_limit=candle_limit)
-        self.stdout.write(json.dumps(result, indent=2, default=str))
+        from trading.services.setup_historical_backfill import run_setup_historical_backfill
+
+        setup_result = run_setup_historical_backfill(symbols, candle_limit=candle_limit)
+        self.stdout.write(
+            json.dumps({"market": result, "setup": setup_result}, indent=2, default=str)
+        )

@@ -34,7 +34,7 @@ _backfill_running = False
 HISTORY_BACKFILL_INTERVAL_SEC = int(
     os.environ.get("HISTORY_BACKFILL_INTERVAL_SEC", str(7 * 24 * 3600))
 )
-BACKFILL_CANDLE_LIMIT = int(os.environ.get("BACKFILL_CANDLE_LIMIT", "3000"))
+BACKFILL_CANDLE_LIMIT = int(os.environ.get("BACKFILL_CANDLE_LIMIT", "5000"))
 BACKFILL_TOP_SYMBOLS = int(os.environ.get("BACKFILL_TOP_SYMBOLS", "20"))
 BACKFILL_STEP_HOURS = int(os.environ.get("BACKFILL_STEP_HOURS", "12"))
 BACKFILL_MIN_WINDOW = 30
@@ -250,6 +250,14 @@ def maybe_schedule_historical_backfill(force: bool = False) -> bool:
                 "Scheduled history backfill done: %d samples, %d buckets learned",
                 result.get("samplesAdded", 0),
                 result.get("bucketsLearned", 0),
+            )
+            from .setup_historical_backfill import run_setup_historical_backfill
+
+            setup_result = run_setup_historical_backfill()
+            logger.info(
+                "Setup history backfill done: %d round-trips, %d setups",
+                setup_result.get("roundTrips", 0),
+                setup_result.get("setupsTracked", 0),
             )
         except Exception:
             logger.exception("Scheduled history backfill failed")

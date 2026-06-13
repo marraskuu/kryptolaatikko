@@ -134,12 +134,25 @@ def api_historical_backfill(request):
 
     try:
         result = run_historical_backfill()
+        from .services.setup_historical_backfill import (
+            get_setup_backfill_status,
+            run_setup_historical_backfill,
+        )
+
+        setup_result = run_setup_historical_backfill()
     except Exception as exc:
         logger.exception("Historical backfill failed")
         return JsonResponse({"error": str(exc)}, status=500)
 
-    payload = {"scheduled": False, "force": force, "async": False, "result": result}
+    payload = {
+        "scheduled": False,
+        "force": force,
+        "async": False,
+        "result": result,
+        "setupResult": setup_result,
+    }
     payload.update(get_backfill_status())
+    payload.update(get_setup_backfill_status())
     return JsonResponse(payload)
 
 
