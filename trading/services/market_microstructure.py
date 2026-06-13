@@ -27,8 +27,8 @@ ENABLED = os.environ.get("MICROSTRUCTURE_ENABLED", "1").strip().lower() not in (
     "false",
     "no",
 )
-BOOK_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_BOOK_LIMIT", "8"))
-STATS_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_STATS_LIMIT", "6"))
+BOOK_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_BOOK_LIMIT", "12"))
+STATS_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_STATS_LIMIT", "8"))
 STATS_CACHE_TTL_SEC = int(os.environ.get("MICROSTRUCTURE_STATS_TTL_SEC", "300"))
 STATS_FETCH_PER_CYCLE = int(os.environ.get("MICROSTRUCTURE_STATS_PER_CYCLE", "1"))
 BOOK_REQ_PAUSE_SEC = float(os.environ.get("MICROSTRUCTURE_BOOK_PAUSE_SEC", "0.15"))
