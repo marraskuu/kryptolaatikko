@@ -237,9 +237,98 @@ h1 {
   margin-bottom: 20px;
 }
 
-.shadow-policy-card {
+.shadow-policy-panel {
   border-style: dashed;
   border-color: rgba(59, 130, 246, 0.35);
+  padding: 16px 20px;
+  gap: 0;
+}
+
+.shadow-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px 20px;
+  width: 100%;
+}
+
+.shadow-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shadow-metric-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.shadow-metric-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shadow-metric-value.shadow-metric-sm {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.shadow-metric-value.positive {
+  color: var(--green);
+}
+
+.shadow-metric-value.negative {
+  color: var(--red);
+}
+
+.shadow-metric-value.warning {
+  color: var(--yellow);
+}
+
+.shadow-metric-value.accent {
+  color: #93c5fd;
+}
+
+.shadow-metric-sub {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  .shadow-policy-grid {
+    gap: 10px 12px;
+  }
+
+  .shadow-metric-value {
+    font-size: 0.9rem;
+  }
+
+  .shadow-metric-value.shadow-metric-sm {
+    font-size: 0.78rem;
+  }
+
+  .shadow-metric-label {
+    font-size: 0.6rem;
+  }
+
+  .shadow-metric-sub {
+    font-size: 0.625rem;
+  }
 }
 
 /* Vanha stats-grid (tuotanto ennen uutta HTML:ää) — 5 laatikkoa täysleveäksi */

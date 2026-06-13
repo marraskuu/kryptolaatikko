@@ -63,11 +63,34 @@
       </div>
       </div>
       <div class="stats-row stats-row-shadow">
-        <div class="stat-card shadow-policy-card">
-          <span class="stat-label">Varjopolitiikka (testidata)</span>
-          <span class="stat-value" id="shadow-today-pnl">—</span>
-          <span class="stat-change neutral" id="shadow-policy-flags">Kerätään dataa…</span>
-          <span class="stat-change neutral stat-subline" id="shadow-counterfactual">Arvioitu ero vs. nykyinen: —</span>
+        <div class="stat-card shadow-policy-panel">
+          <div class="shadow-policy-grid">
+            <div class="shadow-metric">
+              <span class="shadow-metric-label">Varjopolitiikka · tänään</span>
+              <span class="shadow-metric-value" id="shadow-today-pnl">—</span>
+              <span class="shadow-metric-sub" id="shadow-day-start">Päivän alku —</span>
+            </div>
+            <div class="shadow-metric">
+              <span class="shadow-metric-label">Simulaation tila</span>
+              <span class="shadow-metric-value shadow-metric-sm" id="shadow-policy-flags">—</span>
+              <span class="shadow-metric-sub" id="shadow-thresholds">Stop −1 % · lock +0,5 / +1 %</span>
+            </div>
+            <div class="shadow-metric">
+              <span class="shadow-metric-label">Arvioitu ero vs. live</span>
+              <span class="shadow-metric-value" id="shadow-counterfactual">—</span>
+              <span class="shadow-metric-sub" id="shadow-counterfactual-detail">Ei vielä vertailua</span>
+            </div>
+            <div class="shadow-metric">
+              <span class="shadow-metric-label">Olisiko estetty</span>
+              <span class="shadow-metric-value shadow-metric-sm" id="shadow-blocked-trades">—</span>
+              <span class="shadow-metric-sub" id="shadow-blocked-detail">Ostot · myynnit</span>
+            </div>
+            <div class="shadow-metric">
+              <span class="shadow-metric-label">Kerätty data</span>
+              <span class="shadow-metric-value shadow-metric-sm" id="shadow-data-meta">—</span>
+              <span class="shadow-metric-sub" id="shadow-profit-take">Voitto-otto-signaalit —</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="stat-card winloss-card">
@@ -217,6 +240,6 @@
     </div>
   </div>
 
-  <script src="{% static 'trading/js/app.js' %}?v=19"></script>
+  <script src="{% static 'trading/js/app.js' %}?v=20"></script>
 </body>
 </html>

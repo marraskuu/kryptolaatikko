@@ -310,8 +310,15 @@ const els = {
   geminiNarrativeList: document.getElementById("gemini-narrative-list"),
   geminiNarrativeDetail: document.getElementById("gemini-narrative-detail"),
   shadowTodayPnl: document.getElementById("shadow-today-pnl"),
+  shadowDayStart: document.getElementById("shadow-day-start"),
   shadowPolicyFlags: document.getElementById("shadow-policy-flags"),
+  shadowThresholds: document.getElementById("shadow-thresholds"),
   shadowCounterfactual: document.getElementById("shadow-counterfactual"),
+  shadowCounterfactualDetail: document.getElementById("shadow-counterfactual-detail"),
+  shadowBlockedTrades: document.getElementById("shadow-blocked-trades"),
+  shadowBlockedDetail: document.getElementById("shadow-blocked-detail"),
+  shadowDataMeta: document.getElementById("shadow-data-meta"),
+  shadowProfitTake: document.getElementById("shadow-profit-take"),
   errorBanner: document.getElementById("error-banner"),
 };
 
@@ -438,48 +445,152 @@ function renderAll(lastUpdate) {
   }
 }
 
+function setShadowMetricValue(el, text, tone) {
+  if (!el) return;
+  const isSm =
+    el.id === "shadow-policy-flags" ||
+    el.id === "shadow-blocked-trades" ||
+    el.id === "shadow-data-meta";
+  el.textContent = text;
+  el.className = `shadow-metric-value${isSm ? " shadow-metric-sm" : ""}${tone ? ` ${tone}` : ""}`;
+}
+
 function renderShadowPolicy() {
   if (!els.shadowTodayPnl) return;
   const shadow = state.dailyPolicyShadow;
+  const empty = () => {
+    setShadowMetricValue(els.shadowTodayPnl, "—");
+    if (els.shadowDayStart) els.shadowDayStart.textContent = "Ei dataa";
+    setShadowMetricValue(els.shadowPolicyFlags, "—", null);
+    if (els.shadowPolicyFlags) els.shadowPolicyFlags.className = "shadow-metric-value shadow-metric-sm";
+    if (els.shadowThresholds) els.shadowThresholds.textContent = "Testidata kerääntyy";
+    setShadowMetricValue(els.shadowCounterfactual, "—");
+    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Ei vertailua";
+    setShadowMetricValue(els.shadowBlockedTrades, "—", null);
+    if (els.shadowBlockedTrades) els.shadowBlockedTrades.className = "shadow-metric-value shadow-metric-sm";
+    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "—";
+    setShadowMetricValue(els.shadowDataMeta, "—", null);
+    if (els.shadowDataMeta) els.shadowDataMeta.className = "shadow-metric-value shadow-metric-sm";
+    if (els.shadowProfitTake) els.shadowProfitTake.textContent = "—";
+  };
+
   if (!shadow?.enabled) {
-    els.shadowTodayPnl.textContent = "—";
-    els.shadowPolicyFlags.textContent = "Ei dataa";
-    els.shadowCounterfactual.textContent = "Arvioitu ero vs. nykyinen: —";
+    empty();
     return;
+  }
+
+  const thresholds = shadow.thresholds || {};
+  if (els.shadowThresholds) {
+    els.shadowThresholds.textContent = `Stop ${thresholds.dailyStopPct ?? -1} % · lock +${thresholds.profitLockSoftPct ?? 0.5} / +${thresholds.profitLockFirmPct ?? 1} %`;
+  }
+
+  if (els.shadowDayStart) {
+    const start = shadow.dayStartValue;
+    els.shadowDayStart.textContent =
+      start != null ? `Päivän alku ${formatEur(start)}` : "Päivän alku —";
   }
 
   const pnlPct = shadow.todayPnlPct;
   const pnlEur = shadow.todayPnlEur;
   if (pnlPct != null && pnlEur != null) {
     const sign = pnlEur >= 0 ? "+" : "";
-    els.shadowTodayPnl.textContent = `${sign}${formatEur(pnlEur).replace("€", "").trim()} € (${formatPct(pnlPct)})`;
-    els.shadowTodayPnl.className = `stat-value ${pnlEur >= 0 ? "positive" : pnlEur < 0 ? "negative" : ""}`;
+    const tone = pnlEur > 0.005 ? "positive" : pnlEur < -0.005 ? "negative" : null;
+    setShadowMetricValue(
+      els.shadowTodayPnl,
+      `${sign}${formatEur(pnlEur).replace("€", "").trim()} € (${formatPct(pnlPct)})`,
+      tone
+    );
   } else {
-    els.shadowTodayPnl.textContent = "Tänään —";
-    els.shadowTodayPnl.className = "stat-value";
+    setShadowMetricValue(els.shadowTodayPnl, "Tänään —");
   }
 
   const policy = shadow.policy || {};
-  const flags = [];
-  if (policy.dailyStopActive) flags.push("päivästop");
-  if (policy.profitLockTier === "soft") flags.push("profit lock +0,5 %");
-  if (policy.profitLockTier === "firm") flags.push("profit lock +1 %");
-  if (policy.aggressiveEligible) flags.push("aggressiivinen sallittu");
-  els.shadowPolicyFlags.textContent = flags.length
-    ? flags.join(" · ")
-    : "Normaali tila (ei rajoituksia)";
+  let policyText = "Normaali — ei rajoituksia";
+  let policyTone = null;
+  if (policy.dailyStopActive) {
+    policyText = "Päivästop −1 %";
+    policyTone = "negative";
+  } else if (policy.profitLockTier === "firm") {
+    policyText = "Profit lock +1 %";
+    policyTone = "warning";
+  } else if (policy.profitLockTier === "soft") {
+    policyText = "Profit lock +0,5 %";
+    policyTone = "warning";
+  } else if (policy.aggressiveEligible) {
+    policyText = "Aggressiivinen sallittu";
+    policyTone = "positive";
+  }
+  setShadowMetricValue(els.shadowPolicyFlags, policyText, policyTone);
 
   const summary = shadow.summary || {};
   const net = summary.netCounterfactualEur;
   const trades = summary.tradesLogged ?? 0;
   const days = summary.daysTracked ?? 0;
+
   if (trades < 3) {
-    els.shadowCounterfactual.textContent = `Kerätään dataa (${trades} kauppaa)`;
+    setShadowMetricValue(els.shadowCounterfactual, "Kerätään…");
+    if (els.shadowCounterfactualDetail) {
+      els.shadowCounterfactualDetail.textContent = `${trades} kauppaa tallennettu`;
+    }
   } else if (net != null) {
     const sign = net >= 0 ? "+" : "";
-    els.shadowCounterfactual.textContent = `Arvioitu ero vs. nykyinen: ${sign}${net.toFixed(2)} € (${trades} kauppaa, ${days} pv)`;
+    const tone = net > 0.05 ? "positive" : net < -0.05 ? "negative" : null;
+    setShadowMetricValue(els.shadowCounterfactual, `${sign}${net.toFixed(2)} €`, tone);
+    if (els.shadowCounterfactualDetail) {
+      els.shadowCounterfactualDetail.textContent = `Live vs. simulaatio (${trades} kauppaa)`;
+    }
   } else {
-    els.shadowCounterfactual.textContent = "Arvioitu ero vs. nykyinen: —";
+    setShadowMetricValue(els.shadowCounterfactual, "—");
+    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Ei vertailua";
+  }
+
+  const buysBlock = summary.buysWouldBlock ?? 0;
+  const sellsBlock = summary.sellsWouldBlock ?? 0;
+  if (buysBlock || sellsBlock) {
+    setShadowMetricValue(
+      els.shadowBlockedTrades,
+      `${buysBlock} osto · ${sellsBlock} myynti`,
+      "accent"
+    );
+    const parts = [];
+    const buyCf = summary.blockedBuyCounterfactualEur ?? summary.buyBlockEur;
+    if (buyCf) {
+      const b = Number(buyCf);
+      parts.push(`ostot ${b >= 0 ? "+" : ""}${b.toFixed(2)} €`);
+    }
+    if (summary.sellBlockCounterfactualEur) {
+      const s = Number(summary.sellBlockCounterfactualEur);
+      parts.push(`myynnit ${s >= 0 ? "+" : ""}${s.toFixed(2)} €`);
+    }
+    if (els.shadowBlockedDetail) {
+      els.shadowBlockedDetail.textContent = parts.length ? parts.join(" · ") : "Counterfactual laskettu";
+    }
+  } else if (trades > 0) {
+    setShadowMetricValue(els.shadowBlockedTrades, "Ei estoja vielä");
+    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "Kaikki kaupat sallittu simulaatiossa";
+  } else {
+    setShadowMetricValue(els.shadowBlockedTrades, "0 osto · 0 myynti");
+    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "Odotetaan kauppoja";
+  }
+
+  const ptSignals = summary.profitTakeShadowSignals ?? 0;
+  const ptEst = summary.profitTakeShadowEurEst;
+  setShadowMetricValue(
+    els.shadowDataMeta,
+    `${trades} kauppaa · ${days} pv`,
+    trades >= 8 ? "accent" : null
+  );
+  if (els.shadowProfitTake) {
+    if (ptSignals > 0) {
+      els.shadowProfitTake.textContent = `Aikaisempi voitto-otto: ${ptSignals}× (~${Number(ptEst || 0).toFixed(2)} €)`;
+    } else {
+      els.shadowProfitTake.textContent = "Voitto-otto-signaalit: 0";
+    }
+  }
+
+  const hints = shadow.hints || [];
+  if (hints.length && els.shadowCounterfactualDetail && trades >= 3) {
+    els.shadowCounterfactualDetail.textContent = hints[0];
   }
 }
 
