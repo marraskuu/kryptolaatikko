@@ -231,9 +231,9 @@ class Portfolio:
         from .bitfinex import resolve_holding_ticker
 
         _resolved, ticker = resolve_holding_ticker(symbol, tickers)
-        if ticker:
+        if ticker and ticker.get("last"):
             return float(ticker["last"])
-        return float(holding["avgPrice"])
+        return None
 
     def get_total_value(self, tickers: dict[str, dict[str, Any]]) -> float:
         holdings_value = 0.0

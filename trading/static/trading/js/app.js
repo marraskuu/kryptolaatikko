@@ -108,10 +108,33 @@ function getPositionPct(symbol) {
   return pnl ? pnl.pnlPct : null;
 }
 
+function parsePairBase(symbol) {
+  const key = normalizeSymbol(symbol);
+  const body = key.startsWith("t") ? key.slice(1) : key;
+  for (const quote of ["UST", "USD", "EUR"]) {
+    if (body.endsWith(quote) && body.length > quote.length) {
+      return body.slice(0, -quote.length);
+    }
+  }
+  return null;
+}
+
+function resolveHoldingTicker(symbol) {
+  const key = normalizeSymbol(symbol);
+  if (state.tickers[key]?.last) return state.tickers[key];
+  const base = parsePairBase(key);
+  if (!base) return null;
+  for (const quote of ["UST", "USD", "EUR"]) {
+    const alt = `t${base}${quote}`;
+    if (alt !== key && state.tickers[alt]?.last) return state.tickers[alt];
+  }
+  return null;
+}
+
 function getPositionPnl(symbol) {
   const key = normalizeSymbol(symbol);
   const holding = state.portfolio.holdings?.[key] || state.portfolio.holdings?.[symbol];
-  const ticker = state.tickers[key] || state.tickers[symbol];
+  const ticker = resolveHoldingTicker(key) || resolveHoldingTicker(symbol);
   if (!holding || !ticker?.last || !holding.avgPrice) return null;
   const costBasis = holding.amount * holding.avgPrice;
   const currentValue = holding.amount * ticker.last;
@@ -124,8 +147,7 @@ function getPortfolioUnrealizedPnl() {
   let costBasis = 0;
   let holdingsValue = 0;
   for (const [symbol, holding] of Object.entries(state.portfolio.holdings || {})) {
-    const key = normalizeSymbol(symbol);
-    const ticker = state.tickers[key] || state.tickers[symbol];
+    const ticker = resolveHoldingTicker(symbol);
     if (!ticker?.last) continue;
     costBasis += holding.amount * holding.avgPrice;
     holdingsValue += holding.amount * ticker.last;
@@ -413,7 +435,10 @@ function renderStats() {
   els.statCryptoHoldings.textContent = formatEur(holdings);
   els.statCash.textContent =
     cash > 1 ? `Vapaa käteinen: ${formatEur(cash)}` : "Kaikki sijoitettu";
-  els.statBreakdown.textContent = `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä = ${formatEur(total)}`;
+  els.statBreakdown.textContent =
+    cash <= 5 && holdings > 0
+      ? `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä (lähes kaikki sijoitettu) = ${formatEur(total)}`
+      : `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä = ${formatEur(total)}`;
   const tradeCounts = getTradeCounts();
   els.statTrades.textContent = String(s.tradeCount ?? tradeCounts.total);
   if (els.statTradesMonth) {
@@ -654,8 +679,20 @@ function renderPortfolio() {
 
   const rows = [];
   for (const [symbol, holding] of Object.entries(portfolio.holdings || {})) {
-    const ticker = tickers[symbol];
-    if (!ticker) continue;
+    const ticker = resolveHoldingTicker(symbol);
+    if (!ticker?.last) {
+      rows.push(`
+      <tr class="portfolio-stale-row">
+        <td><strong>${getCryptoLabel(symbol)}</strong><br><span style="font-size:0.75rem;color:var(--muted)">Kurssi päivittyy…</span></td>
+        <td>${formatCrypto(holding.amount, 6)}</td>
+        <td>—</td>
+        <td>${formatEur(holding.amount * (holding.avgPrice || 0))} <span style="font-size:0.75rem;color:var(--muted)">(hankinta)</span></td>
+        <td>—</td>
+        <td>—</td>
+        <td>—</td>
+      </tr>`);
+      continue;
+    }
 
     const value = holding.amount * ticker.last;
     const share = totalValue > 0 ? (value / totalValue) * 100 : 0;

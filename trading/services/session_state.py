@@ -112,7 +112,15 @@ def _ms_to_iso(ms: int | float | None) -> str | None:
 def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
     portfolio = Portfolio(state["portfolio"])
     tickers = state["tickers"]
-    total_value = portfolio.get_total_value(tickers) if tickers else portfolio.cash
+    holdings_value = 0.0
+    if tickers:
+        for symbol, holding in portfolio.holdings.items():
+            price = portfolio._holding_mark_price(symbol, holding, tickers)
+            if price is not None:
+                holdings_value += holding["amount"] * price
+        total_value = portfolio.cash + holdings_value
+    else:
+        total_value = portfolio.cash
     pnl = portfolio.get_pnl(total_value)
     tax = portfolio.get_tax_summary(tickers or {})
     realized = portfolio.get_realized_breakdown()
@@ -162,7 +170,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "lastAIReport": state["lastAIReport"],
         "stats": {
             "totalValue": total_value,
-            "holdingsValue": max(0.0, total_value - portfolio.cash),
+            "holdingsValue": round(holdings_value, 2),
             "pnl": pnl["pnl"],
             "pnlPct": pnl["pnlPct"],
             "unrealizedPnl": round(unrealized_pnl, 2),

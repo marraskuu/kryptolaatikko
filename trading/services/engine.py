@@ -16,7 +16,7 @@ from .ai_trader import (
     format_initial_buy_reason,
     make_trading_decisions,
 )
-from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label
+from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, ensure_portfolio_tickers
 from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
@@ -159,7 +159,10 @@ def refresh_prices() -> dict[str, Any]:
         if not tickers:
             raise RuntimeError("Bitfinex ei palauttanut kursseja.")
 
-        state["tickers"] = tickers
+        state["tickers"] = ensure_portfolio_tickers(
+            state.get("portfolio", {}).get("holdings") or {},
+            tickers,
+        )
         for symbol, ticker in tickers.items():
             existing = state["analyses"].get(symbol)
             if not existing or existing.get("quick"):

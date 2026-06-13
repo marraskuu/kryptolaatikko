@@ -128,19 +128,124 @@ def _parse_ticker_rows(rows: list) -> dict[str, dict[str, Any]]:
         symbol = row[0]
         if not isinstance(symbol, str) or not symbol.startswith("t"):
             continue
-        raw[symbol] = {
-            "symbol": symbol,
-            "bid": row[1] or 0,
-            "ask": row[3] or 0,
-            "change24h": row[5] or 0,
-            "changePct": (row[6] or 0) * 100,
-            "last": row[7] or row[1] or 0,
-            "volume": row[8] or 0,
-            "high": row[9] or 0,
-            "low": row[10] or 0,
+        raw[symbol] = _raw_ticker_from_row(symbol, row)
+    return raw
+
+
+def _raw_ticker_from_row(symbol: str, row: list) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "bid": row[1] or 0,
+        "ask": row[3] or 0,
+        "change24h": row[5] or 0,
+        "changePct": (row[6] or 0) * 100,
+        "last": row[7] or row[1] or 0,
+        "volume": row[8] or 0,
+        "high": row[9] or 0,
+        "low": row[10] or 0,
+        "volumeEur": 0,
+    }
+
+
+def _api_ticker_path(symbol: str) -> str:
+    """Bitfinex yksittäinen ticker vaatii usein kolonin (tLINK:USD)."""
+    symbol = normalize_symbol(symbol)
+    parsed = parse_pair_symbol(symbol)
+    if parsed:
+        return f"t{parsed['base']}:{parsed['quote']}"
+    return symbol
+
+
+def _fetch_eur_usd_rate() -> float:
+    try:
+        row = _bitfinex_fetch("/ticker/tEURUSD")
+        if isinstance(row, list) and row:
+            return float(row[6] or row[0] or 1.08)
+    except (requests.RequestException, TypeError, ValueError):
+        pass
+    return 1.08
+
+
+def _enrich_ticker(symbol: str, raw: dict[str, Any], eur_rate: float) -> dict[str, Any] | None:
+    symbol = normalize_symbol(symbol)
+    parsed = parse_pair_symbol(symbol)
+    if not parsed or raw["last"] <= 0:
+        return None
+    last_eur = _to_eur(raw["last"], parsed["quote"], eur_rate)
+    volume_eur = _to_eur(raw["volume"] * raw["last"], parsed["quote"], eur_rate)
+    return {
+        **raw,
+        "symbol": symbol,
+        "last": last_eur,
+        "bid": _to_eur(raw["bid"], parsed["quote"], eur_rate),
+        "ask": _to_eur(raw["ask"], parsed["quote"], eur_rate),
+        "high": _to_eur(raw["high"], parsed["quote"], eur_rate),
+        "low": _to_eur(raw["low"], parsed["quote"], eur_rate),
+        "change24h": _to_eur(raw["change24h"], parsed["quote"], eur_rate),
+        "volumeEur": volume_eur,
+    }
+
+
+def fetch_ticker(symbol: str) -> dict[str, Any] | None:
+    """Hae yhden parin kurssi (ei volyymisuodatinta) — omistusten arvostus."""
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return None
+
+    parsed = parse_pair_symbol(symbol)
+    if not parsed:
+        return None
+
+    eur_rate = _fetch_eur_usd_rate()
+    candidates = [symbol]
+    for quote in QUOTE_CURRENCIES:
+        alt = f"t{parsed['base']}{quote}"
+        if alt not in candidates:
+            candidates.append(alt)
+
+    for candidate in candidates:
+        try:
+            row = _bitfinex_fetch(f"/ticker/{_api_ticker_path(candidate)}")
+        except requests.RequestException:
+            continue
+        if not isinstance(row, list) or len(row) < 8:
+            continue
+        raw = {
+            "symbol": candidate,
+            "bid": row[0] or 0,
+            "ask": row[2] or 0,
+            "change24h": row[4] or 0,
+            "changePct": (row[5] or 0) * 100,
+            "last": row[6] or row[0] or 0,
+            "volume": row[7] or 0,
+            "high": row[8] if len(row) > 8 else 0,
+            "low": row[9] if len(row) > 9 else 0,
             "volumeEur": 0,
         }
-    return raw
+        enriched = _enrich_ticker(candidate, raw, eur_rate)
+        if enriched:
+            return enriched
+    return None
+
+
+def ensure_portfolio_tickers(
+    holdings: dict[str, Any],
+    tickers: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Varmista live-kurssi jokaiselle omistukselle (myös volyymisuodatuksen ulkopuolella)."""
+    merged = dict(tickers)
+    for raw_sym in holdings:
+        sym = normalize_symbol(raw_sym)
+        _resolved, existing = resolve_holding_ticker(sym, merged)
+        if existing:
+            if sym not in merged:
+                merged[sym] = existing
+            continue
+        fetched = fetch_ticker(sym)
+        if fetched:
+            merged[sym] = fetched
+            logger.info("Omistuksen kurssi haettu suoraan: %s", sym)
+    return merged
 
 
 def _to_eur(price: float, quote: str, eur_rate: float) -> float:
