@@ -283,6 +283,19 @@ def _apply_category_tuning(
         elif overall_exp > 0.3:
             notes.append(f"linja ok ({overall_exp:+.2f} €/kauppa)")
 
+    wins = 0
+    wr_n = 0
+    for block in stats.values():
+        tn = int(block.get("trades", 0))
+        wr_n += tn
+        wins += int(round(tn * float(block.get("win_rate", 0))))
+    win_rate = wins / wr_n if wr_n else 0.5
+    if wr_n >= min_samples and win_rate < 0.40:
+        entry_score_min = max(entry_score_min, 2)
+        notes.append(f"valikoivampi win rate {win_rate * 100:.0f} %")
+        if win_rate < 0.35:
+            entry_score_min = max(entry_score_min, 3)
+
     return {
         "rotation_enabled": rotation_enabled,
         "rotation_scale": rotation_scale,
@@ -310,7 +323,7 @@ def _compute_buy_scale(
     overall_exp: float,
     total_n: int,
 ) -> tuple[float, str | None]:
-    """Pienentää ostokokoja heikolla expectancyn ja win raten jaksoilla."""
+    """Pienentää ostokokoja vain kun expectancy on negatiivinen (ei pidä käteistä hyvällä jaksolla)."""
     if total_n < MIN_SAMPLES:
         return 1.0, None
 
@@ -323,7 +336,7 @@ def _compute_buy_scale(
     elif overall_exp < 0:
         scale = 0.85
 
-    if n >= MIN_SAMPLES and win_rate < 0.38:
+    if overall_exp < 0 and n >= MIN_SAMPLES and win_rate < 0.38:
         scale *= 0.88
 
     scale = max(BUY_SCALE_MIN, min(BUY_SCALE_MAX, round(scale, 2)))

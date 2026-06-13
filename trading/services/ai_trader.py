@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
 PROFIT_TAKE_TRIGGER_PCT = 2.0
+GEMINI_SELL_MIN_PROFIT_PCT = 0.5  # Gemini-myynti vain voitolla oleviin positioihin
 UPTREND_MIN_CHANGE_PCT = 0.3
 MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
@@ -585,6 +586,30 @@ def _fast_loss_exit_reason(
         return (
             f"Huono oma asetelma — täysi myynti {profit_pct:.1f} % "
             f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+        )
+    return None
+
+
+def _blocked_loser_release_reason(
+    symbol: str,
+    profit_pct: float,
+    symbol_memory: dict[str, dict[str, Any]],
+    blocked_buys: set[str],
+) -> str | None:
+    """Myy estetty häviäjä pienelläkin tappiolla — vapauttaa pääoman voittajiin."""
+    norm = normalize_symbol(symbol)
+    if norm not in blocked_buys:
+        return None
+    if profit_pct > 1.0:
+        return None
+    mem = symbol_memory.get(symbol) or symbol_memory.get(norm) or {}
+    net = float(mem.get("net_eur") or 0)
+    wins = int(mem.get("wins") or 0)
+    losses = int(mem.get("losses") or 0)
+    if mem.get("chronic") or net < -0.4 or (losses >= 3 and losses > wins):
+        return (
+            f"Estetty kohde — vapautetaan {profit_pct:+.1f} % "
+            f"(historia {net:+.2f} €, {wins}V/{losses}T)"
         )
     return None
 
@@ -1745,6 +1770,22 @@ def make_trading_decisions(
             )
             continue
 
+        blocked_release = _blocked_loser_release_reason(
+            symbol, profit_pct, symbol_memory, blocked_buys
+        )
+        if blocked_release:
+            decisions.append(
+                {
+                    "type": "sell",
+                    "symbol": symbol,
+                    "amount": holding["amount"],
+                    "eurAmount": holding_value,
+                    "reason": blocked_release,
+                    "analysis": analysis,
+                }
+            )
+            continue
+
         if not entry_volume_ok(analysis):
             if profit_pct <= -0.3:
                 decisions.append(
@@ -1918,42 +1959,55 @@ def make_trading_decisions(
             and gemini_sig.get("action") == "sell"
             and gemini_sig.get("confidence", 0) >= max(sell_conf, gemini_sell_min_conf)
         ):
-            conf = int(gemini_sig.get("confidence", 5))
-            conf_scale = (
-                float(gemini_conf_scales.get(conf, gemini_conf_scales.get(str(conf), 1.0)))
-                if gemini_conf_scales
-                else 1.0
-            )
-            if conf_scale <= 0:
+            if profit_pct < GEMINI_SELL_MIN_PROFIT_PCT:
                 decisions.append(
                     {
                         "type": "hold",
                         "symbol": symbol,
                         "reason": (
-                            f"Gemini myynti ({conf}/10) estetty — "
-                            f"tappiollinen confidence-taso oppimisessa"
+                            f"Gemini myynti estetty — positio {profit_pct:+.1f} % "
+                            f"(vain voitolla ≥ {GEMINI_SELL_MIN_PROFIT_PCT:.1f} %)"
                         ),
                         "analysis": analysis,
                     }
                 )
             else:
-                sell_amount = (
-                    holding["amount"]
-                    * _gemini_sell_fraction(conf)
-                    * gemini_sell_scale
-                    * conf_scale
+                conf = int(gemini_sig.get("confidence", 5))
+                conf_scale = (
+                    float(gemini_conf_scales.get(conf, gemini_conf_scales.get(str(conf), 1.0)))
+                    if gemini_conf_scales
+                    else 1.0
                 )
-                _append_sell_decision(
-                    decisions,
-                    symbol,
-                    sell_amount,
-                    analysis["currentPrice"],
-                    _action_reason(
+                if conf_scale <= 0:
+                    decisions.append(
+                        {
+                            "type": "hold",
+                            "symbol": symbol,
+                            "reason": (
+                                f"Gemini myynti ({conf}/10) estetty — "
+                                f"tappiollinen confidence-taso oppimisessa"
+                            ),
+                            "analysis": analysis,
+                        }
+                    )
+                else:
+                    sell_amount = (
+                        holding["amount"]
+                        * _gemini_sell_fraction(conf)
+                        * gemini_sell_scale
+                        * conf_scale
+                    )
+                    _append_sell_decision(
+                        decisions,
+                        symbol,
+                        sell_amount,
+                        analysis["currentPrice"],
+                        _action_reason(
+                            analysis,
+                            f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
+                        ),
                         analysis,
-                        f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
-                    ),
-                    analysis,
-                )
+                    )
         elif (
             gemini_active
             and gemini_sig

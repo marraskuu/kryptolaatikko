@@ -90,9 +90,19 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
 
 def _profit_take_config(state: dict[str, Any], regime: str) -> dict[str, Any]:
     from .learning import merge_regime_tuning
+    from .sell_strategy import default_profit_take_config
 
     learning = merge_regime_tuning(state.get("learning") or {}, regime)
-    return dict(learning.get("profit_take_tuning") or {})
+    cfg = dict(learning.get("profit_take_tuning") or {})
+    if cfg.get("level", "off") == "off":
+        cfg = default_profit_take_config()
+        if regime == "bear":
+            cfg.update({"trigger_scale": 0.88, "partial_trigger_scale": 0.9})
+        elif regime == "neutral":
+            cfg.update({"trigger_scale": 0.92, "partial_trigger_scale": 0.92})
+        else:
+            cfg.update({"trigger_scale": 0.95, "partial_trigger_scale": 0.95})
+    return cfg
 
 
 def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:

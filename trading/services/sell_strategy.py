@@ -9,7 +9,7 @@ PULLBACK_FROM_PEAK_PCT = 0.35
 
 # A + E: ATR-pohjainen trailing take-profit
 PROFIT_TRIGGER_ATR_MULT = 1.2   # arming-kynnys = 1.2 x ATR%
-PROFIT_TRIGGER_FLOOR_PCT = 1.5  # mutta vähintään tämä (kattaa kulut + veron)
+PROFIT_TRIGGER_FLOOR_PCT = 1.2  # mutta vähintään tämä (kattaa kulut + veron)
 PROFIT_TRIGGER_CAP_PCT = 5.0    # ja enintään tämä (lukitaan voitot aiemmin)
 PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
 PULLBACK_FLOOR_PCT = 0.35
@@ -18,7 +18,7 @@ ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja (vain 30 % vo
 
 # 2: Porrastettu voiton kotiutus — lukitse osa voitosta ensimmäisessä portaassa,
 # anna lopun ratsastaa trailing-stopilla (paras molemmista: turvattu voitto + nousuvara).
-PARTIAL_TAKE_TRIGGER_PCT = 3.0  # ensimmäinen porras kun voitto ylittää tämän
+PARTIAL_TAKE_TRIGGER_PCT = 2.5  # ensimmäinen porras kun voitto ylittää tämän
 PARTIAL_TAKE_FRACTION = 0.30    # kotiuta 30 % positiosta portaassa 1
 
 
