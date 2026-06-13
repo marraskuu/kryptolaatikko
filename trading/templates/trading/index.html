@@ -161,7 +161,16 @@
 
       <section class="panel wide learning-report-panel">
         <div class="panel-header">
-          <h2>Oppimisraportti</h2>
+          <button
+            type="button"
+            class="panel-title-btn"
+            id="learning-report-title"
+            aria-haspopup="dialog"
+            aria-controls="gemini-narrative-modal"
+            title="Näytä aiemmat Gemini-kertomukset"
+          >
+            Oppimisraportti
+          </button>
           <span class="badge" id="learning-report-meta">Päivitetään…</span>
         </div>
         <div class="learning-report" id="learning-report">
@@ -171,6 +180,35 @@
     </div>
   </div>
 
-  <script src="{% static 'trading/js/app.js' %}?v=15"></script>
+  <div
+    id="gemini-narrative-modal"
+    class="modal-overlay hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="gemini-narrative-modal-title"
+    hidden
+  >
+    <div class="modal gemini-narrative-modal">
+      <header class="modal-header">
+        <h3 id="gemini-narrative-modal-title">Geminin kertomukset</h3>
+        <button type="button" class="modal-close" id="gemini-narrative-close" aria-label="Sulje">×</button>
+      </header>
+      <div class="modal-toolbar">
+        <input
+          type="search"
+          id="gemini-narrative-search"
+          placeholder="Hae päivämäärällä tai tekstillä…"
+          autocomplete="off"
+        />
+        <span class="modal-meta" id="gemini-narrative-count"></span>
+      </div>
+      <div class="gemini-narrative-modal-body">
+        <nav class="gemini-narrative-list" id="gemini-narrative-list" aria-label="Kertomuslista"></nav>
+        <div class="gemini-narrative-detail" id="gemini-narrative-detail"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{% static 'trading/js/app.js' %}?v=16"></script>
 </body>
 </html>

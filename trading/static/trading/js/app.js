@@ -205,6 +205,7 @@ function applyPayload(data) {
     learning: data.learning ?? state.learning,
     marketLearning: data.marketLearning ?? state.marketLearning,
     geminiPickTracking: data.geminiPickTracking ?? state.geminiPickTracking,
+    geminiNarrativeHistory: data.geminiNarrativeHistory ?? state.geminiNarrativeHistory ?? [],
     botStartedAt: data.botStartedAt ?? state.botStartedAt,
     lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
     tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
@@ -300,6 +301,13 @@ const els = {
   tradeLog: document.getElementById("trade-log"),
   learningReport: document.getElementById("learning-report"),
   learningReportMeta: document.getElementById("learning-report-meta"),
+  learningReportTitle: document.getElementById("learning-report-title"),
+  geminiNarrativeModal: document.getElementById("gemini-narrative-modal"),
+  geminiNarrativeClose: document.getElementById("gemini-narrative-close"),
+  geminiNarrativeSearch: document.getElementById("gemini-narrative-search"),
+  geminiNarrativeCount: document.getElementById("gemini-narrative-count"),
+  geminiNarrativeList: document.getElementById("gemini-narrative-list"),
+  geminiNarrativeDetail: document.getElementById("gemini-narrative-detail"),
   errorBanner: document.getElementById("error-banner"),
 };
 
@@ -412,6 +420,7 @@ function renderAll(lastUpdate) {
   renderPortfolio();
   renderTradeLog();
   renderLearningReport();
+  if (narrativeModalOpen) renderGeminiNarrativeModal();
   renderAIDecision(state.lastAIReport);
   if (els.headerMarketLearningInline) {
     els.headerMarketLearningInline.innerHTML = renderMarketLearningChip();
@@ -968,6 +977,160 @@ function renderGeminiPickTrackingHtml() {
     </div>`;
 }
 
+function buildNarrativeContentHtml(narrative) {
+  if (!narrative) return "";
+  if (narrative.story) {
+    return `
+      <div class="learning-narrative">
+        <h4 class="learning-story-title">Geminin kertomus</h4>
+        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
+        <div class="learning-story-body">${escapeHtml(narrative.story)}</div>
+        ${
+          narrative.ideas
+            ? `<div class="learning-narrative-block ideas">
+            <h4>Ideat (ei vielä käytössä bottiin)</h4>
+            <p>${escapeHtml(narrative.ideas)}</p>
+          </div>`
+            : ""
+        }
+      </div>`;
+  }
+  if (narrative.intro || narrative.learned || narrative.in_use) {
+    const blocks = [
+      ["learned", "Mitä opittiin"],
+      ["in_use", "Käytössä nyt"],
+      ["next_steps", "Seuraavaksi"],
+      ["ideas", "Ideat (ei vielä käytössä)"],
+    ];
+    return `
+      <div class="learning-narrative">
+        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
+        ${blocks
+          .filter(([key]) => narrative[key])
+          .map(
+            ([key, title]) => `
+          <div class="learning-narrative-block${key === "ideas" ? " ideas" : ""}">
+            <h4>${title}</h4>
+            <p>${escapeHtml(narrative[key])}</p>
+          </div>`
+          )
+          .join("")}
+      </div>`;
+  }
+  return "";
+}
+
+let narrativeModalOpen = false;
+let narrativeModalSearch = "";
+let narrativeModalSelectedIdx = 0;
+let narrativeModalFiltered = [];
+
+function narrativePreviewText(narrative) {
+  const text = narrative?.intro || narrative?.story || narrative?.learned || "";
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > 100 ? `${oneLine.slice(0, 97)}…` : oneLine;
+}
+
+function narrativeSearchBlob(entry) {
+  const n = entry.narrative || {};
+  const ts = entry.timestamp || "";
+  let formatted = "";
+  if (ts) {
+    try {
+      formatted = formatDateTime(ts);
+    } catch {
+      formatted = ts;
+    }
+  }
+  return [ts, formatted, n.story, n.intro, n.ideas, n.learned, n.in_use, n.next_steps]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterGeminiNarratives(entries, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return entries;
+  return entries.filter((entry) => narrativeSearchBlob(entry).includes(q));
+}
+
+function openGeminiNarrativeModal() {
+  narrativeModalSearch = "";
+  narrativeModalSelectedIdx = 0;
+  if (els.geminiNarrativeSearch) els.geminiNarrativeSearch.value = "";
+  renderGeminiNarrativeModal();
+  if (!els.geminiNarrativeModal) return;
+  els.geminiNarrativeModal.classList.remove("hidden");
+  els.geminiNarrativeModal.removeAttribute("hidden");
+  document.body.classList.add("modal-open");
+  narrativeModalOpen = true;
+  els.geminiNarrativeSearch?.focus();
+}
+
+function closeGeminiNarrativeModal() {
+  if (!els.geminiNarrativeModal) return;
+  els.geminiNarrativeModal.classList.add("hidden");
+  els.geminiNarrativeModal.setAttribute("hidden", "");
+  document.body.classList.remove("modal-open");
+  narrativeModalOpen = false;
+  els.learningReportTitle?.focus();
+}
+
+function renderGeminiNarrativeModal() {
+  const all = state.geminiNarrativeHistory || [];
+  narrativeModalFiltered = filterGeminiNarratives(all, narrativeModalSearch);
+  if (narrativeModalSelectedIdx >= narrativeModalFiltered.length) {
+    narrativeModalSelectedIdx = Math.max(0, narrativeModalFiltered.length - 1);
+  }
+
+  if (els.geminiNarrativeCount) {
+    if (!all.length) {
+      els.geminiNarrativeCount.textContent = "Ei tallennettuja kertomuksia";
+    } else if (narrativeModalSearch.trim()) {
+      els.geminiNarrativeCount.textContent = `${narrativeModalFiltered.length} / ${all.length} kertomusta`;
+    } else {
+      els.geminiNarrativeCount.textContent = `${all.length} kertomusta`;
+    }
+  }
+
+  if (els.geminiNarrativeList) {
+    if (!narrativeModalFiltered.length) {
+      els.geminiNarrativeList.innerHTML = `<p class="gemini-narrative-list-empty">${
+        all.length ? "Ei hakutuloksia." : "Gemini-kertomuksia ei vielä tallennettu."
+      }</p>`;
+    } else {
+      els.geminiNarrativeList.innerHTML = narrativeModalFiltered
+        .map((entry, idx) => {
+          const active = idx === narrativeModalSelectedIdx ? " active" : "";
+          const current = entry.current ? '<span class="gemini-narrative-badge">Nykyinen</span>' : "";
+          const ts = entry.timestamp ? formatDateTime(entry.timestamp) : "Ei aikaleimaa";
+          const preview = escapeHtml(narrativePreviewText(entry.narrative));
+          return `<button type="button" class="gemini-narrative-list-item${active}" data-idx="${idx}">
+          <span class="gemini-narrative-list-date">${ts}${current}</span>
+          <span class="gemini-narrative-list-preview">${preview}</span>
+        </button>`;
+        })
+        .join("");
+    }
+  }
+
+  if (els.geminiNarrativeDetail) {
+    const entry = narrativeModalFiltered[narrativeModalSelectedIdx];
+    if (!entry) {
+      els.geminiNarrativeDetail.innerHTML = "";
+    } else {
+      const ts = entry.timestamp ? formatDateTime(entry.timestamp) : "";
+      els.geminiNarrativeDetail.innerHTML = `
+        <div class="gemini-narrative-detail-header">
+          ${ts ? `<time datetime="${escapeHtml(entry.timestamp)}">${ts}</time>` : ""}
+          ${entry.current ? '<span class="gemini-narrative-badge">Nykyinen</span>' : ""}
+        </div>
+        ${buildNarrativeContentHtml(entry.narrative)}
+      `;
+    }
+  }
+}
+
 function renderLearningReportMeta(report) {
   if (!els.learningReportMeta) return;
   const next = report.nextNarrativeInSec;
@@ -1012,42 +1175,8 @@ function renderLearningReport() {
   if (bodyKey === lastLearningReportBodyKey) return;
   lastLearningReportBodyKey = bodyKey;
   let narrativeHtml = "";
-  if (narrative?.story) {
-    narrativeHtml = `
-      <div class="learning-narrative">
-        <h4 class="learning-story-title">Geminin kertomus</h4>
-        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
-        <div class="learning-story-body">${escapeHtml(narrative.story)}</div>
-        ${
-          narrative.ideas
-            ? `<div class="learning-narrative-block ideas">
-            <h4>Ideat (ei vielä käytössä bottiin)</h4>
-            <p>${escapeHtml(narrative.ideas)}</p>
-          </div>`
-            : ""
-        }
-      </div>`;
-  } else if (narrative && (narrative.intro || narrative.learned || narrative.in_use)) {
-    const blocks = [
-      ["learned", "Mitä opittiin"],
-      ["in_use", "Käytössä nyt"],
-      ["next_steps", "Seuraavaksi"],
-      ["ideas", "Ideat (ei vielä käytössä)"],
-    ];
-    narrativeHtml = `
-      <div class="learning-narrative">
-        ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
-        ${blocks
-          .filter(([key]) => narrative[key])
-          .map(
-            ([key, title]) => `
-          <div class="learning-narrative-block${key === "ideas" ? " ideas" : ""}">
-            <h4>${title}</h4>
-            <p>${escapeHtml(narrative[key])}</p>
-          </div>`
-          )
-          .join("")}
-      </div>`;
+  if (narrative?.story || (narrative && (narrative.intro || narrative.learned || narrative.in_use))) {
+    narrativeHtml = buildNarrativeContentHtml(narrative);
   } else if (report.narrativePending) {
     narrativeHtml =
       '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa kertomusta… (päivittyy automaattisesti)</p></div>';
@@ -1240,6 +1369,52 @@ async function poll() {
     showError(err.message);
   }
 }
+
+els.learningReportTitle?.addEventListener("click", openGeminiNarrativeModal);
+
+els.geminiNarrativeClose?.addEventListener("click", closeGeminiNarrativeModal);
+
+els.geminiNarrativeModal?.addEventListener("click", (e) => {
+  if (e.target === els.geminiNarrativeModal) closeGeminiNarrativeModal();
+});
+
+els.geminiNarrativeSearch?.addEventListener("input", (e) => {
+  narrativeModalSearch = e.target.value;
+  narrativeModalSelectedIdx = 0;
+  renderGeminiNarrativeModal();
+});
+
+els.geminiNarrativeList?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".gemini-narrative-list-item");
+  if (!btn) return;
+  narrativeModalSelectedIdx = Number(btn.dataset.idx) || 0;
+  renderGeminiNarrativeModal();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!narrativeModalOpen) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeGeminiNarrativeModal();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!narrativeModalFiltered.length) return;
+    e.preventDefault();
+    if (e.key === "ArrowDown") {
+      narrativeModalSelectedIdx = Math.min(
+        narrativeModalSelectedIdx + 1,
+        narrativeModalFiltered.length - 1
+      );
+    } else {
+      narrativeModalSelectedIdx = Math.max(narrativeModalSelectedIdx - 1, 0);
+    }
+    renderGeminiNarrativeModal();
+    els.geminiNarrativeList
+      ?.querySelector(`.gemini-narrative-list-item[data-idx="${narrativeModalSelectedIdx}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }
+});
 
 els.marketSearch.addEventListener("input", (e) => {
   marketSearch = e.target.value;

@@ -144,10 +144,10 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
 
     gemini_status = _resolve_gemini_status(state)
 
+    from .learning_report import _merge_cached_learning_report, build_gemini_narrative_history
+
     learning_report = state.get("learningReport")
     if learning_report:
-        from .learning_report import _merge_cached_learning_report
-
         learning_report = _merge_cached_learning_report(state, learning_report)
 
     gemini_pick_tracking = None
@@ -199,6 +199,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "learning": state.get("learning"),
         "marketLearning": state.get("marketLearning"),
         "learningReport": learning_report,
+        "geminiNarrativeHistory": build_gemini_narrative_history(state),
         "geminiPickTracking": gemini_pick_tracking,
         "botStartedAt": state.get("botStartedAt"),
     }

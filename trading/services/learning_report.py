@@ -44,7 +44,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
 from .bitfinex import get_crypto_label, normalize_symbol
 
 LEARNING_REPORT_INTERVAL_SEC = int(os.environ.get("LEARNING_REPORT_INTERVAL_SEC", "21600"))
-LEARNING_REPORT_HISTORY = 8
+GEMINI_NARRATIVE_HISTORY = int(os.environ.get("GEMINI_NARRATIVE_HISTORY", "40"))
 NARRATIVE_STALE_SEC = int(os.environ.get("NARRATIVE_STALE_SEC", "300"))
 
 logger = logging.getLogger(__name__)
@@ -621,7 +621,51 @@ def _apply_narrative_to_state(
             "changes": report.get("changes"),
         },
     )
-    state["learningReportHistory"] = history[:LEARNING_REPORT_HISTORY]
+    state["learningReportHistory"] = history[:GEMINI_NARRATIVE_HISTORY]
+
+
+def _narrative_has_content(narrative: dict[str, Any] | None) -> bool:
+    if not narrative:
+        return False
+    return bool(narrative.get("story") or narrative.get("intro"))
+
+
+def build_gemini_narrative_history(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Gemini-kertomusten historia UI-modaa varten (uusin ensin)."""
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    current = sanitize_learning_narrative(state.get("learningNarrative"))
+    current_ts = str(state.get("lastLearningNarrativeAt") or "")
+    if _narrative_has_content(current):
+        entries.append(
+            {
+                "timestamp": current_ts,
+                "narrative": current,
+                "current": True,
+            }
+        )
+        if current_ts:
+            seen.add(current_ts)
+
+    for item in state.get("learningReportHistory") or []:
+        ts = str(item.get("timestamp") or "")
+        if ts and ts in seen:
+            continue
+        narrative = sanitize_learning_narrative(item.get("narrative"))
+        if not _narrative_has_content(narrative):
+            continue
+        entries.append(
+            {
+                "timestamp": ts,
+                "narrative": narrative,
+                "current": False,
+            }
+        )
+        if ts:
+            seen.add(ts)
+
+    return entries[:GEMINI_NARRATIVE_HISTORY]
 
 
 def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -> None:
