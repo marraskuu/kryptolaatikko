@@ -1172,6 +1172,7 @@ def generate_learning_narrative(
     changes_text = json.dumps(structured_report.get("changes") or [], ensure_ascii=False)
     roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
     shadow_text = json.dumps(structured_report.get("shadowPolicy") or {}, ensure_ascii=False)
+    micro_text = json.dumps(structured_report.get("microstructureLearning") or {}, ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
     prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
@@ -1185,6 +1186,8 @@ TÄRKEÄÄ:
 - "ideas" = erillinen lyhyt kappale: 1–2 ehdotusta ihmiselle — EI vielä käytössä bottiin.
 - "shadow_learned" = vapaamuotoinen 1–2 kappaletta: mitä Varjopolitiikka-testidata kertoo (counterfactual, päivästop, profit lock). Jos dataa < 5 kauppaa, kerro rehellisesti että keruu jatkuu.
 - "shadow_ideas" = 1 kappale: konkreettiset ehdotukset miten varjopolitiikan dataa voisi hyödyntää kun näytteitä kertyy — EI vielä käytössä live-botissa.
+- "micro_learned" = 1–2 kappaletta: miten Bitfinex order book (ostopaine/myyntipaine, spread) ja long/short crowd -dataa on hyödynnetty — missä signaalit johtivat onnistuneisiin tai epäonnistuneisiin kauppoihin. Jos closedTradesWithMicro on 0, kerro että keruu alkaa uusista ostoista.
+- "micro_ideas" = 1 kappale: konkreettiset ehdotukset microstructure-datan tarkempaan hyödyntämiseen — EI vielä käytössä bottiin.
 
 Sisällytä kertomukseen (story):
 1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
@@ -1192,12 +1195,16 @@ Sisällytä kertomukseen (story):
 3) Mitä odotetaan seuraavaksi (roadmap)
 4) Rehellinen arvio: missä dataa on vielä vähän
 5) Lyhyt maininta varjopolitiikasta jos dataa on — viittaa shadow_learned-kenttään
+6) Lyhyt maininta order book & crowd -signaaleista jos dataa on — viittaa micro_learned-kenttään
 
 Oppimisdata:
 {sections_text}
 
 Varjopolitiikka (testidata — rinnalla pyörivä simulaatio, EI live):
 {shadow_text}
+
+Order book & crowd (Bitfinex microstructure — käytössä live-botissa):
+{micro_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
@@ -1217,6 +1224,8 @@ Vastaa VAIN validilla JSON:lla:
   "next_steps": "Mitä aktivoituu kun dataa kertyy (1–2 lausetta)",
   "shadow_learned": "Varjopolitiikka: mitä testidata opettaa (1–2 kappaletta, vapaamuoto)",
   "shadow_ideas": "Varjopolitiikka: hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "micro_learned": "Order book & crowd: miten signaaleja hyödynnetään ja miten ne on onnistuneet/epäonnistuneet (1–2 kappaletta)",
+  "micro_ideas": "Order book & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
@@ -1240,6 +1249,8 @@ Vastaa VAIN validilla JSON:lla:
                 "next_steps": str(parsed.get("next_steps") or "").strip(),
                 "shadow_learned": str(parsed.get("shadow_learned") or "").strip(),
                 "shadow_ideas": str(parsed.get("shadow_ideas") or "").strip(),
+                "micro_learned": str(parsed.get("micro_learned") or "").strip(),
+                "micro_ideas": str(parsed.get("micro_ideas") or "").strip(),
                 "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,

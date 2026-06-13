@@ -276,3 +276,251 @@ def blocks_entry(analysis: dict[str, Any]) -> bool:
 
 def score_adjust(analysis: dict[str, Any]) -> float:
     return float(analysis.get("microAdjust") or 0.0)
+
+
+def _net_eur(trade: dict[str, Any]) -> float:
+    return float(trade.get("profitLoss") or trade.get("profit") or 0)
+
+
+def _linked_micro_outcomes(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """FIFO: myynnit + sisäänoston order book / crowd -meta."""
+    from collections import defaultdict
+
+    from .trade_meta import entry_meta_from_trade
+
+    chronological = sorted(
+        [t for t in trades if t.get("type") in ("buy", "sell") and t.get("symbol")],
+        key=lambda t: t.get("timestamp", ""),
+    )
+    lots: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    linked: list[dict[str, Any]] = []
+
+    for trade in chronological:
+        sym = trade["symbol"]
+        if trade["type"] == "buy":
+            lots[sym].append(
+                {
+                    "amount": float(trade.get("amount") or 0),
+                    "meta": entry_meta_from_trade(trade),
+                }
+            )
+            continue
+
+        sell_amount = float(trade.get("amount") or 0)
+        entry_meta: dict[str, Any] = {}
+        while sell_amount > 1e-12 and lots[sym]:
+            lot = lots[sym][0]
+            take = min(sell_amount, lot["amount"])
+            if lot["meta"] and not entry_meta:
+                entry_meta = dict(lot["meta"])
+            lot["amount"] -= take
+            sell_amount -= take
+            if lot["amount"] <= 1e-12:
+                lots[sym].pop(0)
+
+        has_micro = any(
+            entry_meta.get(k) is not None
+            for k in ("bookBucket", "crowdBucket", "bookImbalance", "longShortRatio")
+        )
+        if not has_micro:
+            continue
+
+        linked.append(
+            {
+                "symbol": sym,
+                "net_eur": round(_net_eur(trade), 2),
+                "entry": entry_meta,
+            }
+        )
+    return linked
+
+
+def _aggregate_micro_bucket(
+    linked: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, Any]]:
+    buckets: dict[str, dict[str, float]] = {}
+    for item in linked:
+        key = item["entry"].get(field) or "?"
+        if key == "?":
+            continue
+        b = buckets.setdefault(str(key), {"n": 0.0, "net": 0.0, "wins": 0.0})
+        net = float(item["net_eur"])
+        b["n"] += 1.0
+        b["net"] += net
+        if net > 0.01:
+            b["wins"] += 1.0
+    return {
+        k: {
+            "trades": int(v["n"]),
+            "net_eur": round(v["net"], 2),
+            "expectancy_eur": round(v["net"] / v["n"], 3) if v["n"] else 0.0,
+            "win_rate": round(v["wins"] / v["n"], 2) if v["n"] else 0.0,
+        }
+        for k, v in buckets.items()
+    }
+
+
+def _setup_memory_by_micro(setup_memory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Jaa setup-oppiminen book/crowd -segmenteihin avaimen perusteella."""
+    book: dict[str, dict[str, float]] = {}
+    crowd: dict[str, dict[str, float]] = {}
+
+    for setup, m in setup_memory.items():
+        parts = setup.split("|")
+        bk = parts[6] if len(parts) > 6 else None
+        cr = parts[7] if len(parts) > 7 else None
+        n = float(m.get("trades") or 0)
+        net = float(m.get("net_eur") or 0)
+        wins = n * float(m.get("win_rate") or 0)
+        if bk and bk != "bk0":
+            b = book.setdefault(bk, {"n": 0.0, "net": 0.0, "wins": 0.0})
+            b["n"] += n
+            b["net"] += net
+            b["wins"] += wins
+        if cr and cr != "cr0":
+            c = crowd.setdefault(cr, {"n": 0.0, "net": 0.0, "wins": 0.0})
+            c["n"] += n
+            c["net"] += net
+            c["wins"] += wins
+
+    def _fmt(d: dict[str, dict[str, float]]) -> dict[str, dict[str, Any]]:
+        return {
+            k: {
+                "trades": round(v["n"], 1),
+                "net_eur": round(v["net"], 2),
+                "expectancy_eur": round(v["net"] / v["n"], 3) if v["n"] else 0.0,
+                "win_rate": round(v["wins"] / v["n"], 2) if v["n"] else 0.0,
+            }
+            for k, v in d.items()
+        }
+
+    return {"book": _fmt(book), "crowd": _fmt(crowd)}
+
+
+def build_gemini_context(
+    portfolio: dict[str, Any],
+    learning: dict[str, Any] | None = None,
+    bot_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Konteksti Geminin oppimiskertomukseen — miten microstructure-dataa hyödynnetään."""
+    learning = learning or {}
+    trades = portfolio.get("trades") or []
+    linked = _linked_micro_outcomes(trades)
+    setup_memory = learning.get("setup_memory") or {}
+    micro_state = (bot_state or {}).get("microstructure") or {}
+
+    total_net = round(sum(x["net_eur"] for x in linked), 2)
+    wins = sum(1 for x in linked if x["net_eur"] > 0.01)
+    losses = sum(1 for x in linked if x["net_eur"] < -0.01)
+
+    by_book = _aggregate_micro_bucket(linked, "bookBucket")
+    by_crowd = _aggregate_micro_bucket(linked, "crowdBucket")
+    setup_by_micro = _setup_memory_by_micro(setup_memory)
+
+    examples: list[dict[str, Any]] = []
+    for item in sorted(linked, key=lambda x: x["net_eur"], reverse=True)[:3]:
+        e = item["entry"]
+        examples.append(
+            {
+                "type": "win",
+                "symbol": item["symbol"],
+                "net_eur": item["net_eur"],
+                "book": e.get("bookBucket"),
+                "crowd": e.get("crowdBucket"),
+                "imbalance_pct": round(float(e["bookImbalance"]) * 100, 1)
+                if e.get("bookImbalance") is not None
+                else None,
+                "long_pct": round(float(e["longShortRatio"]) * 100, 1)
+                if e.get("longShortRatio") is not None
+                else None,
+            }
+        )
+    for item in sorted(linked, key=lambda x: x["net_eur"])[:3]:
+        if item["net_eur"] >= -0.01:
+            continue
+        e = item["entry"]
+        examples.append(
+            {
+                "type": "loss",
+                "symbol": item["symbol"],
+                "net_eur": item["net_eur"],
+                "book": e.get("bookBucket"),
+                "crowd": e.get("crowdBucket"),
+                "imbalance_pct": round(float(e["bookImbalance"]) * 100, 1)
+                if e.get("bookImbalance") is not None
+                else None,
+                "long_pct": round(float(e["longShortRatio"]) * 100, 1)
+                if e.get("longShortRatio") is not None
+                else None,
+            }
+        )
+
+    return {
+        "enabled": ENABLED,
+        "operational": {
+            "lastBookFetched": micro_state.get("bookFetched", 0),
+            "lastStatsFetched": micro_state.get("statsFetched", 0),
+            "symbolsTracked": micro_state.get("symbols") or [],
+        },
+        "usage": {
+            "scoreAdjustField": "microAdjust",
+            "blocksField": "microBlocked",
+            "bookBonusThresholdPct": round(BOOK_IMBALANCE_BONUS * 100, 0),
+            "bookPenaltyThresholdPct": round(BOOK_IMBALANCE_PENALTY * 100, 0),
+            "crowdLongBlockPct": round(CROWD_LONG_RATIO * 100, 0),
+            "spreadBlockPct": SPREAD_BLOCK_PCT,
+        },
+        "closedTradesWithMicro": len(linked),
+        "closedTradesNetEur": total_net,
+        "closedTradesWinRate": round(wins / len(linked), 2) if linked else None,
+        "closedTradesWins": wins,
+        "closedTradesLosses": losses,
+        "outcomesByBookBucket": by_book,
+        "outcomesByCrowdBucket": by_crowd,
+        "setupMemoryByMicro": setup_by_micro,
+        "examples": examples,
+    }
+
+
+def learning_report_lines(context: dict[str, Any]) -> list[str]:
+    """Rule-pohjaiset rivit oppimisraportin korttiin."""
+    if not context.get("enabled"):
+        return ["Microstructure pois päältä (MICROSTRUCTURE_ENABLED=0)"]
+
+    lines: list[str] = []
+    op = context.get("operational") or {}
+    if op.get("lastBookFetched"):
+        lines.append(
+            f"Viime kierros: order book {op['lastBookFetched']} · positioning {op.get('lastStatsFetched', 0)}"
+        )
+    else:
+        lines.append("Order book + crowd -data kerätään kierroksittain")
+
+    n = int(context.get("closedTradesWithMicro") or 0)
+    if n == 0:
+        lines.append("Ei vielä suljettuja kauppoja micro-meta-datalla — keruu alkaa uusista ostoista")
+        return lines
+
+    net = context.get("closedTradesNetEur")
+    wr = context.get("closedTradesWinRate")
+    lines.append(f"Suljetut kaupat micro-datalla: {n} kpl · netto {net:+.2f} €" + (f" · win rate {wr * 100:.0f} %" if wr is not None else ""))
+
+    by_book = context.get("outcomesByBookBucket") or {}
+    if by_book.get("bk+"):
+        b = by_book["bk+"]
+        lines.append(f"Ostopaine (bk+): {b['expectancy_eur']:+.2f} €/kauppa ({b['trades']} kpl)")
+    if by_book.get("bk-"):
+        b = by_book["bk-"]
+        lines.append(f"Myyntipaine (bk-): {b['expectancy_eur']:+.2f} €/kauppa ({b['trades']} kpl)")
+
+    by_crowd = context.get("outcomesByCrowdBucket") or {}
+    if by_crowd.get("crL"):
+        c = by_crowd["crL"]
+        lines.append(f"Crowd long (crL): {c['expectancy_eur']:+.2f} €/kauppa ({c['trades']} kpl)")
+    if by_crowd.get("crS"):
+        c = by_crowd["crS"]
+        lines.append(f"Crowd short (crS): {c['expectancy_eur']:+.2f} €/kauppa ({c['trades']} kpl)")
+
+    return lines
+

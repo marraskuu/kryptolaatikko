@@ -1217,6 +1217,22 @@ function buildNarrativeContentHtml(narrative) {
           </div>`
             : ""
         }
+        ${
+          narrative.micro_learned
+            ? `<div class="learning-narrative-block microstructure">
+            <h4>Order book & crowd — mitä data opettaa</h4>
+            <p>${escapeHtml(narrative.micro_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.micro_ideas
+            ? `<div class="learning-narrative-block microstructure ideas">
+            <h4>Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)</h4>
+            <p>${escapeHtml(narrative.micro_ideas)}</p>
+          </div>`
+            : ""
+        }
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
@@ -1226,6 +1242,8 @@ function buildNarrativeContentHtml(narrative) {
       ["next_steps", "Seuraavaksi"],
       ["shadow_learned", "Varjopolitiikka — mitä testidata opettaa"],
       ["shadow_ideas", "Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)"],
+      ["micro_learned", "Order book & crowd — mitä data opettaa"],
+      ["micro_ideas", "Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)"],
       ["ideas", "Ideat (ei vielä käytössä)"],
     ];
     return `
@@ -1236,7 +1254,13 @@ function buildNarrativeContentHtml(narrative) {
           .map(
             ([key, title]) => `
           <div class="learning-narrative-block${
-            key === "ideas" || key === "shadow_ideas" ? " ideas" : key === "shadow_learned" ? " shadow-policy" : ""
+            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas"
+              ? " ideas"
+              : key === "shadow_learned"
+                ? " shadow-policy"
+                : key === "micro_learned"
+                  ? " microstructure"
+                  : ""
           }">
             <h4>${title}</h4>
             <p>${escapeHtml(narrative[key])}</p>
@@ -1270,7 +1294,7 @@ function narrativeSearchBlob(entry) {
       formatted = ts;
     }
   }
-  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.learned, n.in_use, n.next_steps]
+  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.learned, n.in_use, n.next_steps]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

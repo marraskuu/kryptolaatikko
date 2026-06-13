@@ -1262,6 +1262,19 @@ h1 {
   color: var(--yellow);
 }
 
+.learning-narrative-block.microstructure {
+  border-top: 1px dashed rgba(52, 211, 153, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.microstructure h4 {
+  color: #6ee7b7;
+}
+
+.learning-narrative-block.microstructure.ideas h4 {
+  color: var(--yellow);
+}
+
 .learning-narrative-block.ideas h4 {
   color: var(--yellow);
 }

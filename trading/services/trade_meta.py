@@ -70,5 +70,10 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "condAdjust",
         "change1hPct",
         "change4hPct",
+        "bookImbalance",
+        "bookSpreadPct",
+        "longShortRatio",
+        "bookBucket",
+        "crowdBucket",
     )
     return {k: trade[k] for k in keys if trade.get(k) is not None}

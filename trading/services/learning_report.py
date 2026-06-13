@@ -36,7 +36,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas"):
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas"):
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
     return cleaned
@@ -359,6 +359,24 @@ def build_learning_report(
                 }
             )
 
+        from .market_microstructure import build_gemini_context, learning_report_lines as micro_lines
+
+        micro_ctx = build_gemini_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
+        micro_report_lines = micro_lines(micro_ctx)
+        if micro_report_lines:
+            sections.append(
+                {
+                    "id": "microstructure",
+                    "icon": "📖",
+                    "title": "Order book & crowd",
+                    "lines": micro_report_lines,
+                }
+            )
+
     conf_lines = _gemini_conf_lines(learning)
     sections.append(
         {"id": "gemini_conf", "icon": "🔮", "title": "Gemini-confidence", "lines": conf_lines}
@@ -442,10 +460,18 @@ def build_learning_report(
     roadmap = _roadmap_progress(learning, ml)
 
     shadow_policy = None
+    microstructure_learning = None
     if bot_state:
         from .daily_policy_shadow import build_gemini_context
 
         shadow_policy = build_gemini_context(bot_state)
+        from .market_microstructure import build_gemini_context as build_micro_context
+
+        microstructure_learning = build_micro_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     last_ms = 0
@@ -463,6 +489,7 @@ def build_learning_report(
         "roadmap": roadmap,
         "snapshot": snapshot,
         "shadowPolicy": shadow_policy,
+        "microstructureLearning": microstructure_learning,
         "narrative": narrative,
         "lastNarrativeAt": last_narrative_at,
         "nextNarrativeInSec": next_narrative,
