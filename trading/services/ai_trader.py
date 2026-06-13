@@ -508,6 +508,10 @@ def _is_buy_blocked(
     if analysis.get("condBlocked"):
         return True
     from .market_learning import setup_key_for_analysis
+    from .market_microstructure import blocks_entry
+
+    if blocks_entry(analysis):
+        return True
 
     return setup_key_for_analysis(analysis, regime) in blocked_setups
 
@@ -1573,6 +1577,7 @@ def make_trading_decisions(
             "rank": analysis["score"]
             + _mem_adjust(symbol)
             + float(analysis.get("condAdjust") or 0)
+            + float(analysis.get("microAdjust") or 0)
             + _setup_adjust(analysis)
             + volume_rank_adjust(analysis),
         }

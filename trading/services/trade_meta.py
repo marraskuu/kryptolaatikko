@@ -36,6 +36,13 @@ def meta_from_analysis(
         for key in ("change1hPct", "change4hPct", "changePct"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 2)
+        for key in ("bookImbalance", "bookSpreadPct", "longShortRatio"):
+            if analysis.get(key) is not None:
+                meta[key] = round(float(analysis[key]), 4)
+        if analysis.get("bookBucket"):
+            meta["bookBucket"] = analysis["bookBucket"]
+        if analysis.get("crowdBucket"):
+            meta["crowdBucket"] = analysis["crowdBucket"]
         meta["setup"] = setup_key_for_analysis(analysis, regime)
     else:
         sig = analysis.get("geminiSignal") or {}

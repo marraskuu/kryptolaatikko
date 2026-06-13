@@ -404,3 +404,116 @@ def fetch_candle_history(
 ) -> list[dict[str, Any]]:
     """Hae viimeisimmät `limit` kynttilää (max 10 000 ≈ 416 pv @ 1h)."""
     return fetch_candles(symbol, timeframe, limit=limit)
+
+
+BOOK_DEFAULT_LEN = 25
+BOOK_DEFAULT_PRECISION = "P0"
+VALID_BOOK_LENS = {1, 25, 100, 250, 500}
+
+
+def fetch_order_book(
+    symbol: str,
+    *,
+    precision: str = BOOK_DEFAULT_PRECISION,
+    length: int = BOOK_DEFAULT_LEN,
+) -> list[list[float]] | None:
+    """Hae order book (240 req/min). Positiivinen amount = osto, negatiivinen = myynti."""
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return None
+    book_len = length if length in VALID_BOOK_LENS else BOOK_DEFAULT_LEN
+    path = f"/book/{symbol}/{precision}?len={book_len}"
+    try:
+        data = _bitfinex_fetch(path)
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in (404, 429, 500):
+            return None
+        raise
+    except requests.RequestException as exc:
+        logger.warning("Order book fetch failed for %s: %s", symbol, exc)
+        return None
+    if not isinstance(data, list):
+        return None
+    return [row for row in data if isinstance(row, list) and len(row) >= 3]
+
+
+def parse_order_book(rows: list[list[float]] | None) -> dict[str, Any] | None:
+    """Laske spread, imbalance ja syvyys order book -riveistä."""
+    if not rows:
+        return None
+
+    bid_vol = 0.0
+    ask_vol = 0.0
+    best_bid = 0.0
+    best_ask = 0.0
+    for row in rows:
+        price = float(row[0] or 0)
+        amount = float(row[2] or 0)
+        if amount > 0:
+            bid_vol += amount
+            best_bid = max(best_bid, price)
+        elif amount < 0:
+            ask_vol += abs(amount)
+            if best_ask <= 0 or price < best_ask:
+                best_ask = price
+
+    total = bid_vol + ask_vol
+    if total <= 0 or best_bid <= 0 or best_ask <= 0:
+        return None
+
+    mid = (best_bid + best_ask) / 2.0
+    spread_pct = ((best_ask - best_bid) / mid * 100.0) if mid > 0 else 0.0
+    imbalance = (bid_vol - ask_vol) / total
+    return {
+        "bidVol": round(bid_vol, 6),
+        "askVol": round(ask_vol, 6),
+        "bookImbalance": round(max(-1.0, min(1.0, imbalance)), 4),
+        "bookSpreadPct": round(spread_pct, 4),
+        "bestBid": best_bid,
+        "bestAsk": best_ask,
+        "bookLevels": len(rows),
+    }
+
+
+def fetch_position_sizes(symbol: str) -> dict[str, Any] | None:
+    """Hae Bitfinexin long/short positioning (15 req/min per key)."""
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return None
+
+    long_val = None
+    short_val = None
+    pause = float(os.environ.get("MICROSTRUCTURE_STATS_PAUSE_SEC", "4.2"))
+    for i, side in enumerate(("long", "short")):
+        if i > 0 and pause > 0:
+            time.sleep(pause)
+        path = f"/stats1/pos.size:1m:{symbol}:{side}/last"
+        try:
+            row = _bitfinex_fetch(path)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (404, 429, 500):
+                continue
+            raise
+        except requests.RequestException as exc:
+            logger.warning("Position stats failed for %s %s: %s", symbol, side, exc)
+            continue
+        if isinstance(row, list) and len(row) >= 2 and row[1] is not None:
+            val = float(row[1])
+            if side == "long":
+                long_val = val
+            else:
+                short_val = val
+
+    if long_val is None and short_val is None:
+        return None
+
+    long_size = max(0.0, float(long_val or 0))
+    short_size = max(0.0, float(short_val or 0))
+    total = long_size + short_size
+    long_ratio = (long_size / total) if total > 0 else None
+    return {
+        "positionLong": round(long_size, 4),
+        "positionShort": round(short_size, 4),
+        "longShortRatio": round(long_ratio, 4) if long_ratio is not None else None,
+    }
+

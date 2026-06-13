@@ -24,6 +24,7 @@ from .learning import compute_tuning
 from .daily_policy_shadow import record_cycle, record_executed_trade, record_profit_take_shadow, shadow_profit_take_config
 from .trade_meta import meta_from_analysis
 from . import market_learning
+from . import market_microstructure
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -320,6 +321,18 @@ def execute_trading_cycle() -> dict[str, Any]:
         state["regime"] = regime_info
         learning = compute_tuning(state["portfolio"])
         state["learning"] = learning
+
+        regime_str = regime_info["regime"]
+        try:
+            micro_summary = market_microstructure.enrich_analyses(
+                state["tickers"],
+                state["analyses"],
+                state["portfolio"],
+                regime_str,
+            )
+            state["microstructure"] = micro_summary
+        except Exception:
+            logger.warning("Microstructure enrich failed", exc_info=True)
 
         # Koko markkinan varjo-oppiminen: signaalit → toteutunut 1h/4h tuotto kaikille
         ml_stats: dict[str, Any] = {}

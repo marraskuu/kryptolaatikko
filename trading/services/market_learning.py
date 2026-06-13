@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 from .bitfinex import is_stablecoin
+from .market_microstructure import book_bucket, crowd_bucket
 
 HORIZONS = {"1h": 3600, "4h": 14400}
 MAX_HORIZON_SEC = 14400
@@ -132,6 +133,8 @@ def _bucket_key_parts(analysis: dict[str, Any], regime: str) -> dict[str, str]:
         "rsi": _rsi_bucket(analysis.get("rsi")),
         "vol": _vol_bucket(float(analysis.get("volumeEur") or 0)),
         "deep": "deep" if not analysis.get("quick", True) else "quick",
+        "book": analysis.get("bookBucket") or book_bucket(analysis.get("bookImbalance")),
+        "crowd": analysis.get("crowdBucket") or crowd_bucket(analysis.get("longShortRatio")),
     }
 
 
@@ -139,6 +142,8 @@ def _bucket_keys_fallback(analysis: dict[str, Any], regime: Any) -> list[str]:
     """Richest → coarsest — ensimmäinen riittävällä otoksella voittaa."""
     p = _bucket_key_parts(analysis, _regime_str(regime))
     return [
+        f"{p['regime']}|{p['change']}|{p['mtf']}|{p['rsi']}|{p['vol']}|{p['deep']}|{p['book']}|{p['crowd']}",
+        f"{p['regime']}|{p['change']}|{p['mtf']}|{p['rsi']}|{p['vol']}|{p['deep']}|{p['book']}",
         f"{p['regime']}|{p['change']}|{p['mtf']}|{p['rsi']}|{p['vol']}|{p['deep']}",
         f"{p['regime']}|{p['change']}|{p['mtf']}|{p['rsi']}|{p['vol']}",
         f"{p['regime']}|{p['change']}|{p['mtf']}|{p['rsi']}",
