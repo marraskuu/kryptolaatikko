@@ -575,7 +575,13 @@ function renderShadowPolicy() {
     const tone = net > 0.05 ? "positive" : net < -0.05 ? "negative" : null;
     setShadowMetricValue(els.shadowCounterfactual, `${sign}${net.toFixed(2)} €`, tone);
     if (els.shadowCounterfactualDetail) {
-      els.shadowCounterfactualDetail.textContent = `Live vs. simulaatio (${trades} kauppaa)`;
+      const ptSig = summary.profitTakeShadowSignals ?? 0;
+      if (ptSig > 0 && Math.abs(net - (summary.profitTakeShadowEurEst ?? 0)) < 0.02) {
+        els.shadowCounterfactualDetail.textContent = `${ptSig} voitto-ottosignaalia (arvio, ei toteutunut voitto)`;
+      } else {
+        els.shadowCounterfactualDetail.textContent = `Counterfactual-yhteenveto (${trades} kauppaa)`;
+      }
+      els.shadowCounterfactualDetail.title = hints[0] || els.shadowCounterfactualDetail.textContent;
     }
   } else {
     setShadowMetricValue(els.shadowCounterfactual, "—");
@@ -629,6 +635,7 @@ function renderShadowPolicy() {
   const hints = shadow.hints || [];
   if (hints.length && els.shadowCounterfactualDetail && trades >= 3) {
     els.shadowCounterfactualDetail.textContent = hints[0];
+    els.shadowCounterfactualDetail.title = hints[0];
   }
 }
 

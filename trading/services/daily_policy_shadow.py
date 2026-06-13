@@ -40,7 +40,7 @@ def day_key_utc(dt: datetime | None = None) -> str:
 
 def default_shadow_state() -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "dayKey": None,
         "dayStartValue": None,
         "dayStartAt": None,
@@ -68,8 +68,20 @@ def default_shadow_state() -> dict[str, Any]:
 
 def _get_shadow(state: dict[str, Any]) -> dict[str, Any]:
     shadow = state.get("dailyPolicyShadow")
-    if not shadow or shadow.get("version") != 1:
+    if not shadow:
         shadow = default_shadow_state()
+        state["dailyPolicyShadow"] = shadow
+        return shadow
+
+    version = shadow.get("version", 1)
+    if version < 2:
+        # v1 laski voitto-ottosignaalin joka minuutti uudelleen → inflatoitunut summa.
+        summary = shadow.setdefault("summary", {})
+        summary["profitTakeShadowSignals"] = 0
+        summary["profitTakeShadowEurEst"] = 0.0
+        shadow["_prevShadowSell"] = {}
+        shadow["version"] = 2
+        _recompute_net(summary)
         state["dailyPolicyShadow"] = shadow
     return shadow
 
@@ -380,6 +392,9 @@ def record_executed_trade(
             )
             event["counterfactualEur"] = round(delta, 2)
 
+    if trade_type == "sell":
+        shadow.setdefault("_prevShadowSell", {}).pop(normalize_symbol(symbol), None)
+
     _append_event(shadow, event)
     _recompute_net(summary)
 
@@ -393,18 +408,28 @@ def record_profit_take_shadow(
     holding_amount: float,
     price: float,
 ) -> None:
-    """Kirjaa kun varjopolitiikka olisi myynyt voitto-oton aiemmin."""
+    """Kirjaa kun varjopolitiikka olisi myynyt voitto-oton aiemmin (kerran per signaali)."""
     if not shadow.get("shouldSell") or actual.get("shouldSell"):
+        policy_shadow = _get_shadow(state)
+        prev = policy_shadow.setdefault("_prevShadowSell", {})
+        prev.pop(normalize_symbol(symbol), None)
         return
+
+    norm = normalize_symbol(symbol)
+    policy_shadow = _get_shadow(state)
+    prev = policy_shadow.setdefault("_prevShadowSell", {})
+    if prev.get(norm):
+        return
+    prev[norm] = True
+
     profit_pct = float(shadow.get("profitPct") or 0)
     if profit_pct <= 0:
         return
     frac = float(shadow.get("sellFraction") or 1.0)
-    est_eur = holding_amount * frac * price * (profit_pct / 100) * 0.3
+    est_eur = holding_amount * frac * price * (profit_pct / 100.0)
     if est_eur <= 0.05:
         return
 
-    policy_shadow = _get_shadow(state)
     summary = policy_shadow["summary"]
     summary["profitTakeShadowSignals"] = int(summary.get("profitTakeShadowSignals") or 0) + 1
     summary["profitTakeShadowEurEst"] = round(
@@ -480,8 +505,16 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
     hints: list[str] = []
     net = float(summary.get("netCounterfactualEur") or 0)
     trades = int(summary.get("tradesLogged") or 0)
-    if trades >= 8 and net >= 2:
-        hints.append(f"Varjopolitiikka olisi arviolta +{net:.2f} € parempi ({trades} kauppaa)")
+    pt_signals = int(summary.get("profitTakeShadowSignals") or 0)
+    pt_est = float(summary.get("profitTakeShadowEurEst") or 0)
+    if pt_signals >= 2 and pt_est > 0:
+        hints.append(
+            f"Aikaisempi voitto-otto: {pt_signals} signaalia (~{pt_est:.2f} € arvio, ei takaa voittoa)"
+        )
+    if trades >= 8 and net >= 2 and net != pt_est:
+        hints.append(f"Estettyjen kauppojen counterfactual-yhteenveto {net:+.2f} € ({trades} kauppaa)")
+    elif trades >= 8 and net >= 2 and pt_signals == 0:
+        hints.append(f"Varjopolitiikan counterfactual-arvio {net:+.2f} € ({trades} kauppaa)")
     if int(summary.get("sellsWouldBlock") or 0) >= 3 and float(
         summary.get("sellBlockCounterfactualEur") or 0
     ) > 0:
@@ -490,8 +523,6 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
         summary.get("blockedBuyCounterfactualEur") or 0
     ) > 0:
         hints.append("Ostojen rajoitus olisi säästänyt tappioita")
-    if int(summary.get("profitTakeShadowSignals") or 0) >= 2:
-        hints.append("Aikaisempi voitto-otto olisi lukinnut voittoja")
 
     year_pnl = _compute_year_pnl(shadow)
 
