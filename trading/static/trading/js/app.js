@@ -1045,6 +1045,22 @@ function buildNarrativeContentHtml(narrative) {
           </div>`
             : ""
         }
+        ${
+          narrative.shadow_learned
+            ? `<div class="learning-narrative-block shadow-policy">
+            <h4>Varjopolitiikka — mitä testidata opettaa</h4>
+            <p>${escapeHtml(narrative.shadow_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.shadow_ideas
+            ? `<div class="learning-narrative-block shadow-policy ideas">
+            <h4>Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)</h4>
+            <p>${escapeHtml(narrative.shadow_ideas)}</p>
+          </div>`
+            : ""
+        }
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
@@ -1052,6 +1068,8 @@ function buildNarrativeContentHtml(narrative) {
       ["learned", "Mitä opittiin"],
       ["in_use", "Käytössä nyt"],
       ["next_steps", "Seuraavaksi"],
+      ["shadow_learned", "Varjopolitiikka — mitä testidata opettaa"],
+      ["shadow_ideas", "Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)"],
       ["ideas", "Ideat (ei vielä käytössä)"],
     ];
     return `
@@ -1061,7 +1079,9 @@ function buildNarrativeContentHtml(narrative) {
           .filter(([key]) => narrative[key])
           .map(
             ([key, title]) => `
-          <div class="learning-narrative-block${key === "ideas" ? " ideas" : ""}">
+          <div class="learning-narrative-block${
+            key === "ideas" || key === "shadow_ideas" ? " ideas" : key === "shadow_learned" ? " shadow-policy" : ""
+          }">
             <h4>${title}</h4>
             <p>${escapeHtml(narrative[key])}</p>
           </div>`
@@ -1094,7 +1114,7 @@ function narrativeSearchBlob(entry) {
       formatted = ts;
     }
   }
-  return [ts, formatted, n.story, n.intro, n.ideas, n.learned, n.in_use, n.next_steps]
+  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.learned, n.in_use, n.next_steps]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

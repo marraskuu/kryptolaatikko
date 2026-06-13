@@ -36,7 +36,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas"):
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas"):
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
     return cleaned
@@ -441,6 +441,12 @@ def build_learning_report(
     changes = _compute_changes(previous_snapshot, snapshot)
     roadmap = _roadmap_progress(learning, ml)
 
+    shadow_policy = None
+    if bot_state:
+        from .daily_policy_shadow import build_gemini_context
+
+        shadow_policy = build_gemini_context(bot_state)
+
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     last_ms = 0
     if last_narrative_at:
@@ -456,6 +462,7 @@ def build_learning_report(
         "changes": changes,
         "roadmap": roadmap,
         "snapshot": snapshot,
+        "shadowPolicy": shadow_policy,
         "narrative": narrative,
         "lastNarrativeAt": last_narrative_at,
         "nextNarrativeInSec": next_narrative,
@@ -713,6 +720,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
                 previous_snapshot=state.get("learningReportSnapshot"),
                 narrative=state.get("learningNarrative"),
                 last_narrative_at=state.get("lastLearningNarrativeAt"),
+                bot_state=state,
             )
             merged["narrativePending"] = False
             merged["narrativeError"] = state["learningNarrativeError"]

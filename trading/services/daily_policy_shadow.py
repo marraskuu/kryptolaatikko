@@ -471,6 +471,51 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_gemini_context(state: dict[str, Any]) -> dict[str, Any]:
+    """Rikas konteksti Gemini-kertomusta varten."""
+    api = build_api_summary(state)
+    summary = api.get("summary") or {}
+    events = []
+    for ev in (api.get("recentEvents") or [])[:6]:
+        events.append(
+            {
+                "type": ev.get("type"),
+                "symbol": ev.get("symbol"),
+                "wouldBlock": ev.get("wouldBlock"),
+                "blockReason": ev.get("blockReason"),
+                "counterfactualEur": ev.get("counterfactualEur"),
+                "profitLoss": ev.get("profitLoss"),
+                "estEur": ev.get("estEur"),
+                "reason": (ev.get("reason") or "")[:80],
+            }
+        )
+    return {
+        "note": (
+            "Varjopolitiikka pyörii rinnalla live-bottia — simuloi päivästopia, "
+            "profit lockia ja aggressiivista tilaa. EI vaikuta oikeisiin kauppoihin."
+        ),
+        "todayPnlPct": api.get("todayPnlPct"),
+        "todayPnlEur": api.get("todayPnlEur"),
+        "policy": api.get("policy"),
+        "summary": {
+            "tradesLogged": summary.get("tradesLogged"),
+            "netCounterfactualEur": summary.get("netCounterfactualEur"),
+            "buysWouldBlock": summary.get("buysWouldBlock"),
+            "sellsWouldBlock": summary.get("sellsWouldBlock"),
+            "buyBlockEur": summary.get("buyBlockEur"),
+            "sellBlockCounterfactualEur": summary.get("sellBlockCounterfactualEur"),
+            "blockedBuyCounterfactualEur": summary.get("blockedBuyCounterfactualEur"),
+            "profitTakeShadowSignals": summary.get("profitTakeShadowSignals"),
+            "profitTakeShadowEurEst": summary.get("profitTakeShadowEurEst"),
+            "daysTracked": summary.get("daysTracked"),
+        },
+        "thresholds": api.get("thresholds"),
+        "hints": api.get("hints"),
+        "recentDays": api.get("recentDays"),
+        "recentEvents": events,
+    }
+
+
 def learning_report_lines(state: dict[str, Any]) -> list[str]:
     api = build_api_summary(state)
     summary = api.get("summary") or {}

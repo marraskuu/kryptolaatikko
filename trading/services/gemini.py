@@ -1171,6 +1171,7 @@ def generate_learning_narrative(
     sections_text = json.dumps(structured_report.get("sections") or [], ensure_ascii=False)
     changes_text = json.dumps(structured_report.get("changes") or [], ensure_ascii=False)
     roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
+    shadow_text = json.dumps(structured_report.get("shadowPolicy") or {}, ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
     prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
@@ -1182,15 +1183,21 @@ TÄRKEÄÄ:
 - Perustu vain annettuun dataan — älä keksi kauppoja tai lukuja.
 - "story" = pääteksti: luettava kertomus 3–5 kappaletta (ei luetteloa).
 - "ideas" = erillinen lyhyt kappale: 1–2 ehdotusta ihmiselle — EI vielä käytössä bottiin.
+- "shadow_learned" = vapaamuotoinen 1–2 kappaletta: mitä Varjopolitiikka-testidata kertoo (counterfactual, päivästop, profit lock). Jos dataa < 5 kauppaa, kerro rehellisesti että keruu jatkuu.
+- "shadow_ideas" = 1 kappale: konkreettiset ehdotukset miten varjopolitiikan dataa voisi hyödyntää kun näytteitä kertyy — EI vielä käytössä live-botissa.
 
-Sisällytä kertomukseen:
+Sisällytä kertomukseen (story):
 1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
 2) Miten oppia jo hyödynnetään käytännössä (rotaatio, estot, suosikit)
 3) Mitä odotetaan seuraavaksi (roadmap)
 4) Rehellinen arvio: missä dataa on vielä vähän
+5) Lyhyt maininta varjopolitiikasta jos dataa on — viittaa shadow_learned-kenttään
 
 Oppimisdata:
 {sections_text}
+
+Varjopolitiikka (testidata — rinnalla pyörivä simulaatio, EI live):
+{shadow_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
@@ -1208,7 +1215,9 @@ Vastaa VAIN validilla JSON:lla:
   "learned": "Lyhyt bullet-lista uusista oivalluksista (valinnainen, \\\\n)",
   "in_use": "Lyhyt bullet-lista: mitä jo tehdään eri tavalla (valinnainen, \\\\n)",
   "next_steps": "Mitä aktivoituu kun dataa kertyy (1–2 lausetta)",
-  "ideas": "Ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
+  "shadow_learned": "Varjopolitiikka: mitä testidata opettaa (1–2 kappaletta, vapaamuoto)",
+  "shadow_ideas": "Varjopolitiikka: hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
     api_key = _read_api_key()
@@ -1229,6 +1238,8 @@ Vastaa VAIN validilla JSON:lla:
                 "learned": str(parsed.get("learned") or "").strip(),
                 "in_use": str(parsed.get("in_use") or "").strip(),
                 "next_steps": str(parsed.get("next_steps") or "").strip(),
+                "shadow_learned": str(parsed.get("shadow_learned") or "").strip(),
+                "shadow_ideas": str(parsed.get("shadow_ideas") or "").strip(),
                 "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,
