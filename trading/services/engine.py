@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,7 @@ from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, ensure
 from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
+from .daily_policy_shadow import record_cycle, record_executed_trade, record_profit_take_shadow, shadow_profit_take_config
 from .trade_meta import meta_from_analysis
 from . import market_learning
 from .portfolio import Portfolio
@@ -105,10 +107,43 @@ def _profit_take_config(state: dict[str, Any], regime: str) -> dict[str, Any]:
     return cfg
 
 
-def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dict[str, Any]]:
+def _log_shadow_trade(
+    state: dict[str, Any],
+    flags: dict[str, Any],
+    *,
+    trade_type: str,
+    symbol: str,
+    eur_amount: float,
+    reason: str,
+    portfolio: Portfolio,
+    price: float | None = None,
+    amount: float | None = None,
+) -> None:
+    profit_loss = None
+    if trade_type == "sell" and portfolio.trades:
+        profit_loss = portfolio.trades[0].get("profitLoss")
+    record_executed_trade(
+        state,
+        trade_type=trade_type,
+        symbol=symbol,
+        eur_amount=eur_amount,
+        reason=reason,
+        flags=flags,
+        profit_loss=profit_loss,
+        price=price,
+        amount=amount,
+    )
+
+
+def _check_profit_sells(
+    state: dict[str, Any],
+    portfolio: Portfolio,
+    shadow_flags: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     executed: list[dict[str, Any]] = []
     regime = (state.get("regime") or {}).get("regime", "neutral")
     pt_cfg = _profit_take_config(state, regime)
+    shadow_cfg = shadow_profit_take_config(pt_cfg, shadow_flags or {})
     for symbol, holding in list(portfolio.holdings.items()):
         ticker = state["tickers"].get(symbol)
         if not ticker:
@@ -123,6 +158,24 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
             atr_pct=atr_pct,
             profit_take_config=pt_cfg,
         )
+        if shadow_flags:
+            shadow_watches = deepcopy(state["watches"])
+            shadow_result = update_profit_sell(
+                shadow_watches,
+                symbol,
+                ticker["last"],
+                holding["avgPrice"],
+                atr_pct=atr_pct,
+                profit_take_config=shadow_cfg,
+            )
+            record_profit_take_shadow(
+                state,
+                symbol=symbol,
+                actual=result,
+                shadow=shadow_result,
+                holding_amount=holding["amount"],
+                price=float(ticker["last"]),
+            )
         state["profitWatch"][symbol] = result
 
         if result["shouldSell"]:
@@ -143,6 +196,18 @@ def _check_profit_sells(state: dict[str, Any], portfolio: Portfolio) -> list[dic
                 ),
             )
             log_ai_event(state, "sell", get_crypto_label(symbol), result["reason"], eur_total)
+            if shadow_flags:
+                _log_shadow_trade(
+                    state,
+                    shadow_flags,
+                    trade_type="sell",
+                    symbol=symbol,
+                    eur_amount=eur_total,
+                    reason=result["reason"],
+                    portfolio=portfolio,
+                    price=float(ticker["last"]),
+                    amount=sell_amount,
+                )
             executed.append(
                 {
                     "type": "sell",
@@ -183,7 +248,16 @@ def refresh_prices() -> dict[str, Any]:
 
         if state.get("running", True):
             portfolio = Portfolio(state["portfolio"])
-            _check_profit_sells(state, portfolio)
+            total_value = portfolio.get_total_value(state["tickers"])
+            regime = (state.get("regime") or {}).get("regime", "neutral")
+            learning = state.get("learning") or {}
+            shadow_flags = record_cycle(
+                state,
+                total_value=total_value,
+                regime=regime,
+                learning=learning,
+            )
+            _check_profit_sells(state, portfolio, shadow_flags=shadow_flags)
 
             report = state.get("lastAIReport")
             if report:
@@ -334,7 +408,14 @@ def execute_trading_cycle() -> dict[str, Any]:
             logger.warning("Market learning apply failed", exc_info=True)
 
         portfolio = Portfolio(state["portfolio"])
-        profit_sells = _check_profit_sells(state, portfolio)
+        total_value = portfolio.get_total_value(state["tickers"])
+        shadow_flags = record_cycle(
+            state,
+            total_value=total_value,
+            regime=regime,
+            learning=learning,
+        )
+        profit_sells = _check_profit_sells(state, portfolio, shadow_flags=shadow_flags)
 
         total_value = portfolio.get_total_value(state["tickers"])
         gemini_picks = (gemini_insights or {}).get("top_picks") if gemini_insights else None
@@ -384,6 +465,22 @@ def execute_trading_cycle() -> dict[str, Any]:
                 symbol = item["symbol"]
                 label = get_crypto_label(symbol)
                 eur_amount = item.get("eurAmount")
+                trade = next(
+                    (t for t in portfolio.trades if t.get("type") == "buy" and t.get("symbol") == symbol),
+                    None,
+                )
+                if trade:
+                    _log_shadow_trade(
+                        state,
+                        shadow_flags,
+                        trade_type="buy",
+                        symbol=symbol,
+                        eur_amount=float(trade.get("eurTotal") or eur_amount or 0),
+                        reason=trade.get("reason") or "",
+                        portfolio=portfolio,
+                        price=float(trade.get("price") or 0),
+                        amount=float(trade.get("amount") or 0),
+                    )
                 reason = format_initial_buy_reason(
                     item["analysis"],
                     label,
@@ -414,6 +511,17 @@ def execute_trading_cycle() -> dict[str, Any]:
                 meta=meta_from_analysis(analysis, regime, for_sell=True),
             )
             log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+            _log_shadow_trade(
+                state,
+                shadow_flags,
+                trade_type="sell",
+                symbol=d["symbol"],
+                eur_amount=float(d.get("eurAmount") or 0),
+                reason=d["reason"],
+                portfolio=portfolio,
+                price=float(analysis["currentPrice"]),
+                amount=float(d.get("amount") or 0),
+            )
             executed_sells.append(
                 {
                     "symbol": d["symbol"],
@@ -435,6 +543,17 @@ def execute_trading_cycle() -> dict[str, Any]:
             )
             if ok:
                 log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+                _log_shadow_trade(
+                    state,
+                    shadow_flags,
+                    trade_type="buy",
+                    symbol=d["symbol"],
+                    eur_amount=float(d.get("eurAmount") or 0),
+                    reason=d["reason"],
+                    portfolio=portfolio,
+                    price=float(analysis["currentPrice"]),
+                    amount=float(d.get("amount") or 0),
+                )
                 executed_buys.append(
                     {
                         "symbol": d["symbol"],

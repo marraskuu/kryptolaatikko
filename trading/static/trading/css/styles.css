@@ -232,6 +232,16 @@ h1 {
   width: 100%;
 }
 
+.stats-row-shadow {
+  grid-template-columns: 1fr;
+  margin-bottom: 20px;
+}
+
+.shadow-policy-card {
+  border-style: dashed;
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
 /* Vanha stats-grid (tuotanto ennen uutta HTML:ää) — 5 laatikkoa täysleveäksi */
 .stats-grid {
   display: grid;

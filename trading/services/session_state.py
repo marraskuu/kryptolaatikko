@@ -202,4 +202,11 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
         "geminiNarrativeHistory": build_gemini_narrative_history(state),
         "geminiPickTracking": gemini_pick_tracking,
         "botStartedAt": state.get("botStartedAt"),
+        "dailyPolicyShadow": _build_daily_policy_shadow(state),
     }
+
+
+def _build_daily_policy_shadow(state: dict[str, Any]) -> dict[str, Any]:
+    from .daily_policy_shadow import build_api_summary
+
+    return build_api_summary(state)

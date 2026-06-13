@@ -62,6 +62,14 @@
         <span class="stat-change stat-subline stat-uptime" id="stat-uptime">—</span>
       </div>
       </div>
+      <div class="stats-row stats-row-shadow">
+        <div class="stat-card shadow-policy-card">
+          <span class="stat-label">Varjopolitiikka (testidata)</span>
+          <span class="stat-value" id="shadow-today-pnl">—</span>
+          <span class="stat-change neutral" id="shadow-policy-flags">Kerätään dataa…</span>
+          <span class="stat-change neutral stat-subline" id="shadow-counterfactual">Arvioitu ero vs. nykyinen: —</span>
+        </div>
+      </div>
       <div class="stat-card winloss-card">
         <span class="stat-label">Myyntien tulos — vain realisoidut</span>
         <p class="winloss-note" id="wl-pnl-split">Avoimet positiot: — · Kaikki myynnit: —</p>
@@ -209,6 +217,6 @@
     </div>
   </div>
 
-  <script src="{% static 'trading/js/app.js' %}?v=17"></script>
+  <script src="{% static 'trading/js/app.js' %}?v=18"></script>
 </body>
 </html>

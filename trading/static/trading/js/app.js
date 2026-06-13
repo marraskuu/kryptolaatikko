@@ -206,6 +206,7 @@ function applyPayload(data) {
     marketLearning: data.marketLearning ?? state.marketLearning,
     geminiPickTracking: data.geminiPickTracking ?? state.geminiPickTracking,
     geminiNarrativeHistory: data.geminiNarrativeHistory ?? state.geminiNarrativeHistory ?? [],
+    dailyPolicyShadow: data.dailyPolicyShadow ?? state.dailyPolicyShadow,
     botStartedAt: data.botStartedAt ?? state.botStartedAt,
     lastTradeAt: data.lastTradeAt ?? state.lastTradeAt,
     tradeIntervalSec: data.tradeIntervalSec ?? state.tradeIntervalSec,
@@ -308,6 +309,9 @@ const els = {
   geminiNarrativeCount: document.getElementById("gemini-narrative-count"),
   geminiNarrativeList: document.getElementById("gemini-narrative-list"),
   geminiNarrativeDetail: document.getElementById("gemini-narrative-detail"),
+  shadowTodayPnl: document.getElementById("shadow-today-pnl"),
+  shadowPolicyFlags: document.getElementById("shadow-policy-flags"),
+  shadowCounterfactual: document.getElementById("shadow-counterfactual"),
   errorBanner: document.getElementById("error-banner"),
 };
 
@@ -416,6 +420,7 @@ function renderAll(lastUpdate) {
   renderNextCountdown();
   renderUptime();
   renderStats();
+  renderShadowPolicy();
   renderMarketList();
   renderPortfolio();
   renderTradeLog();
@@ -430,6 +435,51 @@ function renderAll(lastUpdate) {
   }
   if (els.headerRegime) {
     els.headerRegime.innerHTML = renderLearningChips();
+  }
+}
+
+function renderShadowPolicy() {
+  if (!els.shadowTodayPnl) return;
+  const shadow = state.dailyPolicyShadow;
+  if (!shadow?.enabled) {
+    els.shadowTodayPnl.textContent = "—";
+    els.shadowPolicyFlags.textContent = "Ei dataa";
+    els.shadowCounterfactual.textContent = "Arvioitu ero vs. nykyinen: —";
+    return;
+  }
+
+  const pnlPct = shadow.todayPnlPct;
+  const pnlEur = shadow.todayPnlEur;
+  if (pnlPct != null && pnlEur != null) {
+    const sign = pnlEur >= 0 ? "+" : "";
+    els.shadowTodayPnl.textContent = `${sign}${formatEur(pnlEur).replace("€", "").trim()} € (${formatPct(pnlPct)})`;
+    els.shadowTodayPnl.className = `stat-value ${pnlEur >= 0 ? "positive" : pnlEur < 0 ? "negative" : ""}`;
+  } else {
+    els.shadowTodayPnl.textContent = "Tänään —";
+    els.shadowTodayPnl.className = "stat-value";
+  }
+
+  const policy = shadow.policy || {};
+  const flags = [];
+  if (policy.dailyStopActive) flags.push("päivästop");
+  if (policy.profitLockTier === "soft") flags.push("profit lock +0,5 %");
+  if (policy.profitLockTier === "firm") flags.push("profit lock +1 %");
+  if (policy.aggressiveEligible) flags.push("aggressiivinen sallittu");
+  els.shadowPolicyFlags.textContent = flags.length
+    ? flags.join(" · ")
+    : "Normaali tila (ei rajoituksia)";
+
+  const summary = shadow.summary || {};
+  const net = summary.netCounterfactualEur;
+  const trades = summary.tradesLogged ?? 0;
+  const days = summary.daysTracked ?? 0;
+  if (trades < 3) {
+    els.shadowCounterfactual.textContent = `Kerätään dataa (${trades} kauppaa)`;
+  } else if (net != null) {
+    const sign = net >= 0 ? "+" : "";
+    els.shadowCounterfactual.textContent = `Arvioitu ero vs. nykyinen: ${sign}${net.toFixed(2)} € (${trades} kauppaa, ${days} pv)`;
+  } else {
+    els.shadowCounterfactual.textContent = "Arvioitu ero vs. nykyinen: —";
   }
 }
 

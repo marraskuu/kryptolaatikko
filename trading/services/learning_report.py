@@ -295,6 +295,7 @@ def build_learning_report(
     previous_snapshot: dict[str, Any] | None = None,
     narrative: dict[str, Any] | None = None,
     last_narrative_at: str | None = None,
+    bot_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Rule-pohjainen oppimisraportti — rakennetaan 6 h välein."""
     ml = market_learning or {}
@@ -343,6 +344,20 @@ def build_learning_report(
     if not trade_lines:
         trade_lines.append("Oppiminen kerää vielä kauppadataa")
     sections.append({"id": "trades", "icon": "🧠", "title": "Kauppojen oppiminen", "lines": trade_lines})
+
+    if bot_state:
+        from .daily_policy_shadow import learning_report_lines
+
+        shadow_lines = learning_report_lines(bot_state)
+        if shadow_lines:
+            sections.append(
+                {
+                    "id": "shadow_policy",
+                    "icon": "🧪",
+                    "title": "Varjopolitiikka (testidata)",
+                    "lines": shadow_lines,
+                }
+            )
 
     conf_lines = _gemini_conf_lines(learning)
     sections.append(
@@ -599,6 +614,7 @@ def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:
             previous_snapshot=state.get("learningReportSnapshot"),
             narrative=state.get("learningNarrative"),
             last_narrative_at=state.get("lastLearningNarrativeAt"),
+            bot_state=state,
         )
         state["lastLearningReportAt"] = report["timestamp"]
 
