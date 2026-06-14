@@ -154,9 +154,31 @@ h1 {
 
 .header-regime {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.header-regime .learning-note-chip {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.header-regime .learning-chip-row {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.header-regime .learning-chip-row .metric-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  line-height: 1.25;
 }
 
 .header-regime:empty {

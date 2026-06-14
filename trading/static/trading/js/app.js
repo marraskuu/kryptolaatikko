@@ -1144,7 +1144,7 @@ function renderRegimeAnticipationChip() {
     .filter(Boolean)
     .join("\n");
 
-  return `<span class="metric-chip regime-chip regime-anticipation ${cls}" title="${escapeHtml(title)}">↻ ${escapeHtml(label)}</span>`;
+  return `<span class="metric-chip ${cls}" title="${escapeHtml(title)}">↻ ${escapeHtml(label)}</span>`;
 }
 
 function renderMarketLearningChip() {
@@ -1164,10 +1164,13 @@ function renderLearningChips() {
   const regime = state.regime;
   const learning = state.learning;
   if (!learning && !state.marketLearning && !regime?.regime) return "";
-  let html = renderRegimeAnticipationChip();
+
+  let noteHtml = "";
   if (learning?.note) {
-    html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
+    noteHtml = `<span class="metric-chip learning-note-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
+
+  let chips = "";
   const gemTagged = learning?.gemini_confidence_tagged || 0;
   const gemTaggedBuys = learning?.gemini_confidence_tagged_buys || 0;
   const gemTaggedSells = learning?.gemini_confidence_tagged_sells || 0;
@@ -1179,17 +1182,17 @@ function renderLearningChips() {
         ([conf, s]) =>
           `${conf}/10: ${s.trades} kpl, ${s.expectancy_eur >= 0 ? "+" : ""}${s.expectancy_eur} €/kauppa`
       );
-    html += `<span class="metric-chip" title="${lines.join("\n")}">🔮 Gemini-conf</span>`;
+    chips += `<span class="metric-chip" title="${lines.join("\n")}">🔮 Gemini-conf</span>`;
   } else if (gemTagged > 0 || gemTaggedBuys > 0 || gemTaggedSells > 0) {
-    html += `<span class="metric-chip" title="Gemini-confidence-oppiminen">🔮 Conf ${gemTagged}/6 (O${gemTaggedBuys}/M${gemTaggedSells})</span>`;
+    chips += `<span class="metric-chip" title="Gemini-confidence-oppiminen">🔮 Conf ${gemTagged}/6 (O${gemTaggedBuys}/M${gemTaggedSells})</span>`;
   }
   const activeRegime = regime?.regime;
   if (activeRegime && learning?.regime_tuning?.[activeRegime]) {
-    html += `<span class="metric-chip" title="Regiimikohtainen säätö aktiivisessa markkinassa">🎯 ${activeRegime}</span>`;
+    chips += `<span class="metric-chip" title="Regiimikohtainen säätö aktiivisessa markkinassa">🎯 ${activeRegime}</span>`;
   }
   const ownSetups = learning?.setup_memory ? Object.keys(learning.setup_memory).length : 0;
   if (ownSetups > 0) {
-    html += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
+    chips += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
   }
   const gpt = state.geminiPickTracking;
   const gpStats = gpt?.stats;
@@ -1204,11 +1207,14 @@ function renderLearningChips() {
     ]
       .filter(Boolean)
       .join("\n");
-    html += `<span class="metric-chip" title="${escapeHtml(title)}">🎯 Gemini ${gpStats.win_rate_pct}%</span>`;
+    chips += `<span class="metric-chip" title="${escapeHtml(title)}">🎯 Gemini ${gpStats.win_rate_pct}%</span>`;
   } else if (gpt?.current?.pick_outcomes?.length) {
-    html += `<span class="metric-chip" title="Seurataan edellisen Geminin pickien tuottoa">🎯 Gemini seuraa</span>`;
+    chips += `<span class="metric-chip" title="Seurataan edellisen Geminin pickien tuottoa">🎯 Gemini seuraa</span>`;
   }
-  return html;
+  chips += renderRegimeAnticipationChip();
+
+  const rowHtml = chips ? `<div class="learning-chip-row">${chips}</div>` : "";
+  return noteHtml + rowHtml;
 }
 
 function formatDurationSec(sec) {
