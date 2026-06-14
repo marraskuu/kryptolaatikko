@@ -1173,6 +1173,7 @@ def generate_learning_narrative(
     roadmap_text = json.dumps(structured_report.get("roadmap") or [], ensure_ascii=False)
     shadow_text = json.dumps(structured_report.get("shadowPolicy") or {}, ensure_ascii=False)
     micro_text = json.dumps(structured_report.get("microstructureLearning") or {}, ensure_ascii=False)
+    exit_text = json.dumps(structured_report.get("exitPeakLearning") or {}, ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
     prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
@@ -1188,6 +1189,8 @@ TÄRKEÄÄ:
 - "shadow_ideas" = 1 kappale: konkreettiset ehdotukset miten varjopolitiikan dataa voisi hyödyntää kun näytteitä kertyy — EI vielä käytössä live-botissa.
 - "micro_learned" = 1–2 kappaletta: miten Bitfinex order book (ostopaine/myyntipaine, spread) ja long/short crowd -dataa on hyödynnetty — missä signaalit johtivat onnistuneisiin tai epäonnistuneisiin kauppoihin. Jos closedTradesWithMicro on 0, kerro että keruu alkaa uusista ostoista.
 - "micro_ideas" = 1 kappale: konkreettiset ehdotukset microstructure-datan tarkempaan hyödyntämiseen — EI vielä käytössä bottiin.
+- "exit_learned" = 1–2 kappaletta: miten huippumyynti toimii (RSI/MTF/book-trailing, giveback ennen myyntiä, exit-setup-oppiminen). Kerro mitä data sanoo: myytiinkö liian myöhään (korkea giveback) vai liian aikaisin (paljon jäi pöydälle). Jos closedExitsWithMeta on 0, kerro että dynaaminen trailing on käytössä ja oppiminen alkaa seuraavista voitto-otoista.
+- "exit_ideas" = 1 kappale: konkreettiset ehdotukset huippumyynnin tarkempaan oppimiseen — EI vielä käytössä bottiin (vain exit_learned kuvaa jo käytössä olevaa).
 
 Sisällytä kertomukseen (story):
 1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
@@ -1196,6 +1199,7 @@ Sisällytä kertomukseen (story):
 4) Rehellinen arvio: missä dataa on vielä vähän
 5) Lyhyt maininta varjopolitiikasta jos dataa on — viittaa shadow_learned-kenttään
 6) Lyhyt maininta order book & crowd -signaaleista jos dataa on — viittaa micro_learned-kenttään
+7) Lyhyt maininta huippumyynnistä jos dataa on — viittaa exit_learned-kenttään
 
 Oppimisdata:
 {sections_text}
@@ -1205,6 +1209,9 @@ Varjopolitiikka (testidata — rinnalla pyörivä simulaatio, EI live):
 
 Order book & crowd (Bitfinex microstructure — käytössä live-botissa):
 {micro_text}
+
+Huippumyynti (voitto-otto lähellä huippua — käytössä live-botissa):
+{exit_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
@@ -1226,6 +1233,8 @@ Vastaa VAIN validilla JSON:lla:
   "shadow_ideas": "Varjopolitiikka: hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "micro_learned": "Order book & crowd: miten signaaleja hyödynnetään ja miten ne on onnistuneet/epäonnistuneet (1–2 kappaletta)",
   "micro_ideas": "Order book & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "exit_learned": "Huippumyynti: miten voitto-otto lähellä huippua toimii ja mitä exit-setup-data opettaa (1–2 kappaletta)",
+  "exit_ideas": "Huippumyynti: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
@@ -1251,6 +1260,8 @@ Vastaa VAIN validilla JSON:lla:
                 "shadow_ideas": str(parsed.get("shadow_ideas") or "").strip(),
                 "micro_learned": str(parsed.get("micro_learned") or "").strip(),
                 "micro_ideas": str(parsed.get("micro_ideas") or "").strip(),
+                "exit_learned": str(parsed.get("exit_learned") or "").strip(),
+                "exit_ideas": str(parsed.get("exit_ideas") or "").strip(),
                 "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,

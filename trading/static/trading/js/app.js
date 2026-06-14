@@ -1233,6 +1233,22 @@ function buildNarrativeContentHtml(narrative) {
           </div>`
             : ""
         }
+        ${
+          narrative.exit_learned
+            ? `<div class="learning-narrative-block exit-peak">
+            <h4>Huippumyynti — mitä data opettaa</h4>
+            <p>${escapeHtml(narrative.exit_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.exit_ideas
+            ? `<div class="learning-narrative-block exit-peak ideas">
+            <h4>Huippumyynti — hyödyntämisehdotukset (ei vielä käytössä)</h4>
+            <p>${escapeHtml(narrative.exit_ideas)}</p>
+          </div>`
+            : ""
+        }
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
@@ -1244,6 +1260,8 @@ function buildNarrativeContentHtml(narrative) {
       ["shadow_ideas", "Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)"],
       ["micro_learned", "Order book & crowd — mitä data opettaa"],
       ["micro_ideas", "Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)"],
+      ["exit_learned", "Huippumyynti — mitä data opettaa"],
+      ["exit_ideas", "Huippumyynti — hyödyntämisehdotukset (ei vielä käytössä)"],
       ["ideas", "Ideat (ei vielä käytössä)"],
     ];
     return `
@@ -1254,13 +1272,15 @@ function buildNarrativeContentHtml(narrative) {
           .map(
             ([key, title]) => `
           <div class="learning-narrative-block${
-            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas"
+            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas"
               ? " ideas"
               : key === "shadow_learned"
                 ? " shadow-policy"
                 : key === "micro_learned"
                   ? " microstructure"
-                  : ""
+                  : key === "exit_learned"
+                    ? " exit-peak"
+                    : ""
           }">
             <h4>${title}</h4>
             <p>${escapeHtml(narrative[key])}</p>
@@ -1294,7 +1314,7 @@ function narrativeSearchBlob(entry) {
       formatted = ts;
     }
   }
-  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.learned, n.in_use, n.next_steps]
+  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.exit_learned, n.exit_ideas, n.learned, n.in_use, n.next_steps]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

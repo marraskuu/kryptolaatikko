@@ -1275,6 +1275,19 @@ h1 {
   color: var(--yellow);
 }
 
+.learning-narrative-block.exit-peak {
+  border-top: 1px dashed rgba(251, 191, 36, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.exit-peak h4 {
+  color: #fcd34d;
+}
+
+.learning-narrative-block.exit-peak.ideas h4 {
+  color: var(--yellow);
+}
+
 .learning-narrative-block.ideas h4 {
   color: var(--yellow);
 }

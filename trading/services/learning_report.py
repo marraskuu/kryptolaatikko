@@ -36,7 +36,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas"):
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas"):
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
     return cleaned
@@ -377,6 +377,24 @@ def build_learning_report(
                 }
             )
 
+        from .exit_learning import build_gemini_context as build_exit_context, learning_report_lines as exit_lines
+
+        exit_ctx = build_exit_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
+        exit_report_lines = exit_lines(exit_ctx)
+        if exit_report_lines:
+            sections.append(
+                {
+                    "id": "exit_peak",
+                    "icon": "⛰️",
+                    "title": "Huippumyynti",
+                    "lines": exit_report_lines,
+                }
+            )
+
     conf_lines = _gemini_conf_lines(learning)
     sections.append(
         {"id": "gemini_conf", "icon": "🔮", "title": "Gemini-confidence", "lines": conf_lines}
@@ -461,6 +479,7 @@ def build_learning_report(
 
     shadow_policy = None
     microstructure_learning = None
+    exit_peak_learning = None
     if bot_state:
         from .daily_policy_shadow import build_gemini_context
 
@@ -468,6 +487,13 @@ def build_learning_report(
         from .market_microstructure import build_gemini_context as build_micro_context
 
         microstructure_learning = build_micro_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
+        from .exit_learning import build_gemini_context as build_exit_context
+
+        exit_peak_learning = build_exit_context(
             portfolio,
             learning=learning,
             bot_state=bot_state,
@@ -490,6 +516,7 @@ def build_learning_report(
         "snapshot": snapshot,
         "shadowPolicy": shadow_policy,
         "microstructureLearning": microstructure_learning,
+        "exitPeakLearning": exit_peak_learning,
         "narrative": narrative,
         "lastNarrativeAt": last_narrative_at,
         "nextNarrativeInSec": next_narrative,

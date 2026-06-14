@@ -274,3 +274,171 @@ def get_summary() -> dict[str, Any]:
         "setupsTracked": len(stats),
         "topSetups": top[:6],
     }
+
+
+def _is_profit_take_sell(trade: dict[str, Any]) -> bool:
+    reason = (trade.get("reason") or "").lower()
+    return trade.get("type") == "sell" and (
+        "huipusta" in reason
+        or "realisoidaan voitto" in reason
+        or "kotiut" in reason
+        or trade.get("exitSetup") is not None
+        or trade.get("givebackPct") is not None
+    )
+
+
+def _closed_exit_trades(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    linked: list[dict[str, Any]] = []
+    for trade in trades:
+        if trade.get("type") != "sell" or not _is_profit_take_sell(trade):
+            continue
+        linked.append(
+            {
+                "symbol": trade.get("symbol"),
+                "net_eur": round(
+                    float(trade.get("profitLoss") or 0) - float(trade.get("fee") or 0),
+                    2,
+                ),
+                "profit_pct_at_sell": trade.get("profitPctAtSell"),
+                "giveback_pct": trade.get("givebackPct"),
+                "exit_setup": trade.get("exitSetup"),
+                "rsi": trade.get("rsi"),
+                "mtf_align": trade.get("mtfAlign"),
+                "book_bucket": trade.get("bookBucket"),
+                "crowd_bucket": trade.get("crowdBucket"),
+                "regime": trade.get("regime"),
+            }
+        )
+    return linked
+
+
+def build_gemini_context(
+    portfolio: dict[str, Any],
+    learning: dict[str, Any] | None = None,
+    bot_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Konteksti Geminin oppimiskertomukseen — huippumyynti ja exit-setup-oppiminen."""
+    learning = learning or {}
+    bot_state = bot_state or {}
+    trades = portfolio.get("trades") or []
+    linked = _closed_exit_trades(trades)
+    summary = get_summary()
+    store = _load()
+    stats = store.get("stats") or {}
+    exit_state = bot_state.get("exitLearning") or learning.get("exit_learning") or {}
+
+    total_net = round(sum(x["net_eur"] for x in linked), 2)
+    wins = sum(1 for x in linked if x["net_eur"] > 0.01)
+    losses = sum(1 for x in linked if x["net_eur"] < -0.01)
+    with_meta = sum(1 for x in linked if x.get("exit_setup") or x.get("giveback_pct") is not None)
+    avg_giveback = None
+    givebacks = [float(x["giveback_pct"]) for x in linked if x.get("giveback_pct") is not None]
+    if givebacks:
+        avg_giveback = round(sum(givebacks) / len(givebacks), 2)
+
+    by_rsi: dict[str, dict[str, float]] = {}
+    for item in linked:
+        setup = item.get("exit_setup") or ""
+        rsi_token = setup.split("|")[3] if setup.startswith("exit|") and len(setup.split("|")) > 3 else "rsi_md"
+        bucket = by_rsi.setdefault(rsi_token, {"n": 0.0, "giveback_sum": 0.0, "left_sum": 0.0})
+        bucket["n"] += 1.0
+        if item.get("giveback_pct") is not None:
+            bucket["giveback_sum"] += float(item["giveback_pct"])
+
+    setup_stats: list[dict[str, Any]] = []
+    for key, st in stats.items():
+        n = float(st.get("n") or 0)
+        if n < MIN_SAMPLES_LIGHT:
+            continue
+        setup_stats.append(
+            {
+                "setup": key,
+                "samples": int(n),
+                "avg_giveback_pct": round(float(st.get("giveback_sum") or 0) / n, 2),
+                "avg_left_on_table_pct": round(float(st.get("left_sum") or 0) / n, 2),
+            }
+        )
+    setup_stats.sort(key=lambda x: (-x["samples"], -x["avg_giveback_pct"]))
+
+    examples: list[dict[str, Any]] = []
+    for item in sorted(linked, key=lambda x: float(x.get("giveback_pct") or 0))[:3]:
+        if item.get("giveback_pct") is None:
+            continue
+        examples.append({**item, "type": "early_or_tight"})
+    for item in sorted(linked, key=lambda x: float(x.get("giveback_pct") or 0), reverse=True)[:3]:
+        if item.get("giveback_pct") is None:
+            continue
+        examples.append({**item, "type": "late_or_gave_back"})
+
+    return {
+        "enabled": True,
+        "usage": {
+            "dynamicSignals": [
+                "RSI ≥ 72 → lyhyempi tasaantumisodotus + tiukempi trailing",
+                "MTF negatiivinen → arming heti",
+                "Order book bk- → tiukempi trailing",
+                "Crowd crL → nopeampi reagointi",
+                "Nopea lasku ≥ 0,5 % huipusta 15 min sisällä → myy heti",
+                "Exit-setup-oppiminen (BotState pk=4) säätää trailingia datan perusteella",
+            ],
+            "fieldsOnSell": ["exitSetup", "givebackPct", "peakPriceAtSell", "profitPctAtSell"],
+        },
+        "operational": {
+            "pendingEvaluations": int(exit_state.get("pending") or summary.get("pending") or 0),
+            "setupsTracked": int(exit_state.get("setupsTracked") or summary.get("setupsTracked") or 0),
+            "setupsReady": int(exit_state.get("setupsReady") or 0),
+            "totalSamples": int(exit_state.get("totalSamples") or 0),
+        },
+        "closedExitsWithMeta": with_meta,
+        "closedExitsTotal": len(linked),
+        "closedExitsNetEur": total_net,
+        "closedExitsWinRate": round(wins / len(linked), 2) if linked else None,
+        "closedExitsWins": wins,
+        "closedExitsLosses": losses,
+        "avgGivebackPctAtSell": avg_giveback,
+        "learnedExitSetups": setup_stats[:6],
+        "topSetupsFromSummary": summary.get("topSetups") or [],
+        "examples": examples[:6],
+    }
+
+
+def learning_report_lines(context: dict[str, Any]) -> list[str]:
+    """Rule-pohjaiset rivit oppimisraportin korttiin."""
+    if not context.get("enabled"):
+        return ["Huippumyynti-oppiminen pois päältä"]
+
+    lines: list[str] = []
+    op = context.get("operational") or {}
+    pending = int(op.get("pendingEvaluations") or 0)
+    tracked = int(op.get("setupsTracked") or 0)
+    ready = int(op.get("setupsReady") or 0)
+    if tracked:
+        lines.append(f"Exit-setuppeja: {ready}/{tracked} valmiina · {pending} odottaa arviointia")
+    else:
+        lines.append("Huippumyynti-oppiminen kerää dataa voitto-otoista")
+
+    n = int(context.get("closedExitsTotal") or 0)
+    meta_n = int(context.get("closedExitsWithMeta") or 0)
+    if n == 0:
+        lines.append("Ei vielä voitto-ottomyyntejä — dynaaminen trailing aktiivinen RSI/MTF/book-signaaleilla")
+        return lines
+
+    net = context.get("closedExitsNetEur")
+    wr = context.get("closedExitsWinRate")
+    lines.append(
+        f"Voitto-otot: {n} kpl · netto {net:+.2f} €"
+        + (f" · win rate {wr * 100:.0f} %" if wr is not None else "")
+    )
+    if meta_n:
+        lines.append(f"Exit-metalla: {meta_n} kpl")
+    avg_gb = context.get("avgGivebackPctAtSell")
+    if avg_gb is not None:
+        lines.append(f"Keskimääräinen giveback myynnissä: {avg_gb:.2f} % huipusta")
+
+    for item in (context.get("learnedExitSetups") or [])[:2]:
+        lines.append(
+            f"{item['setup']}: giveback {item['avg_giveback_pct']:.2f} % · "
+            f"jäi pöydälle {item['avg_left_on_table_pct']:.2f} % (n={item['samples']})"
+        )
+
+    return lines
