@@ -1093,6 +1093,60 @@ function renderRegimeChip() {
   return `<span class="metric-chip regime-chip ${r.cls}" title="${escapeHtml(title)}">${r.label}${phase}${strength}${btc}${breadth}</span>`;
 }
 
+function renderRegimeAnticipationChip() {
+  const regime = state.regime;
+  if (!regime?.regime) return "";
+
+  const shiftLabels = {
+    bull: "nousevaan",
+    bear: "laskevaan",
+    neutral: "neutraaliin",
+  };
+  const phaseLabels = {
+    bull_entering: "Käännös nousevaan",
+    bull_emerging: "Kääntymässä nousevaan",
+    bear_entering: "Käännös laskevaan",
+    bear_emerging: "Kääntymässä laskevaan",
+    neutral_entering: "Tasaantumassa",
+    neutral_emerging: "Kääntymässä neutraaliin",
+  };
+
+  const phase = regime.phase;
+  const current = regime.regime;
+  const shift = regime.shift_to;
+  const strength = regime.shift_strength;
+  const emerging =
+    phase && phase !== current
+      ? phaseLabels[phase]
+      : shift && shift !== current
+        ? `→ ${shiftLabels[shift] || shift}`
+        : "";
+
+  if (!emerging && (!strength || strength === "none")) return "";
+
+  const strengthFi =
+    strength === "strong" ? "vahva" : strength === "moderate" ? "kohtalainen" : strength === "weak" ? "heikko" : "";
+  const label = emerging + (strengthFi ? ` (${strengthFi})` : "");
+  const cls =
+    shift === "bull" || phase?.startsWith("bull")
+      ? "up"
+      : shift === "bear" || phase?.startsWith("bear")
+        ? "down"
+        : "neutral";
+  const title = [
+    `Nyt: ${current}`,
+    regime.transition ? `Siirtymä: ${regime.transition}` : "",
+    regime.signal_margin != null
+      ? `Signaalimarginaali: ${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}`
+      : "",
+    shift ? `Ennakoidaan: ${shiftLabels[shift] || shift}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `<span class="metric-chip regime-chip regime-anticipation ${cls}" title="${escapeHtml(title)}">↻ ${escapeHtml(label)}</span>`;
+}
+
 function renderMarketLearningChip() {
   const ml = state.marketLearning;
   if (!ml || (!ml.bucketsLearned && !ml.bucketsTracked)) return "";
@@ -1109,8 +1163,8 @@ function renderMarketLearningChip() {
 function renderLearningChips() {
   const regime = state.regime;
   const learning = state.learning;
-  if (!learning && !state.marketLearning) return "";
-  let html = "";
+  if (!learning && !state.marketLearning && !regime?.regime) return "";
+  let html = renderRegimeAnticipationChip();
   if (learning?.note) {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
