@@ -59,6 +59,31 @@ function formatPct(value) {
   return `${sign}${value.toFixed(2)} %`;
 }
 
+function formatMarketTimeframeChanges(analysis, ticker) {
+  const change24 = ticker?.changePct ?? 0;
+  const change1h = analysis?.change1hPct;
+  const has1h = Number.isFinite(change1h);
+  const change24Class = change24 >= 0 ? "up" : "down";
+  const change1hClass = has1h && change1h >= 0 ? "up" : "down";
+
+  const parts = [];
+  if (has1h) {
+    parts.push(
+      `<span class="${change1hClass}" title="1 h markkinamuutos (kynttilädata)">1h ${formatPct(change1h)}</span>`
+    );
+  }
+  parts.push(
+    `<span class="${change24Class}" title="24 h markkinamuutos (Bitfinex)">24h ${formatPct(change24)}</span>`
+  );
+
+  return {
+    change24Class,
+    change24Label: formatPct(change24),
+    subHtml: parts.join('<span class="market-pct-sep"> · </span>'),
+    has1h,
+  };
+}
+
 function formatTime(isoOrDate) {
   const date = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
   return date.toLocaleTimeString("fi-FI", {
@@ -786,13 +811,14 @@ function renderMarketList() {
       const sym = normalizeSymbol(symbol);
       const label = getCryptoLabel(sym);
       const analysis = state.analyses[sym] || state.analyses[symbol];
-      const change24Class = (ticker.changePct ?? 0) >= 0 ? "up" : "down";
+      const marketChanges = formatMarketTimeframeChanges(analysis, ticker);
+      const change24Class = marketChanges.change24Class;
       const isHeld = heldSet.has(sym);
       const isTarget = !isHeld && targetSet.has(sym);
       const watch = state.profitWatch[sym] || state.profitWatch[symbol];
       const signal = analysis?.action === "buy" ? "▲" : analysis?.action === "sell" ? "▼" : "●";
       const positionPct = isHeld ? getPositionPct(sym) : null;
-      const change24Label = formatPct(ticker.changePct ?? 0);
+      const change24Label = marketChanges.change24Label;
       const holdingDuration = isHeld ? formatHoldingDuration(sym) : "";
       const holdingDurationSuffix = holdingDuration ? ` — ${holdingDuration}` : "";
 
@@ -802,13 +828,13 @@ function renderMarketList() {
         changeHtml = `
           <div class="market-change-stack">
             <span class="market-pct-pill ${pnlClass}" title="Voitto/tappio ostohintaan">P/L ${formatPct(positionPct)}</span>
-            <span class="market-pct-sub ${change24Class}" title="24 h markkinamuutos">24h ${change24Label}</span>
+            <span class="market-pct-sub market-pct-times">${marketChanges.subHtml}</span>
           </div>`;
       } else {
         changeHtml = `
           <div class="market-change-stack">
             <span class="market-pct-pill ${change24Class}" title="24 h markkinamuutos">${change24Label}</span>
-            <span class="market-pct-sub ${change24Class}">24h</span>
+            <span class="market-pct-sub market-pct-times">${marketChanges.subHtml}</span>
           </div>`;
       }
 

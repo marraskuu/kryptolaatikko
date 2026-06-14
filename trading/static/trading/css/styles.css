@@ -813,6 +813,19 @@ h1 {
   color: var(--red);
 }
 
+.market-pct-times {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 2px;
+  line-height: 1.35;
+}
+
+.market-pct-sep {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .market-row-change.up {
   color: var(--green);
 }
