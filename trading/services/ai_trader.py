@@ -41,6 +41,30 @@ REGIME_STOP_PROFILES: dict[str, dict[str, float]] = {
     "neutral": {"atr_mult": 1.5, "floor": -1.5, "cap": -8.0},
     "bear": {"atr_mult": 1.15, "floor": -1.15, "cap": -5.5},
 }
+# Tasapainotus (yli tavoitteen): regiimi + ennakointivaihe.
+REBALANCE_MIN_PROFIT_PCT: dict[str, float] = {
+    "bull": 0.5,
+    "bull_entering": 0.35,
+    "bull_emerging": 0.35,
+    "neutral": 0.0,
+    "neutral_entering": 0.15,
+    "neutral_emerging": 0.15,
+    "bear": 0.25,
+    "bear_entering": 0.0,
+    "bear_emerging": 0.1,
+}
+# Voitto-otto (oletus, kun ei oppimisdataa): phase → trigger/partial scale.
+REGIME_PROFIT_TAKE_SCALES: dict[str, dict[str, float]] = {
+    "bull_entering": {"trigger_scale": 0.86, "partial_trigger_scale": 0.84},
+    "bull_emerging": {"trigger_scale": 0.9, "partial_trigger_scale": 0.88},
+    "bull": {"trigger_scale": 0.95, "partial_trigger_scale": 0.95},
+    "neutral_entering": {"trigger_scale": 0.9, "partial_trigger_scale": 0.9},
+    "neutral_emerging": {"trigger_scale": 0.92, "partial_trigger_scale": 0.91},
+    "neutral": {"trigger_scale": 0.92, "partial_trigger_scale": 0.92},
+    "bear_entering": {"trigger_scale": 0.82, "partial_trigger_scale": 0.8},
+    "bear_emerging": {"trigger_scale": 0.85, "partial_trigger_scale": 0.86},
+    "bear": {"trigger_scale": 0.88, "partial_trigger_scale": 0.9},
+}
 ROUND_TRIP_COST_PCT = 0.0    # Bitfinex: ei kaupankäyntikuluja
 
 # 1: Etuviisas rotaatio — kuluja ei enää ole, mutta vältetään silti turha
@@ -498,7 +522,168 @@ def compute_market_regime(
         "btc_change_24h_pct": round(btc_24h, 2),
         "btc_change_4h_pct": round(btc_4h, 2) if btc_4h is not None else None,
         "breadth_up_pct": round(breadth * 100, 1),
+        "bull_signals": bull_signals,
+        "bear_signals": bear_signals,
     }
+
+
+def _shift_strength(
+    margin: int,
+    *,
+    toward: str,
+    prev_margin: int | None = None,
+) -> str:
+    """Heikkous/moderate/strong signaalimarginaalin ja momentin mukaan."""
+    abs_m = abs(margin)
+    if toward == "bull":
+        strong = margin >= 2
+        moderate = margin >= 1
+    elif toward == "bear":
+        strong = margin <= -2
+        moderate = margin <= -1
+    else:
+        strong = abs_m <= 0
+        moderate = abs_m <= 1
+
+    if prev_margin is not None:
+        delta = margin - prev_margin
+        if toward == "bull" and delta >= 2:
+            moderate = True
+            strong = strong or delta >= 3
+        elif toward == "bear" and delta <= -2:
+            moderate = True
+            strong = strong or delta <= -3
+
+    if strong:
+        return "strong"
+    if moderate:
+        return "moderate"
+    return "weak"
+
+
+def enrich_regime_phase(
+    regime_info: dict[str, Any],
+    prev_regime: str | None,
+    prev_signal_margin: int | None = None,
+) -> dict[str, Any]:
+    """Ennakoi siirtymää bull/neutral/bear -suuntaan ennen virallista regiimivaihtoa."""
+    regime = str(regime_info.get("regime", "neutral"))
+    bull_s = int(regime_info.get("bull_signals") or 0)
+    bear_s = int(regime_info.get("bear_signals") or 0)
+    margin = bull_s - bear_s
+    btc_24h = float(regime_info.get("btc_change_24h_pct") or 0)
+    btc_4h = regime_info.get("btc_change_4h_pct")
+    btc_4h_f = float(btc_4h) if btc_4h is not None else None
+
+    phase = regime
+    transition = None
+    shift_to = regime
+    shift_strength = "none"
+
+    if prev_regime and prev_regime != regime:
+        phase = f"{regime}_entering"
+        transition = f"{prev_regime}_to_{regime}"
+        shift_to = regime
+        shift_strength = "strong"
+    elif regime in ("bear", "neutral") and margin >= 1:
+        if btc_24h > -0.5 and (btc_4h_f is None or btc_4h_f > 0):
+            phase = "bull_emerging"
+            shift_to = "bull"
+            shift_strength = _shift_strength(
+                margin, toward="bull", prev_margin=prev_signal_margin
+            )
+            if prev_regime == "bear":
+                transition = "bear_toward_bull"
+    elif regime in ("bull", "neutral") and margin <= -1:
+        if btc_24h < 0.5 and (btc_4h_f is None or btc_4h_f < 0):
+            phase = "bear_emerging"
+            shift_to = "bear"
+            shift_strength = _shift_strength(
+                margin, toward="bear", prev_margin=prev_signal_margin
+            )
+            if prev_regime == "bull":
+                transition = "bull_toward_bear"
+    elif regime == "bull" and margin <= 0:
+        if btc_4h_f is not None and btc_4h_f <= 0.25:
+            phase = "neutral_emerging"
+            shift_to = "neutral"
+            shift_strength = _shift_strength(
+                margin, toward="neutral", prev_margin=prev_signal_margin
+            )
+            transition = "bull_toward_neutral"
+    elif regime == "bear" and margin >= 0:
+        if btc_4h_f is not None and btc_4h_f >= -0.25:
+            phase = "neutral_emerging"
+            shift_to = "neutral"
+            shift_strength = _shift_strength(
+                margin, toward="neutral", prev_margin=prev_signal_margin
+            )
+            transition = "bear_toward_neutral"
+    elif regime == "neutral" and abs(margin) <= 0 and bull_s == bear_s:
+        shift_to = "neutral"
+        shift_strength = "weak"
+
+    regime_info["phase"] = phase
+    regime_info["transition"] = transition
+    regime_info["shift_to"] = shift_to
+    regime_info["shift_strength"] = shift_strength
+    regime_info["signal_margin"] = margin
+    return regime_info
+
+
+def anticipated_regime_key(regime_info: dict[str, Any] | str) -> str:
+    """Ostot/oppiminen: ennakoidun shift_to-suunnan säännöt."""
+    if isinstance(regime_info, str):
+        return regime_info
+    phase = str(regime_info.get("phase") or regime_info.get("regime", "neutral"))
+    shift = regime_info.get("shift_to")
+    strength = regime_info.get("shift_strength", "none")
+    current = str(regime_info.get("regime", "neutral"))
+
+    if phase.endswith("_entering") and shift:
+        return str(shift)
+    if phase.endswith("_emerging") and shift and strength in ("moderate", "strong", "weak"):
+        return str(shift)
+    return current
+
+
+def risk_regime_key(regime_info: dict[str, Any] | str) -> str:
+    """Stop-loss / defenssi: karhu-ennakko aktivoituu aikaisemmin kuin ostoaggressio."""
+    if isinstance(regime_info, str):
+        return regime_info
+    phase = str(regime_info.get("phase") or "")
+    shift = regime_info.get("shift_to")
+    strength = regime_info.get("shift_strength", "none")
+    current = str(regime_info.get("regime", "neutral"))
+
+    if current == "bear" or phase == "bear_entering":
+        return "bear"
+    if phase == "bear_emerging" and shift == "bear":
+        return "bear" if strength in ("moderate", "strong") else "neutral"
+    if phase == "neutral_emerging" and current == "bull":
+        return "neutral"
+    return current
+
+
+def entry_regime_key(regime_info: dict[str, Any] | str) -> str:
+    """Osto-/Gemini-sääntöihin (ennakoitu suunta)."""
+    return anticipated_regime_key(regime_info)
+
+
+def profit_take_phase_key(regime_info: dict[str, Any] | str) -> str:
+    """Voitto-otto: phase ensin, sitten virallinen regiimi."""
+    if isinstance(regime_info, str):
+        return regime_info
+    return str(regime_info.get("phase") or regime_info.get("regime", "neutral"))
+
+
+def rebalance_phase_key(regime_info: dict[str, Any] | str | None) -> str:
+    """Tasapainotuksen minimivoitto-kynnys."""
+    if isinstance(regime_info, str):
+        return regime_info
+    if not regime_info:
+        return "neutral"
+    return str(regime_info.get("phase") or regime_info.get("regime", "neutral"))
 
 
 def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
@@ -1471,6 +1656,19 @@ def _rotation_trim_allowed(profit_pct: float) -> bool:
     return profit_pct <= STAGNANT_MIN_LOSS_PCT
 
 
+def _rebalance_sell_allowed(
+    profit_pct: float,
+    regime: str,
+    regime_info: dict[str, Any] | None = None,
+) -> bool:
+    """Tasapainotus vain kun voitto ≥ regiimin/vaiheen kynnys."""
+    phase_key = rebalance_phase_key(regime_info if regime_info else regime)
+    floor = REBALANCE_MIN_PROFIT_PCT.get(
+        phase_key, REBALANCE_MIN_PROFIT_PCT.get(regime, 0.0)
+    )
+    return profit_pct >= floor
+
+
 def _rotation_sell_amount(
     holding_amount: float,
     profit_pct: float,
@@ -1531,6 +1729,7 @@ def _deploy_cash_to_targets(
     *,
     blocked_setups: set[str] | None = None,
     regime: str = "neutral",
+    regime_info: dict[str, Any] | None = None,
     buy_scale: float = 1.0,
     gemini_insights: dict[str, Any] | None = None,
     gemini_conf_scales: dict[Any, float] | None = None,
@@ -1575,7 +1774,10 @@ def _deploy_cash_to_targets(
         norm = normalize_symbol(symbol)
 
         if norm in normalized_targets or symbol in target_symbols:
+            profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
             if not entry_volume_ok(analysis):
+                if not _rebalance_sell_allowed(profit_pct, regime, regime_info):
+                    continue
                 sell_amount = amount * ROTATION_TRIM_FRACTION
                 _append_sell_decision(
                     decisions,
@@ -1588,14 +1790,20 @@ def _deploy_cash_to_targets(
                 continue
             target = _target_holding_value(symbol, total_value, weights)
             excess = current_value - target
-            if excess >= MIN_TRADE_EUR:
+            if excess >= MIN_TRADE_EUR and _rebalance_sell_allowed(
+                profit_pct, regime, regime_info
+            ):
                 sell_amount = min(amount, excess / price)
+                phase = rebalance_phase_key(regime_info or regime)
+                phase_note = ""
+                if phase in ("bull_entering", "bull_emerging", "bull"):
+                    phase_note = f" · {phase.replace('_', ' ')} ≥{REBALANCE_MIN_PROFIT_PCT.get(phase, 0):.2f} %"
                 _append_sell_decision(
                     decisions,
                     symbol,
                     sell_amount,
                     price,
-                    f"Tasapainotus — yli tavoitteen ({excess:.0f} €)",
+                    f"Tasapainotus — yli tavoitteen ({excess:.0f} €){phase_note}",
                     analysis,
                 )
         elif target_symbols:
@@ -1870,6 +2078,7 @@ def make_trading_decisions(
     gemini_picks: list[str] | None = None,
     regime: str = "neutral",
     learning: dict[str, Any] | None = None,
+    regime_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     holdings = portfolio_data["holdings"]
     cash = portfolio_data["cash"]
@@ -1877,7 +2086,10 @@ def make_trading_decisions(
     from .learning import merge_regime_tuning
     from .market_learning import setup_key_for_analysis
 
-    learning = merge_regime_tuning(learning, regime)
+    entry_regime = entry_regime_key(regime_info if regime_info else regime)
+    risk_regime = risk_regime_key(regime_info if regime_info else regime)
+    defense_regime = risk_regime
+    learning = merge_regime_tuning(learning, entry_regime)
     rotation_scale = float(learning.get("rotation_scale", 1.0))
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
@@ -1911,7 +2123,7 @@ def make_trading_decisions(
             analysis if analysis is not None else analyses.get(sym),
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
-            regime=regime,
+            regime=entry_regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
             gemini_conf_scales=gemini_conf_scales,
@@ -1953,7 +2165,7 @@ def make_trading_decisions(
     buyable = [
         r
         for r in ranked
-        if _entry_ok(r["analysis"], regime)
+        if _entry_ok(r["analysis"], entry_regime)
         and entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
         and not buy_blocked(r["symbol"], r["analysis"])
@@ -2234,7 +2446,7 @@ def make_trading_decisions(
 
         stop_pct = dynamic_stop_pct(
             analysis,
-            regime,
+            risk_regime,
             learning.get("stop_tuning"),
         )
         if profit_pct <= stop_pct:
@@ -2244,14 +2456,14 @@ def make_trading_decisions(
                     "symbol": symbol,
                     "amount": holding["amount"],
                     "eurAmount": holding_value,
-                    "reason": format_stop_loss_reason(profit_pct, stop_pct, regime),
+                    "reason": format_stop_loss_reason(profit_pct, stop_pct, defense_regime),
                     "analysis": analysis,
                 }
             )
             continue
 
         age_h = _holding_age_hours(holding.get("openedAt"))
-        if regime != "bull" and profit_pct < STAGNANT_MAX_PROFIT_PCT:
+        if defense_regime != "bull" and profit_pct < STAGNANT_MAX_PROFIT_PCT:
             stuck_sell_amt = _fifo_time_stop_sell_amount(
                 symbol,
                 holding["amount"],
@@ -2324,7 +2536,7 @@ def make_trading_decisions(
         gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
-        stagnant_h = _stagnant_hours(regime)
+        stagnant_h = _stagnant_hours(defense_regime)
         sell_amt = _fifo_time_stop_sell_amount(
             symbol,
             holding["amount"],
@@ -2343,13 +2555,13 @@ def make_trading_decisions(
             aikastoppi_ready = (
                 profit_pct < STAGNANT_MAX_PROFIT_PCT
                 and profit_pct <= STAGNANT_MIN_LOSS_PCT
-                and regime != "bull"
+                and defense_regime != "bull"
                 and change_24h <= 0
             )
             if aikastoppi_ready and _market_stagnant_exit(
                 profit_pct,
                 age_h,
-                regime,
+                defense_regime,
                 analysis,
                 fifo_stuck_amount=sell_amt,
                 oldest_stuck_age_h=oldest_stuck_h,
@@ -2601,6 +2813,7 @@ def make_trading_decisions(
             concentration_trim=concentration_trim,
             blocked_setups=blocked_setups,
             regime=regime,
+            regime_info=regime_info,
             buy_scale=effective_buy_scale,
             gemini_insights=gemini_insights,
             gemini_conf_scales=gemini_conf_scales,

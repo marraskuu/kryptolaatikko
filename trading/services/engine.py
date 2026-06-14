@@ -12,6 +12,7 @@ from .ai_trader import (
     build_decision_report,
     build_deep_analysis,
     compute_market_regime,
+    enrich_regime_phase,
     DEEP_ANALYSIS_TIME_BUDGET_SEC,
     enrich_display_timeframes,
     enrich_analyses_for_gemini,
@@ -94,19 +95,27 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
 
 
 def _profit_take_config(state: dict[str, Any], regime: str) -> dict[str, Any]:
+    from .ai_trader import (
+        REGIME_PROFIT_TAKE_SCALES,
+        entry_regime_key,
+        profit_take_phase_key,
+    )
     from .learning import merge_regime_tuning
     from .sell_strategy import default_profit_take_config
 
-    learning = merge_regime_tuning(state.get("learning") or {}, regime)
+    regime_info = state.get("regime") or {}
+    phase_key = profit_take_phase_key(
+        regime_info if regime_info.get("regime") else regime
+    )
+    tuning_regime = entry_regime_key(regime_info if regime_info.get("regime") else regime)
+    learning = merge_regime_tuning(state.get("learning") or {}, tuning_regime)
     cfg = dict(learning.get("profit_take_tuning") or {})
     if cfg.get("level", "off") == "off":
         cfg = default_profit_take_config()
-        if regime == "bear":
-            cfg.update({"trigger_scale": 0.88, "partial_trigger_scale": 0.9})
-        elif regime == "neutral":
-            cfg.update({"trigger_scale": 0.92, "partial_trigger_scale": 0.92})
-        else:
-            cfg.update({"trigger_scale": 0.95, "partial_trigger_scale": 0.95})
+        scales = REGIME_PROFIT_TAKE_SCALES.get(phase_key) or REGIME_PROFIT_TAKE_SCALES.get(
+            regime, REGIME_PROFIT_TAKE_SCALES["neutral"]
+        )
+        cfg.update(scales)
     return cfg
 
 
@@ -354,6 +363,10 @@ def execute_trading_cycle() -> dict[str, Any]:
 
         # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
         regime_info = compute_market_regime(state["tickers"], state["analyses"])
+        prev_info = state.get("regime") or {}
+        prev_regime = prev_info.get("regime")
+        prev_margin = prev_info.get("signal_margin")
+        regime_info = enrich_regime_phase(regime_info, prev_regime, prev_margin)
         regime = regime_info["regime"]
         state["regime"] = regime_info
         learning = compute_tuning(
@@ -513,6 +526,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             gemini_picks=gemini_picks,
             regime=regime,
             learning=learning,
+            regime_info=regime_info,
         )
         decisions = decision_result["decisions"]
         state["activeSymbols"] = decision_result.get("topSymbols", [])

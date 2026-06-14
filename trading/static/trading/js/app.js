@@ -1043,15 +1043,54 @@ function renderAIEventLog() {
 function renderRegimeChip() {
   const regime = state.regime;
   if (!regime?.regime) return "";
+
   const regimeMap = {
     bull: { label: "Nouseva markkina", cls: "up" },
     bear: { label: "Laskeva markkina", cls: "down" },
     neutral: { label: "Neutraali markkina", cls: "neutral" },
   };
+  const shiftLabels = {
+    bull: "nousevaan",
+    bear: "laskevaan",
+    neutral: "neutraaliin",
+  };
+  const phaseLabels = {
+    bull_entering: " · käännös nousevaan",
+    bull_emerging: " · kääntymässä nousevaan",
+    bear_entering: " · käännös laskevaan",
+    bear_emerging: " · kääntymässä laskevaan",
+    neutral_entering: " · tasaantumassa",
+    neutral_emerging: " · kääntymässä neutraaliin",
+  };
+
   const r = regimeMap[regime.regime] || regimeMap.neutral;
-  const btc = regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
-  const breadth = regime.breadth_up_pct != null ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)` : "";
-  return `<span class="metric-chip regime-chip ${r.cls}">${r.label}${btc}${breadth}</span>`;
+  let phase = "";
+  if (regime.phase && regime.phase !== regime.regime) {
+    phase =
+      phaseLabels[regime.phase] ||
+      (regime.shift_to && regime.shift_to !== regime.regime
+        ? ` · → ${shiftLabels[regime.shift_to] || regime.shift_to}`
+        : "");
+  }
+  const strength =
+    regime.shift_strength && regime.shift_strength !== "none"
+      ? ` (${regime.shift_strength})`
+      : "";
+  const btc =
+    regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
+  const breadth =
+    regime.breadth_up_pct != null
+      ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)`
+      : "";
+  const title = [
+    regime.transition ? `Siirtymä: ${regime.transition}` : "",
+    regime.signal_margin != null ? `Signaalimarginaali: ${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}` : "",
+    regime.shift_to ? `Ennakoidaan: ${shiftLabels[regime.shift_to] || regime.shift_to}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `<span class="metric-chip regime-chip ${r.cls}" title="${escapeHtml(title)}">${r.label}${phase}${strength}${btc}${breadth}</span>`;
 }
 
 function renderMarketLearningChip() {
