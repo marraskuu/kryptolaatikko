@@ -13,6 +13,7 @@ from .ai_trader import (
     build_deep_analysis,
     compute_market_regime,
     DEEP_ANALYSIS_TIME_BUDGET_SEC,
+    enrich_display_timeframes,
     enrich_analyses_for_gemini,
     format_initial_buy_reason,
     make_trading_decisions,
@@ -344,6 +345,12 @@ def execute_trading_cycle() -> dict[str, Any]:
 
         _refresh_analyses(state)
         _enrich_holdings(state)
+        enrich_display_timeframes(
+            state["tickers"],
+            state["analyses"],
+            fetch_candles,
+            skip_symbols=set(state["portfolio"].get("holdings", {}).keys()),
+        )
 
         # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
         regime_info = compute_market_regime(state["tickers"], state["analyses"])

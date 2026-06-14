@@ -25,6 +25,8 @@ IDLE_CASH_MIN_EUR = 150
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
+MARKET_DISPLAY_ENRICH_LIMIT = int(os.environ.get("MARKET_DISPLAY_ENRICH_LIMIT", "15"))
+CANDLE_DISPLAY_LIMIT = 6
 DEEP_ANALYSIS_TIME_BUDGET_SEC = int(os.environ.get("DEEP_ANALYSIS_TIME_BUDGET_SEC", "45"))
 
 # A: ATR-pohjainen riski (tasapainoinen taso)
@@ -1040,6 +1042,63 @@ def symbols_for_deep_analysis(
         if len(result) >= limit:
             break
     return result
+
+
+def symbols_for_display_timeframes(
+    tickers: dict[str, dict[str, Any]],
+    limit: int = MARKET_DISPLAY_ENRICH_LIMIT,
+) -> list[str]:
+    """Markkinalistalle näkyvät top-volyymiparit (1h/4h UI:ta varten)."""
+    return [
+        s
+        for s in sorted(
+            [sym for sym in tickers if not is_stablecoin(sym)],
+            key=lambda sym: tickers[sym].get("volumeEur", 0),
+            reverse=True,
+        )[:limit]
+    ]
+
+
+def enrich_display_timeframes(
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    fetch_candles_fn: Callable[..., list[dict[str, Any]]],
+    *,
+    skip_symbols: set[str] | None = None,
+    limit: int = MARKET_DISPLAY_ENRICH_LIMIT,
+) -> None:
+    """Kevyt 1h/4h-päivitys markkinalistalle — vain muutama kynttilä per symboli."""
+    skip = skip_symbols or set()
+    deadline = time.time() + min(20, DEEP_ANALYSIS_TIME_BUDGET_SEC)
+    for symbol in symbols_for_display_timeframes(tickers, limit):
+        if time.time() >= deadline:
+            logger.warning(
+                "Display timeframe enrich budget exhausted — remaining symbols skipped"
+            )
+            break
+        if symbol in skip:
+            continue
+        ticker = tickers.get(symbol)
+        if not ticker:
+            continue
+        try:
+            candles = fetch_candles_fn(symbol, "1h", CANDLE_DISPLAY_LIMIT)
+            if len(candles) < 2:
+                continue
+            closes = [c["close"] for c in candles]
+            change_1h = calc_period_change_pct(closes, 1)
+            change_4h = calc_period_change_pct(closes, 4)
+            analysis = dict(analyses.get(symbol) or analyze_ticker_quick(ticker))
+            if change_1h is not None:
+                analysis["change1hPct"] = change_1h
+            if change_4h is not None:
+                analysis["change4hPct"] = change_4h
+            analysis["mtfAlign"] = _mtf_alignment(
+                change_1h, change_4h, ticker.get("changePct", 0)
+            )
+            analyses[symbol] = analysis
+        except Exception:
+            logger.warning("Display timeframe enrich failed for %s", symbol, exc_info=True)
 
 
 def enrich_analyses_for_gemini(
