@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ai_trader import MAX_POSITIONS
+from .bitfinex import normalize_symbol
 from .trade_meta import entry_meta_from_trade
 
 _GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
@@ -39,6 +40,7 @@ LOSS_COOLDOWN_SEC = 2 * 3600     # älä osta uudelleen 2 h sisällä tappiosta
 SYMBOL_MIN_TRADES = 2            # vähintään näin monta tulosta ennen säätöä
 SYMBOL_PENALTY_CAP = -4.0        # rankingin maksimirangaistus
 SYMBOL_BONUS_CAP = 3.0           # rankingin maksimibonus
+SYMBOL_SCORE_BLOCK = -2.0        # score_adjust ≤ tämä → estä uudet ostot
 CHRONIC_LOSER_LOSSES = 3         # 0 voittoa & näin monta tappiota → estä osto kokonaan
 MIN_SAMPLES_GEMINI_CONF = 2      # per confidence-taso (5–10)
 MIN_GEMINI_CONF_TAGGED = 6         # tagattuja Gemini-myyntejä ennen conf-oppimista
@@ -758,14 +760,28 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
 
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
+    score_blocked = [
+        normalize_symbol(s)
+        for s, m in memory.items()
+        if (m.get("score_adjust") or 0) <= SYMBOL_SCORE_BLOCK
+    ]
+    blocked = list(dict.fromkeys(normalize_symbol(s) for s in blocked + score_blocked))
     chronic = [s for s, m in memory.items() if m.get("chronic")]
     cooldown = [s for s, m in memory.items() if m["blocked"] and not m.get("chronic")]
+    score_blocked_unique = [s for s in score_blocked if s in blocked]
     losers = [s for s, m in memory.items() if m["score_adjust"] < 0]
     winners = [s for s, m in memory.items() if m["score_adjust"] > 0]
     if losers:
         notes.append(f"välttää {len(losers)} häviäjää")
     if chronic:
         notes.append(f"{len(chronic)} estetty (toistuva tappio)")
+    if score_blocked_unique:
+        labels = ", ".join(
+            s.replace("t", "").replace("USD", "").replace("UST", "")
+            for s in score_blocked_unique[:4]
+        )
+        suffix = f" (+{len(score_blocked_unique) - 4})" if len(score_blocked_unique) > 4 else ""
+        notes.append(f"{len(score_blocked_unique)} estetty score ≤ {SYMBOL_SCORE_BLOCK}: {labels}{suffix}")
     if cooldown:
         notes.append(f"{len(cooldown)} cooldownissa")
     if winners:

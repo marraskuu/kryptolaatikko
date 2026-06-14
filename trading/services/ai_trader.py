@@ -13,6 +13,7 @@ STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.0
 PROFIT_TAKE_TRIGGER_PCT = 2.0
 GEMINI_SELL_MIN_PROFIT_PCT = 0.5  # Gemini-myynti vain voitolla oleviin positioihin
+GEMINI_BUY_MIN_CONFIDENCE = 5     # Gemini-ostot vain ≥ tämä (kun Gemini aktiivinen)
 UPTREND_MIN_CHANGE_PCT = 0.3
 MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
@@ -498,6 +499,8 @@ def _is_buy_blocked(
     blocked_buys: set[str],
     blocked_setups: set[str],
     regime: str,
+    gemini_insights: dict[str, Any] | None = None,
+    gemini_active: bool = False,
 ) -> bool:
     if not analysis:
         return True
@@ -512,6 +515,13 @@ def _is_buy_blocked(
 
     if blocks_entry(analysis):
         return True
+    if not _gemini_buy_allowed(
+        symbol,
+        analysis,
+        gemini_insights,
+        gemini_active=gemini_active,
+    ):
+        return True
 
     return setup_key_for_analysis(analysis, regime) in blocked_setups
 
@@ -524,13 +534,63 @@ def _stagnant_hours(regime: str) -> float:
     return STAGNANT_HOURS_NEUTRAL
 
 
-def _position_stuck(profit_pct: float, age_h: float | None) -> bool:
-    """Positio ei tuota — myydään vaikka markkina nousisi (24h)."""
+def _position_stuck(profit_pct: float, age_h: float | None, regime: str = "neutral") -> bool:
+    """Positio ei tuota — bull-regiimissä ei pakko-myydä (annetaan nousta)."""
+    if regime == "bull":
+        return False
     return (
         age_h is not None
         and age_h >= STUCK_POSITION_HOURS
         and profit_pct < STAGNANT_MAX_PROFIT_PCT
     )
+
+
+def _gemini_signal_for(
+    gemini_insights: dict[str, Any] | None,
+    symbol: str,
+) -> dict[str, Any] | None:
+    if not gemini_insights:
+        return None
+    sym = normalize_symbol(symbol)
+    signals = gemini_insights.get("signals") or {}
+    if sym in signals:
+        return signals[sym]
+    for raw, sig in signals.items():
+        if normalize_symbol(str(raw)) == sym:
+            return sig
+    return None
+
+
+def _gemini_top_picks(gemini_insights: dict[str, Any] | None) -> set[str]:
+    if not gemini_insights:
+        return set()
+    return {
+        normalize_symbol(str(raw))
+        for raw in (gemini_insights.get("top_picks") or [])
+        if raw
+    }
+
+
+def _gemini_buy_allowed(
+    symbol: str,
+    analysis: dict[str, Any] | None,
+    gemini_insights: dict[str, Any] | None,
+    *,
+    gemini_active: bool,
+) -> bool:
+    """Kun Gemini ohjaa salkkua: osta vain top-pickit confidence ≥ GEMINI_BUY_MIN_CONFIDENCE."""
+    if not gemini_active:
+        return True
+    sym = normalize_symbol(symbol)
+    picks = _gemini_top_picks(gemini_insights)
+    if sym not in picks:
+        return False
+    sig = (analysis or {}).get("geminiSignal") or _gemini_signal_for(gemini_insights, sym)
+    if not sig:
+        return False
+    if sig.get("action") == "sell":
+        return False
+    return int(sig.get("confidence", 0)) >= GEMINI_BUY_MIN_CONFIDENCE
 
 
 def _market_stagnant_exit(
@@ -574,6 +634,11 @@ def _fast_loss_exit_reason(
         return (
             f"Symboli cooldownissa — täysi myynti {profit_pct:.1f} % "
             f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+        )
+    if (mem.get("score_adjust") or 0) <= -2.0:
+        return (
+            f"Tunnettu häviäjä (score {mem['score_adjust']:+.1f}) — "
+            f"täysi myynti {profit_pct:.1f} %"
         )
     if _is_buy_blocked(
         symbol,
@@ -928,6 +993,8 @@ def _symbols_for_idle_deploy(
     blocked_buys: set[str],
     blocked_setups: set[str],
     regime: str,
+    gemini_insights: dict[str, Any] | None = None,
+    gemini_active: bool = False,
 ) -> list[str]:
     symbols: list[str] = []
     seen: set[str] = set()
@@ -944,6 +1011,8 @@ def _symbols_for_idle_deploy(
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
             regime=regime,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
         ):
             continue
         symbols.append(sym)
@@ -1247,6 +1316,8 @@ def _deploy_cash_to_targets(
     blocked_setups: set[str] | None = None,
     regime: str = "neutral",
     buy_scale: float = 1.0,
+    gemini_insights: dict[str, Any] | None = None,
+    gemini_active: bool = False,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -1263,6 +1334,8 @@ def _deploy_cash_to_targets(
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
             regime=regime,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
         )
         and entry_eligible(analyses.get(s))
     ]
@@ -1477,12 +1550,17 @@ def _gemini_desired_symbols(
     result: list[str] = []
     for raw in gemini_insights.get("top_picks") or []:
         sym = normalize_symbol(str(raw))
-        if sym and sym not in seen and not is_stablecoin(sym):
-            seen.add(sym)
-            result.append(sym)
+        if not sym or sym in seen or is_stablecoin(sym):
+            continue
+        sig = _gemini_signal_for(gemini_insights, sym)
+        conf = int(sig.get("confidence", 0)) if sig else 0
+        if conf < GEMINI_BUY_MIN_CONFIDENCE or (sig and sig.get("action") == "sell"):
+            continue
+        seen.add(sym)
+        result.append(sym)
     if not result:
         for raw, signal in (gemini_insights.get("signals") or {}).items():
-            if signal.get("action") != "buy" or signal.get("confidence", 0) < 6:
+            if signal.get("action") != "buy" or signal.get("confidence", 0) < GEMINI_BUY_MIN_CONFIDENCE:
                 continue
             sym = normalize_symbol(str(raw))
             if sym and sym not in seen and not is_stablecoin(sym):
@@ -1560,6 +1638,18 @@ def make_trading_decisions(
     entry_score_min = int(learning.get("entry_score_min", 1))
     max_new_positions = max(1, int(learning.get("max_new_positions", MAX_POSITIONS)))
     setup_memory = learning.get("setup_memory") or {}
+    gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
+
+    def buy_blocked(sym: str, analysis: dict[str, Any] | None = None) -> bool:
+        return _is_buy_blocked(
+            sym,
+            analysis if analysis is not None else analyses.get(sym),
+            blocked_buys=blocked_buys,
+            blocked_setups=blocked_setups,
+            regime=regime,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
+        )
 
     def _mem_adjust(symbol: str) -> float:
         m = symbol_memory.get(symbol) or symbol_memory.get(normalize_symbol(symbol))
@@ -1599,13 +1689,7 @@ def make_trading_decisions(
         if _entry_ok(r["analysis"], regime)
         and entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
-        and not _is_buy_blocked(
-            r["symbol"],
-            r["analysis"],
-            blocked_buys=blocked_buys,
-            blocked_setups=blocked_setups,
-            regime=regime,
-        )
+        and not buy_blocked(r["symbol"], r["analysis"])
         and r["rank"] >= entry_score_min
     ]
     ranked_liquid = [
@@ -1613,18 +1697,11 @@ def make_trading_decisions(
         for r in ranked
         if entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
-        and not _is_buy_blocked(
-            r["symbol"],
-            r["analysis"],
-            blocked_buys=blocked_buys,
-            blocked_setups=blocked_setups,
-            regime=regime,
-        )
+        and not buy_blocked(r["symbol"], r["analysis"])
     ]
     ranked_buyable = buyable or ranked_liquid
 
     target_count = MAX_POSITIONS
-    gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
     desired = _gemini_desired_symbols(gemini_insights, analyses) if gemini_active else []
 
     if gemini_active and desired:
@@ -1644,13 +1721,7 @@ def make_trading_decisions(
     top_cryptos = [
         c
         for c in top_cryptos
-        if not _is_buy_blocked(
-            c["symbol"],
-            c.get("analysis"),
-            blocked_buys=blocked_buys,
-            blocked_setups=blocked_setups,
-            regime=regime,
-        )
+        if not buy_blocked(c["symbol"], c.get("analysis"))
     ]
 
     if not top_cryptos and gemini_picks:
@@ -1664,13 +1735,7 @@ def make_trading_decisions(
     top_cryptos = [
         c
         for c in top_cryptos
-        if not _is_buy_blocked(
-            c["symbol"],
-            c.get("analysis"),
-            blocked_buys=blocked_buys,
-            blocked_setups=blocked_setups,
-            regime=regime,
-        )
+        if not buy_blocked(c["symbol"], c.get("analysis"))
     ]
     if concentration_mode:
         logger.info("Concentration mode active: %s", concentration_reason)
@@ -1704,13 +1769,7 @@ def make_trading_decisions(
             picks = [
                 c
                 for c in picks
-                if not _is_buy_blocked(
-                    c["symbol"],
-                    c.get("analysis"),
-                    blocked_buys=blocked_buys,
-                    blocked_setups=blocked_setups,
-                    regime=regime,
-                )
+                if not buy_blocked(c["symbol"], c.get("analysis"))
             ]
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
@@ -1900,7 +1959,7 @@ def make_trading_decisions(
             continue
 
         age_h = _holding_age_hours(holding.get("openedAt"))
-        if _position_stuck(profit_pct, age_h):
+        if _position_stuck(profit_pct, age_h, regime):
             decisions.append(
                 {
                     "type": "sell",
@@ -2103,19 +2162,15 @@ def make_trading_decisions(
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
             regime=regime,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
         )
         if idle_symbols:
             focus_buyable = [
                 normalize_symbol(s)
                 for s in alloc_symbols
                 if entry_eligible(analyses.get(s))
-                and not _is_buy_blocked(
-                    s,
-                    analyses.get(s),
-                    blocked_buys=blocked_buys,
-                    blocked_setups=blocked_setups,
-                    regime=regime,
-                )
+                and not buy_blocked(s, analyses.get(s))
             ]
             if len(focus_buyable) < 1:
                 concentration_mode = False
@@ -2149,6 +2204,8 @@ def make_trading_decisions(
             blocked_setups=blocked_setups,
             regime=regime,
             buy_scale=buy_scale,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
         )
 
     for d in decisions:
@@ -2206,12 +2263,17 @@ def apply_gemini_insights(
 
     for symbol in insights.get("top_picks") or []:
         symbol = normalize_symbol(symbol)
-        if symbol in analyses and not is_stablecoin(symbol):
-            analyses[symbol]["score"] = analyses[symbol].get("score", 0) + 4
-            analyses[symbol]["reasons"] = ["Gemini: top-valinta"] + analyses[symbol].get(
-                "reasons", []
-            )
-            analyses[symbol]["geminiPick"] = True
+        if symbol not in analyses or is_stablecoin(symbol):
+            continue
+        sig = _gemini_signal_for(insights, symbol)
+        conf = int(sig.get("confidence", 0)) if sig else 0
+        if conf < GEMINI_BUY_MIN_CONFIDENCE or (sig and sig.get("action") == "sell"):
+            continue
+        analyses[symbol]["score"] = analyses[symbol].get("score", 0) + 4
+        analyses[symbol]["reasons"] = ["Gemini: top-valinta"] + analyses[symbol].get(
+            "reasons", []
+        )
+        analyses[symbol]["geminiPick"] = True
 
     for symbol, signal in (insights.get("signals") or {}).items():
         symbol = normalize_symbol(symbol)
@@ -2222,12 +2284,17 @@ def apply_gemini_insights(
         confidence = int(signal.get("confidence", 5))
         reason = signal.get("reason", "")
 
-        analysis["score"] = analysis.get("score", 0) + (confidence - 5) + (2 if action == "buy" else 0)
+        if confidence >= GEMINI_BUY_MIN_CONFIDENCE:
+            analysis["score"] = analysis.get("score", 0) + (confidence - 5) + (
+                2 if action == "buy" else 0
+            )
+        elif action == "buy":
+            analysis["score"] = analysis.get("score", 0) - 2
 
-        if confidence >= 6:
+        if confidence >= GEMINI_BUY_MIN_CONFIDENCE:
             if action == "buy":
                 analysis["action"] = "buy"
-            elif action == "sell":
+            elif confidence >= 6 and action == "sell":
                 analysis["action"] = "sell"
         elif confidence >= 5 and action == "sell":
             analysis["action"] = "sell"
