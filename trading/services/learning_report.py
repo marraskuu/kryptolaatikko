@@ -702,17 +702,28 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     if not cached:
         return False
     report = _merge_cached_learning_report(state, cached)
-    if _has_narrative_story(state, report):
-        return False
     if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
         return _narrative_pending_stale(state, report)
     if state.get("learningNarrativeError") or report.get("narrativeError"):
         return True
     last_ms = _last_narrative_ms(state)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    if last_ms and (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000:
+        return True
     if not last_ms:
         return True
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    return (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000
+    return not _has_narrative_story(state, report)
+
+
+def refresh_narrative_if_due(state: dict[str, Any]) -> dict[str, Any]:
+    """Päivitä vain Gemini-kertomus (rule-kortit pysyvät) kun 6 h täyttyy."""
+    cached = state.get("learningReport")
+    if not cached:
+        return refresh_learning_report_if_due(state)
+    report = _merge_cached_learning_report(state, cached)
+    report = maybe_refresh_narrative(state, report)
+    state["learningReport"] = report
+    return report
 
 
 def needs_learning_report_refresh(state: dict[str, Any]) -> bool:
@@ -922,10 +933,15 @@ def maybe_refresh_narrative(
         report["narrative"] = narrative
         report["lastNarrativeAt"] = last_at
         report["narrativeError"] = state.get("learningNarrativeError")
+        report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
         return report
 
     with _narrative_refresh_lock:
         already_running = _narrative_refresh_running
+        if already_running and due and not state.get("learningNarrativePendingSince"):
+            logger.warning("Gemini-kertomus: jumittunut lukko — nollataan")
+            _narrative_refresh_running = False
+            already_running = False
         if (pending_stale or retry_after_error) and already_running:
             logger.warning("Gemini-kertomus näyttää jumittuneen — yritetään uudelleen")
             _narrative_refresh_running = False
@@ -953,9 +969,13 @@ def maybe_refresh_narrative(
     elif retry_after_error or pending_stale:
         report["narrativePending"] = True
         report.pop("narrativeError", None)
+    elif already_running and due:
+        report["narrativePending"] = True
+        report.pop("narrativeError", None)
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
+    report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
     if report.get("narrativePending"):
         report.pop("narrativeError", None)
     elif state.get("learningNarrativeError"):

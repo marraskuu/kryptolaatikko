@@ -1590,8 +1590,15 @@ function renderLearningReportMeta(report) {
   } else {
     parts.push("Gemini odottaa seuraavaa kierrosta");
   }
-  if (next != null && next > 0 && !report.narrativePending) {
+  if (report.narrativePending) {
+    // countdown hidden while writing
+  } else if (next != null && next > 0) {
     parts.push(`seuraava kertomus ${formatDurationSec(next)} kuluttua`);
+  } else if (next === 0 && last) {
+    parts.push("seuraava kertomus nyt");
+  }
+  if (report.narrativeError) {
+    parts.push("Gemini-virhe — yritetään uudelleen");
   }
   els.learningReportMeta.textContent = parts.join(" · ");
 }

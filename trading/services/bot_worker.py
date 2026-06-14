@@ -45,18 +45,20 @@ def _refresh_learning_report_state() -> None:
     from .learning_report import (
         clear_stale_narrative_error,
         needs_learning_report_refresh,
+        needs_narrative_refresh,
         refresh_learning_report_if_due,
+        refresh_narrative_if_due,
     )
     from .state_store import load_state, save_state
 
     state = load_state()
     changed = clear_stale_narrative_error(state)
-    if not needs_learning_report_refresh(state):
-        if changed:
-            save_state(state)
-        return
-    refresh_learning_report_if_due(state)
-    save_state(state)
+    if needs_learning_report_refresh(state):
+        refresh_learning_report_if_due(state)
+        save_state(state)
+    elif needs_narrative_refresh(state) or changed:
+        refresh_narrative_if_due(state)
+        save_state(state)
 
 
 def _refresh_learning_report_async() -> None:
