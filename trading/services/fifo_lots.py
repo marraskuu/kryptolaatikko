@@ -71,3 +71,26 @@ def fifo_amount_older_than_hours(
         if age_h >= min_age_hours:
             total += float(lot.get("amount") or 0)
     return total
+
+
+def fifo_oldest_stuck_lot_age_hours(
+    symbol: str,
+    trades: list[dict[str, Any]],
+    min_age_hours: float,
+    *,
+    lots_cache: dict[str, list[dict[str, Any]]] | None = None,
+    now: datetime | None = None,
+) -> float | None:
+    """Vanhimman ≥ min_age_hours avoimen lotin ikä tunneissa."""
+    now = now or datetime.now(timezone.utc)
+    sym = normalize_symbol(symbol)
+    all_lots = lots_cache if lots_cache is not None else open_fifo_lots(trades)
+    oldest: float | None = None
+    for lot in all_lots.get(sym, []):
+        opened = lot.get("opened_at")
+        if opened is None:
+            continue
+        age_h = (now - opened).total_seconds() / 3600.0
+        if age_h >= min_age_hours:
+            oldest = age_h if oldest is None else max(oldest, age_h)
+    return oldest

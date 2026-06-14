@@ -49,6 +49,12 @@ ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
 
 # 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
 STUCK_POSITION_HOURS = 4.0       # positio ei liiku — myydään riippumatta markkinan 24h-noususta
+STUCK_DEFER_1H_MIN = 0.25          # lykää jumitusta jos 1h ≥ tämä ja 4h ok
+STUCK_DEFER_4H_MIN = 0.15
+STUCK_MAX_DEFER_HOURS = 6.0        # pakko-vapautus — ei pidä yli 6 h vaikka lyhytaikainen pomppu
+STUCK_FORCE_24H = -1.5             # heikko 24h → myy heti (ei lykätä)
+STUCK_FORCE_LOSS_PCT = -0.8          # selvä tappio → myy heti
+STUCK_FORCE_4H = -0.5                # 4h yhä laskussa → ei dead-cat -poikkeusta
 STAGNANT_HOURS_NEUTRAL = 4.0
 STAGNANT_HOURS_BEAR = 5.0
 STAGNANT_HOURS_BULL = 6.0
@@ -652,6 +658,7 @@ def _market_stagnant_exit(
     analysis: dict[str, Any],
     *,
     fifo_stuck_amount: float | None = None,
+    oldest_stuck_age_h: float | None = None,
 ) -> bool:
     """Heikko markkina + pitkä pito ilman voittoa — ei bull-regiimissä."""
     change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
@@ -661,13 +668,18 @@ def _market_stagnant_exit(
         aged_ok = age_h is not None and age_h >= stagnant_h
     else:
         aged_ok = aged > 1e-12
-    return (
+    if not (
         aged_ok
         and profit_pct < STAGNANT_MAX_PROFIT_PCT
-        and not _in_uptrend(analysis)
         and regime != "bull"
         and change_24h <= 0
-    )
+    ):
+        return False
+    if _stuck_release_forced(analysis, profit_pct, oldest_stuck_age_h):
+        return True
+    if _short_term_recovery_hold(analysis):
+        return False
+    return True
 
 
 def _fast_loss_exit_reason(
@@ -747,6 +759,63 @@ def _in_uptrend(analysis: dict[str, Any]) -> bool:
     if change is None:
         return False
     return change >= UPTREND_MIN_CHANGE_PCT
+
+
+def _stuck_release_forced(
+    analysis: dict[str, Any],
+    profit_pct: float,
+    oldest_stuck_age_h: float | None,
+) -> bool:
+    """Pakota vapautus kuolleesta kohteesta — ei lykätä lyhytaikaisen pompun takia."""
+    change_24h = float(analysis.get("changePct") or analysis.get("momentum") or 0)
+    if profit_pct <= STUCK_FORCE_LOSS_PCT:
+        return True
+    if change_24h <= STUCK_FORCE_24H:
+        return True
+    ch4 = analysis.get("change4hPct")
+    if ch4 is not None and float(ch4) <= STUCK_FORCE_4H:
+        return True
+    if oldest_stuck_age_h is not None and oldest_stuck_age_h >= STUCK_MAX_DEFER_HOURS:
+        return True
+    mtf = analysis.get("mtfAlign")
+    if mtf is not None and int(mtf) <= -1 and change_24h <= 0:
+        return True
+    return False
+
+
+def _short_term_recovery_hold(analysis: dict[str, Any]) -> bool:
+    """Lyhyen aikavälin elpyminen — lykää jumitusta / aikastoppia."""
+    mtf = analysis.get("mtfAlign")
+    if mtf is not None and int(mtf) >= 1:
+        return True
+    ch1 = analysis.get("change1hPct")
+    ch4 = analysis.get("change4hPct")
+    if ch1 is None or ch4 is None:
+        return False
+    return float(ch1) >= STUCK_DEFER_1H_MIN and float(ch4) >= STUCK_DEFER_4H_MIN
+
+
+def _stuck_defer_reason(analysis: dict[str, Any], oldest_stuck_age_h: float | None) -> str:
+    ch1 = analysis.get("change1hPct")
+    ch4 = analysis.get("change4hPct")
+    mtf = analysis.get("mtfAlign")
+    parts: list[str] = []
+    if ch1 is not None and ch4 is not None:
+        parts.append(f"1h {float(ch1):+.1f} % · 4h {float(ch4):+.1f} %")
+    elif mtf is not None and int(mtf) >= 1:
+        parts.append("MTF ylös")
+    age_note = ""
+    if oldest_stuck_age_h is not None:
+        age_note = f" (vanhin erä {oldest_stuck_age_h:.0f} h"
+        if oldest_stuck_age_h < STUCK_MAX_DEFER_HOURS:
+            age_note += f", pakko ≥{STUCK_MAX_DEFER_HOURS:.0f} h"
+        age_note += ")"
+    detail = " · ".join(parts) if parts else "lyhytaikainen nousu"
+    return (
+        f"Jumitus/aikastoppi lykätty — {detail}{age_note}. "
+        f"Myydään jos tappio ≤{STUCK_FORCE_LOSS_PCT:.1f} %, 24h ≤{STUCK_FORCE_24H:.1f} % "
+        f"tai pito ≥{STUCK_MAX_DEFER_HOURS:.0f} h"
+    )
 
 
 def calc_rsi(closes: list[float], period: int = 14) -> float:
@@ -1911,7 +1980,7 @@ def make_trading_decisions(
             }
 
     portfolio_trades = portfolio_data.get("trades") or []
-    from .fifo_lots import open_fifo_lots
+    from .fifo_lots import fifo_oldest_stuck_lot_age_hours, open_fifo_lots
 
     fifo_lots = open_fifo_lots(portfolio_trades)
 
@@ -2096,6 +2165,27 @@ def make_trading_decisions(
                 STUCK_POSITION_HOURS,
             )
             if stuck_sell_amt is not None:
+                oldest_stuck_h = fifo_oldest_stuck_lot_age_hours(
+                    symbol,
+                    portfolio_trades,
+                    STUCK_POSITION_HOURS,
+                    lots_cache=fifo_lots,
+                )
+                if (
+                    _short_term_recovery_hold(analysis)
+                    and not _stuck_release_forced(
+                        analysis, profit_pct, oldest_stuck_h
+                    )
+                ):
+                    decisions.append(
+                        {
+                            "type": "hold",
+                            "symbol": symbol,
+                            "reason": _stuck_defer_reason(analysis, oldest_stuck_h),
+                            "analysis": analysis,
+                        }
+                    )
+                    continue
                 partial = stuck_sell_amt < holding["amount"] * 0.99
                 fifo_note = " (vain vanhat lotit)" if partial else ""
                 decisions.append(
@@ -2131,41 +2221,68 @@ def make_trading_decisions(
         gemini_sig = _gemini_signal(gemini_insights, symbol) or analysis.get("geminiSignal")
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
+        stagnant_h = _stagnant_hours(regime)
         sell_amt = _fifo_time_stop_sell_amount(
             symbol,
             holding["amount"],
             analysis["currentPrice"],
             portfolio_trades,
             fifo_lots,
-            _stagnant_hours(regime),
+            stagnant_h,
         )
-        if (
-            sell_amt is not None
-            and _market_stagnant_exit(
+        if sell_amt is not None:
+            oldest_stuck_h = fifo_oldest_stuck_lot_age_hours(
+                symbol,
+                portfolio_trades,
+                stagnant_h,
+                lots_cache=fifo_lots,
+            )
+            aikastoppi_ready = (
+                profit_pct < STAGNANT_MAX_PROFIT_PCT
+                and regime != "bull"
+                and change_24h <= 0
+            )
+            if aikastoppi_ready and _market_stagnant_exit(
                 profit_pct,
                 age_h,
                 regime,
                 analysis,
                 fifo_stuck_amount=sell_amt,
-            )
-        ):
-            partial = sell_amt < holding["amount"] * 0.99
-            fifo_note = " (vain vanhat lotit)" if partial else ""
-            decisions.append(
-                {
-                    "type": "sell",
-                    "symbol": symbol,
-                    "amount": sell_amt,
-                    "eurAmount": sell_amt * analysis["currentPrice"],
-                    "reason": (
-                        f"Aikastoppi ≥{_stagnant_hours(regime):.0f} h — "
-                        f"jämähtänyt ({profit_pct:+.1f} %){fifo_note}, "
-                        f"vapautetaan pääoma vahvempaan kohteeseen"
-                    ),
-                    "analysis": analysis,
-                }
-            )
-            continue
+                oldest_stuck_age_h=oldest_stuck_h,
+            ):
+                partial = sell_amt < holding["amount"] * 0.99
+                fifo_note = " (vain vanhat lotit)" if partial else ""
+                decisions.append(
+                    {
+                        "type": "sell",
+                        "symbol": symbol,
+                        "amount": sell_amt,
+                        "eurAmount": sell_amt * analysis["currentPrice"],
+                        "reason": (
+                            f"Aikastoppi ≥{stagnant_h:.0f} h — "
+                            f"jämähtänyt ({profit_pct:+.1f} %){fifo_note}, "
+                            f"vapautetaan pääoma vahvempaan kohteeseen"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+                continue
+            if (
+                aikastoppi_ready
+                and _short_term_recovery_hold(analysis)
+                and not _stuck_release_forced(
+                    analysis, profit_pct, oldest_stuck_h
+                )
+            ):
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": _stuck_defer_reason(analysis, oldest_stuck_h),
+                        "analysis": analysis,
+                    }
+                )
+                continue
 
         sell_conf = 5 if profit_pct < 0 else 6
         if churn_cooldown:
