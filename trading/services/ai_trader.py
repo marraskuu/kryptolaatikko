@@ -10,7 +10,7 @@ from .bitfinex import CANDLE_DEEP_LIMIT, is_stablecoin, normalize_symbol
 logger = logging.getLogger(__name__)
 
 STOP_LOSS_PCT = -2.0
-ROTATE_LOSS_PCT = -1.0
+ROTATE_LOSS_PCT = -1.25
 PROFIT_TAKE_TRIGGER_PCT = 2.0
 GEMINI_SELL_MIN_PROFIT_PCT = 0.5  # Gemini-myynti vain voitolla oleviin positioihin
 GEMINI_BUY_MIN_CONFIDENCE = 5     # Gemini-ostot vain ≥ tämä (kun Gemini aktiivinen)
@@ -55,12 +55,13 @@ STUCK_DEFER_1H_MIN = 0.25          # lykää jumitusta jos 1h ≥ tämä ja 4h o
 STUCK_DEFER_4H_MIN = 0.15
 STUCK_MAX_DEFER_HOURS = 6.0        # pakko-vapautus — ei pidä yli 6 h vaikka lyhytaikainen pomppu
 STUCK_FORCE_24H = -1.5             # heikko 24h → myy heti (ei lykätä)
-STUCK_FORCE_LOSS_PCT = -0.8          # selvä tappio → myy heti
+STUCK_FORCE_LOSS_PCT = -1.1           # selvä tappio → myy heti (ei -0.8 % micro-churn)
 STUCK_FORCE_4H = -0.5                # 4h yhä laskussa → ei dead-cat -poikkeusta
 STAGNANT_HOURS_NEUTRAL = 4.0
 STAGNANT_HOURS_BEAR = 5.0
 STAGNANT_HOURS_BULL = 6.0
 STAGNANT_MAX_PROFIT_PCT = 0.5
+STAGNANT_MIN_LOSS_PCT = -0.25        # aikastoppi vain selvästä tappiosta (ei tasapaino/-0.1 %)
 FAST_EXIT_LOSS_PCT = -1.5
 
 # 3: Hajautussuoja — rajoita korkeasti korreloivan klusterin yhteispaino.
@@ -673,6 +674,7 @@ def _market_stagnant_exit(
     if not (
         aged_ok
         and profit_pct < STAGNANT_MAX_PROFIT_PCT
+        and profit_pct <= STAGNANT_MIN_LOSS_PCT
         and regime != "bull"
         and change_24h <= 0
     ):
@@ -1454,6 +1456,32 @@ def _effective_holding_amount(
     return max(0.0, amount)
 
 
+def _holding_profit_pct(holding: dict[str, Any], analysis: dict[str, Any]) -> float:
+    avg = float(holding.get("avgPrice") or 0)
+    price = float(analysis.get("currentPrice") or 0)
+    if avg <= 0 or price <= 0:
+        return 0.0
+    return ((price - avg) / avg) * 100
+
+
+def _rotation_trim_allowed(profit_pct: float) -> bool:
+    """Älä tee pieniä tappiomyyntejä rotaatiolla — odota stop tai selvä heikkous."""
+    if profit_pct >= 0:
+        return True
+    return profit_pct <= STAGNANT_MIN_LOSS_PCT
+
+
+def _rotation_sell_amount(
+    holding_amount: float,
+    profit_pct: float,
+    rotation_trim: float,
+) -> float:
+    """Tappiolla koko positio kerralla — osittaiset tappiomyynnit inflatoivat häviöitä."""
+    if profit_pct < 0:
+        return holding_amount
+    return holding_amount * rotation_trim
+
+
 def _gemini_sell_fraction(confidence: int) -> float:
     return {5: 0.35, 6: 0.45, 7: 0.55, 8: 0.65, 9: 0.80, 10: 1.0}.get(confidence, 0.50)
 
@@ -1584,10 +1612,15 @@ def _deploy_cash_to_targets(
             else:
                 # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
                 # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
+                profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
+                if not _rotation_trim_allowed(profit_pct):
+                    continue
                 weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
                 if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
                     continue
-                sell_amount = amount * ROTATION_TRIM_FRACTION
+                sell_amount = _rotation_sell_amount(
+                    amount, profit_pct, ROTATION_TRIM_FRACTION
+                )
                 _append_sell_decision(
                     decisions,
                     symbol,
@@ -2122,7 +2155,9 @@ def make_trading_decisions(
                 )
                 continue
             if _low_volume_holding_release_ok(profit_pct, analysis):
-                sell_amount = holding["amount"] * rotation_trim
+                sell_amount = _rotation_sell_amount(
+                    holding["amount"], profit_pct, rotation_trim
+                )
                 if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
                     _append_sell_decision(
                         decisions,
@@ -2165,8 +2200,10 @@ def make_trading_decisions(
                 and _in_uptrend(analysis)
                 and gap < ROTATION_MIN_EDGE_PCT
             )
-            if not skip_consolidate:
-                sell_amount = holding["amount"] * concentration_trim
+            if not skip_consolidate and _rotation_trim_allowed(profit_pct):
+                sell_amount = _rotation_sell_amount(
+                    holding["amount"], profit_pct, concentration_trim
+                )
                 if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
                     _append_sell_decision(
                         decisions,
@@ -2230,11 +2267,17 @@ def make_trading_decisions(
                     STUCK_POSITION_HOURS,
                     lots_cache=fifo_lots,
                 )
+                stuck_forced = _stuck_release_forced(
+                    analysis, profit_pct, oldest_stuck_h
+                )
                 if (
+                    not stuck_forced
+                    and profit_pct > STAGNANT_MIN_LOSS_PCT
+                ):
+                    pass
+                elif (
                     _short_term_recovery_hold(analysis)
-                    and not _stuck_release_forced(
-                        analysis, profit_pct, oldest_stuck_h
-                    )
+                    and not stuck_forced
                 ):
                     decisions.append(
                         {
@@ -2245,23 +2288,24 @@ def make_trading_decisions(
                         }
                     )
                     continue
-                partial = stuck_sell_amt < holding["amount"] * 0.99
-                fifo_note = " (vain vanhat lotit)" if partial else ""
-                decisions.append(
-                    {
-                        "type": "sell",
-                        "symbol": symbol,
-                        "amount": stuck_sell_amt,
-                        "eurAmount": stuck_sell_amt * analysis["currentPrice"],
-                        "reason": (
-                            f"Positio jämähtänyt ≥{STUCK_POSITION_HOURS:.0f} h "
-                            f"({profit_pct:+.1f} %){fifo_note} — "
-                            f"myydään riippumatta markkinan noususta"
-                        ),
-                        "analysis": analysis,
-                    }
-                )
-                continue
+                elif stuck_forced or profit_pct <= STAGNANT_MIN_LOSS_PCT:
+                    partial = stuck_sell_amt < holding["amount"] * 0.99
+                    fifo_note = " (vain vanhat lotit)" if partial else ""
+                    decisions.append(
+                        {
+                            "type": "sell",
+                            "symbol": symbol,
+                            "amount": stuck_sell_amt,
+                            "eurAmount": stuck_sell_amt * analysis["currentPrice"],
+                            "reason": (
+                                f"Positio jämähtänyt ≥{STUCK_POSITION_HOURS:.0f} h "
+                                f"({profit_pct:+.1f} %){fifo_note} — "
+                                f"myydään riippumatta markkinan noususta"
+                            ),
+                            "analysis": analysis,
+                        }
+                    )
+                    continue
 
         if profit_pct > 0 and _in_uptrend(analysis):
             decisions.append(
@@ -2298,6 +2342,7 @@ def make_trading_decisions(
             )
             aikastoppi_ready = (
                 profit_pct < STAGNANT_MAX_PROFIT_PCT
+                and profit_pct <= STAGNANT_MIN_LOSS_PCT
                 and regime != "bull"
                 and change_24h <= 0
             )
@@ -2430,7 +2475,9 @@ def make_trading_decisions(
             # 1: etuviisas — älä rotatoi ilman selvää etua (vältä turha noise-churn ja
             # turha veron realisointi); poikkeus: selvästi heikkenevä positio < -2 %.
             if change_24h < -2 or _rotation_worthwhile(analysis, best_target_edge):
-                sell_amount = holding["amount"] * rotation_trim
+                sell_amount = _rotation_sell_amount(
+                    holding["amount"], profit_pct, rotation_trim
+                )
                 _append_sell_decision(
                     decisions,
                     symbol,
@@ -2452,15 +2499,30 @@ def make_trading_decisions(
                     }
                 )
         elif rotation_enabled and analysis["action"] == "sell":
-            sell_amount = holding["amount"] * rotation_trim
-            _append_sell_decision(
-                decisions,
-                symbol,
-                sell_amount,
-                analysis["currentPrice"],
-                "; ".join(analysis["reasons"]),
-                analysis,
-            )
+            if not _rotation_trim_allowed(profit_pct):
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": (
+                            f"Tekninen myynti ({profit_pct:+.1f} %) — lievä tappio, "
+                            f"odotetaan stop-lossia (≥{STAGNANT_MIN_LOSS_PCT:.1f} %)"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+            else:
+                sell_amount = _rotation_sell_amount(
+                    holding["amount"], profit_pct, rotation_trim
+                )
+                _append_sell_decision(
+                    decisions,
+                    symbol,
+                    sell_amount,
+                    analysis["currentPrice"],
+                    "; ".join(analysis["reasons"]),
+                    analysis,
+                )
         elif not rotation_enabled and profit_pct < ROTATE_LOSS_PCT:
             decisions.append(
                 {

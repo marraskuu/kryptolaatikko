@@ -339,6 +339,7 @@ def build_learning_report(
         trade_lines.append(str(learning["note"]))
     for key, label in (
         ("rotation", "Rotaatio"),
+        ("time_stop", "Aikastoppi/jumitus"),
         ("gemini_sell", "Gemini-myynnit"),
         ("profit_take", "Voitto-otto"),
         ("stop_loss", "Stop-loss"),
