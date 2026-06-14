@@ -758,6 +758,18 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     if hist_ready:
         notes.append(f"historia {hist_ready} setuppia (paino {SETUP_HIST_WEIGHT:.0%})")
 
+    try:
+        from .exit_learning import get_summary as exit_learning_summary
+
+        ex = exit_learning_summary()
+        ready = len(ex.get("topSetups") or [])
+        if ready:
+            notes.append(f"huippumyynti {ready} exit-setuppia opittu")
+        elif ex.get("pending"):
+            notes.append(f"huippumyynti {ex['pending']} odottaa arviointia")
+    except Exception:
+        pass
+
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
     score_blocked = [

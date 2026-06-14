@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .exit_learning import exit_setup_key_for_analysis
 from .market_learning import setup_key_for_analysis
 
 _GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
@@ -15,11 +16,23 @@ def meta_from_analysis(
     regime: str,
     *,
     for_sell: bool = False,
+    profit_pct: float | None = None,
+    peak_price: float | None = None,
+    pullback_pct: float | None = None,
 ) -> dict[str, Any]:
     """Rakenna kauppakirjaukseen tallennettava meta analyysistä."""
     meta: dict[str, Any] = {"regime": regime}
     if not analysis:
-        return meta
+        if for_sell:
+            if profit_pct is not None:
+                meta["profitPctAtSell"] = round(float(profit_pct), 2)
+            if peak_price is not None and peak_price > 0:
+                meta["peakPriceAtSell"] = round(float(peak_price), 6)
+            if pullback_pct is not None:
+                meta["givebackPct"] = round(float(pullback_pct), 3)
+            if profit_pct is not None:
+                meta["exitSetup"] = exit_setup_key_for_analysis(None, regime, profit_pct)
+        return {k: v for k, v in meta.items() if v is not None and v != ""}
 
     if analysis.get("atrPct") is not None:
         meta["atrPct"] = round(float(analysis["atrPct"]), 3)
@@ -45,7 +58,23 @@ def meta_from_analysis(
             meta["crowdBucket"] = analysis["crowdBucket"]
         meta["setup"] = setup_key_for_analysis(analysis, regime)
     else:
-        sig = analysis.get("geminiSignal") or {}
+        if profit_pct is not None:
+            meta["profitPctAtSell"] = round(float(profit_pct), 2)
+        if peak_price is not None and peak_price > 0:
+            meta["peakPriceAtSell"] = round(float(peak_price), 6)
+        if pullback_pct is not None:
+            meta["givebackPct"] = round(float(pullback_pct), 3)
+        if analysis:
+            if analysis.get("rsi") is not None:
+                meta["rsi"] = round(float(analysis["rsi"]), 1)
+            if analysis.get("mtfAlign") is not None:
+                meta["mtfAlign"] = int(analysis["mtfAlign"])
+            for key in ("bookBucket", "crowdBucket"):
+                if analysis.get(key):
+                    meta[key] = analysis[key]
+            if profit_pct is not None:
+                meta["exitSetup"] = exit_setup_key_for_analysis(analysis, regime, profit_pct)
+        sig = (analysis.get("geminiSignal") or {}) if analysis else {}
         if sig.get("confidence") is not None and sig.get("action") == "sell":
             meta["geminiConfidence"] = int(sig["confidence"])
         if "geminiConfidence" not in meta:

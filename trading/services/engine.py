@@ -23,6 +23,7 @@ from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_c
 from .learning import compute_tuning
 from .daily_policy_shadow import record_cycle, record_executed_trade, record_profit_take_shadow, shadow_profit_take_config
 from .trade_meta import meta_from_analysis
+from . import exit_learning
 from . import market_learning
 from . import market_microstructure
 from .portfolio import Portfolio
@@ -151,6 +152,13 @@ def _check_profit_sells(
             continue
 
         atr_pct = (state["analyses"].get(symbol) or {}).get("atrPct")
+        analysis = state["analyses"].get(symbol) or {}
+        profit_pct = (
+            ((ticker["last"] - holding["avgPrice"]) / holding["avgPrice"]) * 100
+            if holding["avgPrice"]
+            else 0.0
+        )
+        exit_learned = exit_learning.adjustments_for_analysis(analysis, regime, profit_pct)
         result = update_profit_sell(
             state["watches"],
             symbol,
@@ -158,6 +166,8 @@ def _check_profit_sells(
             holding["avgPrice"],
             atr_pct=atr_pct,
             profit_take_config=pt_cfg,
+            analysis=analysis,
+            exit_learned=exit_learned,
         )
         if shadow_flags:
             shadow_watches = deepcopy(state["watches"])
@@ -168,6 +178,8 @@ def _check_profit_sells(
                 holding["avgPrice"],
                 atr_pct=atr_pct,
                 profit_take_config=shadow_cfg,
+                analysis=analysis,
+                exit_learned=exit_learned,
             )
             record_profit_take_shadow(
                 state,
@@ -194,7 +206,20 @@ def _check_profit_sells(
                     state["analyses"].get(symbol),
                     regime,
                     for_sell=True,
+                    profit_pct=result.get("profitPct"),
+                    peak_price=result.get("peakPrice"),
+                    pullback_pct=result.get("pullbackPct"),
                 ),
+            )
+            trade_id = portfolio.trades[0].get("id") if portfolio.trades else None
+            exit_learning.record_profit_take_exit(
+                symbol=symbol,
+                sell_price=float(ticker["last"]),
+                peak_price=float(result.get("peakPrice") or ticker["last"]),
+                profit_pct=float(result.get("profitPct") or 0),
+                pullback_pct=float(result.get("pullbackPct") or 0),
+                exit_setup=str(result.get("exitSetup") or exit_learned.get("exit_setup") or ""),
+                trade_id=trade_id,
             )
             log_ai_event(state, "sell", get_crypto_label(symbol), result["reason"], eur_total)
             if shadow_flags:
@@ -259,6 +284,11 @@ def refresh_prices() -> dict[str, Any]:
                 learning=learning,
             )
             _check_profit_sells(state, portfolio, shadow_flags=shadow_flags)
+            try:
+                exit_summary = exit_learning.step(state["tickers"])
+                state["exitLearning"] = exit_summary
+            except Exception:
+                logger.warning("Exit learning step failed", exc_info=True)
 
             report = state.get("lastAIReport")
             if report:
@@ -348,6 +378,13 @@ def execute_trading_cycle() -> dict[str, Any]:
             learning["market_setups"] = ml_summary
         except Exception:
             logger.warning("Market learning step failed", exc_info=True)
+
+        try:
+            exit_summary = exit_learning.step(state["tickers"])
+            state["exitLearning"] = {**exit_summary, **exit_learning.get_summary()}
+            learning["exit_learning"] = state["exitLearning"]
+        except Exception:
+            logger.warning("Exit learning step failed", exc_info=True)
 
         gemini_insights = None
         now_ms = int(time.time() * 1000)

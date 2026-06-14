@@ -1317,7 +1317,6 @@ def _deploy_cash_to_targets(
     regime: str = "neutral",
     buy_scale: float = 1.0,
     gemini_insights: dict[str, Any] | None = None,
-    gemini_active: bool = False,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -2205,7 +2204,6 @@ def make_trading_decisions(
             regime=regime,
             buy_scale=buy_scale,
             gemini_insights=gemini_insights,
-            gemini_active=gemini_active,
         )
 
     for d in decisions:

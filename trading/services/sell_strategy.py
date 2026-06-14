@@ -4,6 +4,11 @@ from typing import Any
 PROFIT_TRIGGER_PCT = 2.0
 # Odotus huipun jälkeen ennen myyntivalmiutta (tasaantuminen)
 STABILIZE_WAIT_MS = 180 * 1000
+STABILIZE_WAIT_MIN_MS = 45 * 1000
+FAST_DUMP_PULLBACK_PCT = 0.5
+FAST_DUMP_WINDOW_MS = 15 * 60 * 1000
+RSI_OVERBOUGHT = 72.0
+RSI_ELEVATED = 65.0
 # Myy vasta kun hinta laskee tämän verran huipusta (pieni lasku, ei jokainen tick)
 PULLBACK_FROM_PEAK_PCT = 0.35
 
@@ -73,6 +78,84 @@ def _pullback_threshold_pct(atr_pct: float | None, config: dict[str, Any]) -> fl
     return PULLBACK_FROM_PEAK_PCT * scale
 
 
+def compute_peak_exit_adjustments(
+    analysis: dict[str, Any] | None,
+    *,
+    profit_pct: float,
+    elapsed_ms: int,
+    pullback_pct: float,
+    learned: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Dynaaminen huippumyynti: RSI/MTF/book + opittu exit-setup säätää
+    tasaantumisodotusta ja trailing-rajaa.
+    """
+    signals: list[str] = []
+    stabilize_mult = 1.0
+    pullback_mult = 1.0
+    force_arm = False
+    force_sell = False
+
+    if learned:
+        stabilize_mult *= float(learned.get("stabilize_mult") or 1.0)
+        pullback_mult *= float(learned.get("pullback_mult") or 1.0)
+        if learned.get("learned"):
+            signals.append("exit-oppiminen")
+
+    rsi = float(analysis.get("rsi")) if analysis and analysis.get("rsi") is not None else None
+    mtf = int(analysis.get("mtfAlign")) if analysis and analysis.get("mtfAlign") is not None else None
+    book = (analysis or {}).get("bookBucket") or ""
+    crowd = (analysis or {}).get("crowdBucket") or ""
+
+    if rsi is not None and rsi >= RSI_OVERBOUGHT and profit_pct >= PROFIT_TRIGGER_PCT:
+        stabilize_mult *= 0.33
+        pullback_mult *= 0.75
+        signals.append(f"RSI {rsi:.0f} yliostettu")
+    elif rsi is not None and rsi >= RSI_ELEVATED and profit_pct >= PROFIT_TRIGGER_PCT:
+        stabilize_mult = min(stabilize_mult, stabilize_mult * 0.5)
+        pullback_mult *= 0.85
+        signals.append(f"RSI {rsi:.0f} korkea")
+
+    if mtf is not None and mtf < 0:
+        force_arm = True
+        pullback_mult *= 0.88
+        signals.append("MTF kääntynyt alas")
+
+    if book == "bk-":
+        pullback_mult *= 0.8
+        signals.append("myyntipaine order bookissa")
+    elif book == "bk+":
+        pullback_mult = min(pullback_mult * 1.08, 1.25)
+
+    if crowd == "crL" and profit_pct >= PARTIAL_TAKE_TRIGGER_PCT:
+        stabilize_mult *= 0.7
+        pullback_mult *= 0.85
+        signals.append("crowd extreme long")
+
+    if (
+        elapsed_ms <= FAST_DUMP_WINDOW_MS
+        and pullback_pct >= FAST_DUMP_PULLBACK_PCT
+        and profit_pct >= PROFIT_TRIGGER_PCT
+    ):
+        force_arm = True
+        force_sell = True
+        signals.append(f"nopea lasku -{pullback_pct:.2f} % huipusta")
+
+    stabilize_ms = max(
+        STABILIZE_WAIT_MIN_MS,
+        int(STABILIZE_WAIT_MS * max(0.25, min(1.5, stabilize_mult))),
+    )
+    pullback_mult = max(0.55, min(1.35, pullback_mult))
+
+    return {
+        "stabilize_ms": stabilize_ms,
+        "pullback_mult": pullback_mult,
+        "force_arm": force_arm,
+        "force_sell": force_sell,
+        "signals": signals,
+    }
+
+
 def update_profit_sell(
     states: dict[str, dict[str, Any]],
     symbol: str,
@@ -81,6 +164,8 @@ def update_profit_sell(
     now_ms: int | None = None,
     atr_pct: float | None = None,
     profit_take_config: dict[str, Any] | None = None,
+    analysis: dict[str, Any] | None = None,
+    exit_learned: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     cfg = _scaled_config(profit_take_config)
@@ -124,6 +209,10 @@ def update_profit_sell(
             ),
             "state": state,
             "secondsLeft": 0,
+            "peakPrice": state["peakPrice"],
+            "pullbackPct": 0.0,
+            "exitSetup": (exit_learned or {}).get("exit_setup"),
+            "exitSignals": [],
         }
 
     if profit_pct < trigger_pct:
@@ -154,21 +243,44 @@ def update_profit_sell(
         state["armed"] = False
 
     elapsed = now - state["peakTime"]
-    seconds_left = max(0, int((STABILIZE_WAIT_MS - elapsed + 999) / 1000))
     peak = state["peakPrice"]
     pullback_pct = ((peak - current_price) / peak) * 100 if peak else 0
 
-    if elapsed >= STABILIZE_WAIT_MS:
+    peak_adj = compute_peak_exit_adjustments(
+        analysis,
+        profit_pct=profit_pct,
+        elapsed_ms=elapsed,
+        pullback_pct=pullback_pct,
+        learned=exit_learned,
+    )
+    stabilize_ms = int(peak_adj["stabilize_ms"])
+    pullback_threshold *= float(peak_adj["pullback_mult"])
+    seconds_left = max(0, int((stabilize_ms - elapsed + 999) / 1000))
+
+    if peak_adj.get("force_arm") or elapsed >= stabilize_ms:
         state["armed"] = True
 
     should_sell = False
     reason = ""
-    if state["armed"] and peak > 0 and pullback_pct >= pullback_threshold and covers_cost:
+    exit_signals = peak_adj.get("signals") or []
+    if (
+        peak_adj.get("force_sell")
+        and peak > 0
+        and pullback_pct >= FAST_DUMP_PULLBACK_PCT
+        and covers_cost
+    ):
         should_sell = True
+        reason = (
+            f"Voitto +{profit_pct:.1f} % — nopea lasku huipusta {peak:.2f} € "
+            f"(-{pullback_pct:.2f} %) → realisoidaan voitto"
+        )
+    elif state["armed"] and peak > 0 and pullback_pct >= pullback_threshold and covers_cost:
+        should_sell = True
+        signal_note = f" ({', '.join(exit_signals)})" if exit_signals else ""
         reason = (
             f"Voitto +{profit_pct:.1f} % — nousu tasaantui (huippu {peak:.2f} €), "
             f"trailing-stop -{pullback_pct:.2f} % huipusta (raja {pullback_threshold:.2f} %) "
-            f"→ realisoidaan voitto"
+            f"→ realisoidaan voitto{signal_note}"
         )
 
     state["prevPrice"] = current_price
@@ -204,4 +316,8 @@ def update_profit_sell(
         "statusText": status_text,
         "state": state,
         "secondsLeft": 0 if state["armed"] else seconds_left,
+        "peakPrice": peak,
+        "pullbackPct": round(pullback_pct, 3),
+        "exitSetup": (exit_learned or {}).get("exit_setup"),
+        "exitSignals": exit_signals,
     }
