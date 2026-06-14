@@ -60,6 +60,8 @@ def meta_from_analysis(
         sig = analysis.get("geminiSignal") or {}
         if sig.get("confidence") is not None and sig.get("action") == "buy":
             meta["geminiConfidence"] = int(sig["confidence"])
+        if analysis.get("geminiPick"):
+            meta["geminiPick"] = True
         if "geminiConfidence" not in meta and (
             analysis.get("geminiPick") or analysis.get("gemini")
         ):
@@ -119,6 +121,7 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "bookBucket",
         "crowdBucket",
         "geminiConfidence",
+        "geminiPick",
     )
     meta = {k: trade[k] for k in keys if trade.get(k) is not None}
     if "geminiConfidence" not in meta and "gemini" in (trade.get("reason") or "").lower():

@@ -786,7 +786,7 @@ def _build_trade_history_summary(
             row["reason"] = reason
         recent_rows.append(row)
 
-    return {
+    summary: dict[str, Any] = {
         "total_trades": len(all_trades),
         "realized_profit_eur_total": round(float(portfolio.get("totalRealizedProfit") or 0), 2),
         "last_7_days": {
@@ -800,10 +800,19 @@ def _build_trade_history_summary(
         "last_gemini_review": _build_last_gemini_review(
             last_gemini_snapshot, total_value, label_fn
         ),
-        "pick_scorecard": _build_gemini_pick_scorecard(
-            last_gemini_snapshot, tickers or {}, total_value, label_fn
-        ),
+        "pick_scorecard": None,
     }
+    if last_gemini_snapshot and tickers:
+        from .gemini_pick_tracking import build_pick_scorecard
+
+        summary["pick_scorecard"] = build_pick_scorecard(
+            last_gemini_snapshot,
+            tickers,
+            total_value,
+            label_fn,
+            trades=all_trades,
+        )
+    return summary
 
 
 def get_status() -> dict[str, Any]:
@@ -975,7 +984,8 @@ Kauppahistoria ja palaute (opettele näistä — älä toista tappiollisia linja
 Historian käyttö:
 - recent_trades_newest_first: mitkä ostot/myynnit johtivat voittoon vs tappioon
 - by_symbol: symbolikohtainen netto, voitto/tappio-määrät, keskimääräinen pitoaika — vältä toistuvasti tappiollisia
-- pick_scorecard: JOKAISEN edellisen top_pick:in tuotto % snapshotista — vertaa skipped_outcomes / best_skipped (ohitettu paras)
+- pick_scorecard: JOKAISEN edellisen top_pick:in tuotto % — jos executed=true, return_since_pct on toteutuneen FIFO-kaupan P/L (luotettavampi); muuten hypoteettinen snapshot-hinta
+- pick_scorecard.return_hypothetical_pct: vertailu vain toteutuneille — näet eron oikean kaupan ja “olisiko ostanut snapshot-hinnalla” välillä
 - last_gemini_review: salkun kokonaismuutos edellisestä analyysistä
 - pick_scorecard.lessons: tiivistetyt opit — sovella ennen uusia top_picks-valintoja
 - costs_and_churn: kuluja ei ole — keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä

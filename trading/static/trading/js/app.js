@@ -1183,7 +1183,8 @@ function renderGeminiPickTrackingHtml() {
     for (const p of current.pick_outcomes) {
       const ret = p.return_since_pct;
       if (ret == null) continue;
-      lines.push(`${escapeHtml(p.label)}: ${ret >= 0 ? "+" : ""}${ret.toFixed(1)} %`);
+      const tag = p.executed ? " [kauppa]" : "";
+      lines.push(`${escapeHtml(p.label)}: ${ret >= 0 ? "+" : ""}${ret.toFixed(1)} %${tag}`);
     }
     for (const lesson of current.lessons || []) {
       lines.push(escapeHtml(lesson));
@@ -1201,7 +1202,10 @@ function renderGeminiPickTrackingHtml() {
     const ts = (rnd.timestamp || "").slice(0, 16).replace("T", " ");
     const pickStr = (rnd.picks || [])
       .filter((p) => p.return_pct != null)
-      .map((p) => `${p.label} ${p.return_pct >= 0 ? "+" : ""}${p.return_pct.toFixed(1)}%`)
+      .map((p) => {
+        const tag = p.executed ? "*" : "";
+        return `${p.label}${tag} ${p.return_pct >= 0 ? "+" : ""}${p.return_pct.toFixed(1)}%`;
+      })
       .join(", ");
     if (pickStr) lines.push(`${ts} (${rnd.regime || "?"}): ${escapeHtml(pickStr)}`);
   }
