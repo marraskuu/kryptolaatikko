@@ -8,6 +8,10 @@ from .gemini import _build_gemini_pick_scorecard
 
 GEMINI_PICK_HISTORY_LIMIT = 40
 RECENT_ROUNDS_UI = 5
+MIN_PICK_ROUNDS = 3
+MIN_PICKS_TRACKED = 8
+PICK_SCALE_MIN = 0.35
+PICK_SCALE_MAX = 1.0
 
 
 def _aggregate_stats(history: list[dict[str, Any]]) -> dict[str, Any]:
@@ -130,6 +134,70 @@ def build_pick_tracking(
         "stats": stats,
         "recent": [_compact_round(r) for r in history[:RECENT_ROUNDS_UI]],
     }
+
+
+def compute_pick_tuning(
+    stats: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Programmatinen Gemini-pick -hillintä arkistoidun scorecard-datan perusteella."""
+    stats = stats or {}
+    notes: list[str] = []
+    tuning: dict[str, Any] = {
+        "gemini_buy_min_confidence": 5,
+        "gemini_pick_buy_scale": 1.0,
+    }
+
+    rounds = int(stats.get("rounds") or 0)
+    n = int(stats.get("picks_tracked") or 0)
+    if n < MIN_PICKS_TRACKED or rounds < MIN_PICK_ROUNDS:
+        if n > 0:
+            notes.append(
+                f"Gemini-pick-hillintä {n}/{MIN_PICKS_TRACKED} pickiä "
+                f"({rounds}/{MIN_PICK_ROUNDS} kierrosta)"
+            )
+        return tuning, notes
+
+    win_rate = stats.get("win_rate_pct")
+    avg_ret = stats.get("avg_return_pct")
+    beats = stats.get("pick_beats_skipped_pct")
+
+    min_conf = 5
+    scale = 1.0
+
+    if win_rate is not None:
+        if win_rate < 20:
+            min_conf = 7
+            scale = 0.5
+            notes.append(f"Gemini-pickit heikot ({win_rate:.0f} % osuu) — conf ≥7, osto 50 %")
+        elif win_rate < 35:
+            min_conf = 6
+            scale = 0.7
+            notes.append(f"Gemini-pickit alle normin ({win_rate:.0f} % osuu) — conf ≥6, osto 70 %")
+        elif win_rate >= 45 and (avg_ret is None or avg_ret >= 0):
+            notes.append(f"Gemini-pickit ok ({win_rate:.0f} % osuu)")
+
+    if avg_ret is not None and avg_ret < -0.5:
+        min_conf = max(min_conf, 6)
+        scale = min(scale, 0.75)
+        notes.append(f"Gemini-pickien keskituotto {avg_ret:+.2f} % — varovaisemmin")
+
+    if beats is not None and rounds >= 5 and beats < 40:
+        scale = min(scale, 0.6)
+        min_conf = max(min_conf, 6)
+        notes.append(f"Pickit häviävät ohituksille ({beats:.0f} % kierroksista)")
+
+    tuning["gemini_buy_min_confidence"] = min_conf
+    tuning["gemini_pick_buy_scale"] = max(
+        PICK_SCALE_MIN, min(PICK_SCALE_MAX, round(scale, 2))
+    )
+    tuning["gemini_pick_stats"] = {
+        "rounds": rounds,
+        "picks_tracked": n,
+        "win_rate_pct": win_rate,
+        "avg_return_pct": avg_ret,
+        "pick_beats_skipped_pct": beats,
+    }
+    return tuning, notes
 
 
 def learning_report_lines(tracking: dict[str, Any] | None) -> list[str]:

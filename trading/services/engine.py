@@ -349,7 +349,10 @@ def execute_trading_cycle() -> dict[str, Any]:
         regime_info = compute_market_regime(state["tickers"], state["analyses"])
         regime = regime_info["regime"]
         state["regime"] = regime_info
-        learning = compute_tuning(state["portfolio"])
+        learning = compute_tuning(
+            state["portfolio"],
+            state.get("geminiPickStats"),
+        )
         state["learning"] = learning
 
         regime_str = regime_info["regime"]
@@ -408,7 +411,6 @@ def execute_trading_cycle() -> dict[str, Any]:
                 learning=learning,
             )
             if gemini_insights and gemini_status.get("ok"):
-                apply_gemini_insights(state["analyses"], gemini_insights)
                 state["lastGeminiTick"] = now_ms
                 state["geminiInsights"] = gemini_insights
                 log_ai_event(
@@ -420,13 +422,31 @@ def execute_trading_cycle() -> dict[str, Any]:
                 portfolio_for_snap = Portfolio(state["portfolio"])
                 snap_value = portfolio_for_snap.get_total_value(state["tickers"])
                 from .gemini import build_gemini_snapshot
-                from .gemini_pick_tracking import archive_previous_snapshot
+                from .gemini_pick_tracking import archive_previous_snapshot, compute_pick_tuning
 
                 archive_previous_snapshot(
                     state,
                     state["tickers"],
                     snap_value,
                     get_crypto_label,
+                )
+                pick_tuning, pick_notes = compute_pick_tuning(state.get("geminiPickStats"))
+                learning.update(
+                    {
+                        "gemini_buy_min_confidence": pick_tuning["gemini_buy_min_confidence"],
+                        "gemini_pick_buy_scale": pick_tuning["gemini_pick_buy_scale"],
+                        "gemini_pick_stats": pick_tuning.get("gemini_pick_stats"),
+                    }
+                )
+                if pick_notes:
+                    base_note = learning.get("note") or ""
+                    extra = " · ".join(pick_notes)
+                    learning["note"] = f"{base_note} · {extra}" if base_note else extra
+                state["learning"] = learning
+                apply_gemini_insights(
+                    state["analyses"],
+                    gemini_insights,
+                    gemini_buy_min_confidence=learning.get("gemini_buy_min_confidence"),
                 )
                 state["lastGeminiSnapshot"] = build_gemini_snapshot(
                     gemini_insights,
@@ -440,12 +460,20 @@ def execute_trading_cycle() -> dict[str, Any]:
                 # Kutsu epäonnistui — käytä viimeisintä onnistunutta analyysiä
                 gemini_insights = state.get("geminiInsights")
                 if gemini_insights:
-                    apply_gemini_insights(state["analyses"], gemini_insights)
+                    apply_gemini_insights(
+                        state["analyses"],
+                        gemini_insights,
+                        gemini_buy_min_confidence=learning.get("gemini_buy_min_confidence"),
+                    )
         elif gemini_configured():
             # Throttle: käytä välimuistissa olevaa analyysiä, ei uutta API-kutsua
             gemini_insights = state.get("geminiInsights")
             if gemini_insights:
-                apply_gemini_insights(state["analyses"], gemini_insights)
+                apply_gemini_insights(
+                    state["analyses"],
+                    gemini_insights,
+                    gemini_buy_min_confidence=learning.get("gemini_buy_min_confidence"),
+                )
             gemini_status = state.get("geminiStatus") or gemini_status_snapshot()
         else:
             gemini_status = gemini_status_snapshot()

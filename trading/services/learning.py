@@ -737,7 +737,10 @@ def merge_regime_tuning(learning: dict[str, Any], regime: str) -> dict[str, Any]
     return merged
 
 
-def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
+def compute_tuning(
+    portfolio: dict[str, Any],
+    gemini_pick_stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Palauttaa säätöparametrit ja tilastot oppimista varten."""
     all_trades = portfolio.get("trades", [])
     sells = [t for t in all_trades if t.get("type") == "sell"][:LEARNING_WINDOW]
@@ -809,6 +812,13 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         pass
 
+    from .gemini_pick_tracking import compute_pick_tuning
+
+    pick_tuning, pick_notes = compute_pick_tuning(gemini_pick_stats)
+    gemini_buy_min_confidence = int(pick_tuning.get("gemini_buy_min_confidence", 5))
+    gemini_pick_buy_scale = float(pick_tuning.get("gemini_pick_buy_scale", 1.0))
+    notes.extend(pick_notes)
+
     memory = compute_symbol_memory(portfolio)
     blocked = [s for s, m in memory.items() if m["blocked"]]
     score_blocked = [
@@ -865,6 +875,9 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "gemini_confidence_tagged": conf_tuning["gemini_confidence_tagged"],
         "gemini_confidence_tagged_buys": conf_tuning["gemini_confidence_tagged_buys"],
         "gemini_confidence_tagged_sells": conf_tuning["gemini_confidence_tagged_sells"],
+        "gemini_buy_min_confidence": gemini_buy_min_confidence,
+        "gemini_pick_buy_scale": gemini_pick_buy_scale,
+        "gemini_pick_stats": pick_tuning.get("gemini_pick_stats"),
         "profit_take_tuning": profit_take_tuning,
         "stop_tuning": stop_tuning,
     }
