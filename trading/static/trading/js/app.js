@@ -1050,6 +1050,8 @@ function renderLearningChips() {
     html += `<span class="metric-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
   }
   const gemTagged = learning?.gemini_confidence_tagged || 0;
+  const gemTaggedBuys = learning?.gemini_confidence_tagged_buys || 0;
+  const gemTaggedSells = learning?.gemini_confidence_tagged_sells || 0;
   const gemConfStats = learning?.gemini_confidence_stats;
   if (gemTagged >= 6 && gemConfStats && Object.keys(gemConfStats).length) {
     const lines = Object.entries(gemConfStats)
@@ -1059,6 +1061,8 @@ function renderLearningChips() {
           `${conf}/10: ${s.trades} kpl, ${s.expectancy_eur >= 0 ? "+" : ""}${s.expectancy_eur} €/kauppa`
       );
     html += `<span class="metric-chip" title="${lines.join("\n")}">🔮 Gemini-conf</span>`;
+  } else if (gemTagged > 0 || gemTaggedBuys > 0 || gemTaggedSells > 0) {
+    html += `<span class="metric-chip" title="Gemini-confidence-oppiminen">🔮 Conf ${gemTagged}/6 (O${gemTaggedBuys}/M${gemTaggedSells})</span>`;
   }
   const activeRegime = regime?.regime;
   if (activeRegime && learning?.regime_tuning?.[activeRegime]) {

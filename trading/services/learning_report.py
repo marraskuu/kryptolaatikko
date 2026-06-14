@@ -258,12 +258,18 @@ def _compute_changes(prev: dict[str, Any] | None, curr: dict[str, Any]) -> list[
 def _gemini_conf_lines(learning: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     tagged = int(learning.get("gemini_confidence_tagged") or 0)
+    tagged_buys = int(learning.get("gemini_confidence_tagged_buys") or 0)
+    tagged_sells = int(learning.get("gemini_confidence_tagged_sells") or 0)
     stats = learning.get("gemini_confidence_stats") or {}
     scales = learning.get("gemini_confidence_scales") or {}
     min_conf = int(learning.get("gemini_sell_min_confidence") or 0)
 
     if tagged < 6:
-        lines.append(f"Kerätään dataa ({tagged}/6 tagattua myyntiä)")
+        lines.append(
+            f"Kerätään dataa ({tagged}/6) — Gemini-ostot {tagged_buys}, "
+            f"Gemini-myynnit {tagged_sells}"
+        )
+        lines.append("Oppiminen: sulkeutuneet ostot + Gemini-aloittamat myynnit")
         return lines
 
     blocked = sorted(int(k) for k, v in scales.items() if float(v) <= 0)

@@ -57,6 +57,20 @@ def meta_from_analysis(
         if analysis.get("crowdBucket"):
             meta["crowdBucket"] = analysis["crowdBucket"]
         meta["setup"] = setup_key_for_analysis(analysis, regime)
+        sig = analysis.get("geminiSignal") or {}
+        if sig.get("confidence") is not None and sig.get("action") == "buy":
+            meta["geminiConfidence"] = int(sig["confidence"])
+        if "geminiConfidence" not in meta and (
+            analysis.get("geminiPick") or analysis.get("gemini")
+        ):
+            if sig.get("confidence") is not None:
+                meta["geminiConfidence"] = int(sig["confidence"])
+        if "geminiConfidence" not in meta:
+            for reason in analysis.get("reasons") or []:
+                match = _GEMINI_CONF_RE.search(str(reason))
+                if match and "gemini" in str(reason).lower():
+                    meta["geminiConfidence"] = int(match.group(1))
+                    break
     else:
         if profit_pct is not None:
             meta["profitPctAtSell"] = round(float(profit_pct), 2)
@@ -104,5 +118,11 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "longShortRatio",
         "bookBucket",
         "crowdBucket",
+        "geminiConfidence",
     )
-    return {k: trade[k] for k in keys if trade.get(k) is not None}
+    meta = {k: trade[k] for k in keys if trade.get(k) is not None}
+    if "geminiConfidence" not in meta and "gemini" in (trade.get("reason") or "").lower():
+        match = _GEMINI_CONF_RE.search(trade.get("reason") or "")
+        if match:
+            meta["geminiConfidence"] = int(match.group(1))
+    return meta

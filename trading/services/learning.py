@@ -199,6 +199,7 @@ def _sells_with_entry_context(trades: list[dict[str, Any]]) -> list[dict[str, An
                 "entry_regime": entry_meta.get("regime"),
                 "entry_score": entry_meta.get("score"),
                 "entry_mtf": entry_meta.get("mtfAlign"),
+                "entry_gemini_confidence": entry_meta.get("geminiConfidence"),
             }
         )
     return linked
@@ -474,11 +475,16 @@ def _confidence_scale(scales: dict[Any, float], conf: int) -> float:
 
 def _compute_gemini_confidence_tuning(
     sells: list[dict[str, Any]],
+    linked: list[dict[str, Any]],
     *,
     base_min_conf: int,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Oppiminen Gemini-myyntien confidence-tasoittain (5–10)."""
+    """Oppiminen Gemini-confidence-tasoittain: myynnit + ostosta sulkeutuneet."""
     buckets: dict[int, dict[str, float]] = {}
+    tagged_sells = 0
+    tagged_buys = 0
+    sell_ids_counted: set[int | str] = set()
+
     for trade in sells:
         if _category(trade.get("reason", "")) != "gemini_sell":
             continue
@@ -491,12 +497,39 @@ def _compute_gemini_confidence_tuning(
         bucket["net"] += net
         if net > 0.01:
             bucket["wins"] += 1
+        tagged_sells += 1
+        if trade.get("id") is not None:
+            sell_ids_counted.add(trade["id"])
+
+    for item in linked:
+        sell = item.get("sell") or {}
+        sell_id = sell.get("id")
+        if sell_id is not None and sell_id in sell_ids_counted:
+            continue
+        if _category(sell.get("reason", "")) == "gemini_sell":
+            continue
+        conf_raw = item.get("entry_gemini_confidence")
+        if conf_raw is None:
+            continue
+        try:
+            conf = int(conf_raw)
+        except (TypeError, ValueError):
+            continue
+        if not 5 <= conf <= 10:
+            continue
+        bucket = buckets.setdefault(conf, {"n": 0, "net": 0.0, "wins": 0})
+        net = _net_eur(sell)
+        bucket["n"] += 1
+        bucket["net"] += net
+        if net > 0.01:
+            bucket["wins"] += 1
+        tagged_buys += 1
 
     stats = {
         conf: _stat_block(int(b["n"]), b["net"], int(b["wins"]))
         for conf, b in buckets.items()
     }
-    tagged = sum(int(s["trades"]) for s in stats.values())
+    tagged = tagged_sells + tagged_buys
 
     notes: list[str] = []
     scales: dict[int, float] = {}
@@ -533,12 +566,17 @@ def _compute_gemini_confidence_tuning(
         elif boosted_min > base_min_conf:
             notes.append(f"Gemini min conf {boosted_min}")
     elif tagged:
-        notes.append(f"Gemini-conf {tagged}/{MIN_GEMINI_CONF_TAGGED} tagattua")
+        notes.append(
+            f"Gemini-conf {tagged}/{MIN_GEMINI_CONF_TAGGED} "
+            f"(ostot {tagged_buys}, myynnit {tagged_sells})"
+        )
 
     return {
         "gemini_confidence_stats": stats,
         "gemini_confidence_scales": scales,
         "gemini_confidence_tagged": tagged,
+        "gemini_confidence_tagged_buys": tagged_buys,
+        "gemini_confidence_tagged_sells": tagged_sells,
         "gemini_sell_min_confidence": boosted_min,
     }, notes
 
@@ -719,15 +757,16 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
     total_n = global_params["samples"]
     buy_scale, buy_scale_note = _compute_buy_scale(stats, overall_exp, total_n)
 
+    linked = _sells_with_entry_context(all_trades)
     conf_tuning, conf_notes = _compute_gemini_confidence_tuning(
         sells,
+        linked,
         base_min_conf=gemini_sell_min_confidence,
     )
     gemini_confidence_scales = conf_tuning["gemini_confidence_scales"]
     if conf_tuning["gemini_confidence_tagged"] >= MIN_GEMINI_CONF_TAGGED:
         gemini_sell_min_confidence = conf_tuning["gemini_sell_min_confidence"]
 
-    linked = _sells_with_entry_context(all_trades)
     from .setup_historical_backfill import get_setup_backfill_status, load_setup_stats
 
     setup_history = load_setup_stats()
@@ -824,6 +863,8 @@ def compute_tuning(portfolio: dict[str, Any]) -> dict[str, Any]:
         "gemini_confidence_stats": conf_tuning["gemini_confidence_stats"],
         "gemini_confidence_scales": gemini_confidence_scales,
         "gemini_confidence_tagged": conf_tuning["gemini_confidence_tagged"],
+        "gemini_confidence_tagged_buys": conf_tuning["gemini_confidence_tagged_buys"],
+        "gemini_confidence_tagged_sells": conf_tuning["gemini_confidence_tagged_sells"],
         "profit_take_tuning": profit_take_tuning,
         "stop_tuning": stop_tuning,
     }

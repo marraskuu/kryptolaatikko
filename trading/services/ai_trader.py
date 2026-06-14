@@ -492,6 +492,31 @@ def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
     return mtf >= 1 and change_24h > 0
 
 
+def _gemini_conf_scale_for_analysis(
+    analysis: dict[str, Any] | None,
+    gemini_insights: dict[str, Any] | None,
+    symbol: str,
+    scales: dict[Any, float] | None,
+) -> float:
+    if not scales:
+        return 1.0
+    from .learning import _confidence_scale
+
+    sym = normalize_symbol(symbol)
+    sig = (analysis or {}).get("geminiSignal") or (
+        _gemini_signal_for(gemini_insights, sym) if gemini_insights else None
+    )
+    if not sig:
+        return 1.0
+    try:
+        conf = int(sig.get("confidence", 0))
+    except (TypeError, ValueError):
+        return 1.0
+    if conf < 5:
+        return 1.0
+    return _confidence_scale(scales, conf)
+
+
 def _is_buy_blocked(
     symbol: str,
     analysis: dict[str, Any] | None,
@@ -501,6 +526,7 @@ def _is_buy_blocked(
     regime: str,
     gemini_insights: dict[str, Any] | None = None,
     gemini_active: bool = False,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> bool:
     if not analysis:
         return True
@@ -520,6 +546,7 @@ def _is_buy_blocked(
         analysis,
         gemini_insights,
         gemini_active=gemini_active,
+        gemini_conf_scales=gemini_conf_scales,
     ):
         return True
 
@@ -577,6 +604,7 @@ def _gemini_buy_allowed(
     gemini_insights: dict[str, Any] | None,
     *,
     gemini_active: bool,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> bool:
     """Kun Gemini ohjaa salkkua: osta vain top-pickit confidence ≥ GEMINI_BUY_MIN_CONFIDENCE."""
     if not gemini_active:
@@ -590,7 +618,12 @@ def _gemini_buy_allowed(
         return False
     if sig.get("action") == "sell":
         return False
-    return int(sig.get("confidence", 0)) >= GEMINI_BUY_MIN_CONFIDENCE
+    conf = int(sig.get("confidence", 0))
+    if conf < GEMINI_BUY_MIN_CONFIDENCE:
+        return False
+    if _gemini_conf_scale_for_analysis(analysis, gemini_insights, sym, gemini_conf_scales) <= 0:
+        return False
+    return True
 
 
 def _market_stagnant_exit(
@@ -995,6 +1028,7 @@ def _symbols_for_idle_deploy(
     regime: str,
     gemini_insights: dict[str, Any] | None = None,
     gemini_active: bool = False,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> list[str]:
     symbols: list[str] = []
     seen: set[str] = set()
@@ -1013,6 +1047,7 @@ def _symbols_for_idle_deploy(
             regime=regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
+            gemini_conf_scales=gemini_conf_scales,
         ):
             continue
         symbols.append(sym)
@@ -1317,6 +1352,7 @@ def _deploy_cash_to_targets(
     regime: str = "neutral",
     buy_scale: float = 1.0,
     gemini_insights: dict[str, Any] | None = None,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -1335,6 +1371,7 @@ def _deploy_cash_to_targets(
             regime=regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
+            gemini_conf_scales=gemini_conf_scales,
         )
         and entry_eligible(analyses.get(s))
     ]
@@ -1452,6 +1489,14 @@ def _deploy_cash_to_targets(
             buy_eur = remaining / len(deficits)
 
         buy_eur = max(0.0, min(buy_eur, remaining))
+        if gemini_active and gemini_conf_scales:
+            conf_scale = _gemini_conf_scale_for_analysis(
+                analysis, gemini_insights, sym, gemini_conf_scales
+            )
+            if conf_scale <= 0:
+                continue
+            buy_eur *= conf_scale
+        buy_eur = max(0.0, min(buy_eur, remaining))
         if buy_eur < MIN_TRADE_EUR:
             continue
 
@@ -1541,6 +1586,7 @@ def _technical_leader_symbols(
 def _gemini_desired_symbols(
     gemini_insights: dict[str, Any] | None,
     analyses: dict[str, dict[str, Any]] | None = None,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> list[str]:
     """Gemini valitsee 1–5 kohdetta — ei pakota viittä."""
     if not gemini_insights:
@@ -1555,6 +1601,9 @@ def _gemini_desired_symbols(
         conf = int(sig.get("confidence", 0)) if sig else 0
         if conf < GEMINI_BUY_MIN_CONFIDENCE or (sig and sig.get("action") == "sell"):
             continue
+        analysis = (analyses or {}).get(sym) or (analyses or {}).get(normalize_symbol(sym))
+        if _gemini_conf_scale_for_analysis(analysis, gemini_insights, sym, gemini_conf_scales) <= 0:
+            continue
         seen.add(sym)
         result.append(sym)
     if not result:
@@ -1563,6 +1612,13 @@ def _gemini_desired_symbols(
                 continue
             sym = normalize_symbol(str(raw))
             if sym and sym not in seen and not is_stablecoin(sym):
+                if _gemini_conf_scale_for_analysis(
+                    (analyses or {}).get(sym),
+                    gemini_insights,
+                    sym,
+                    gemini_conf_scales,
+                ) <= 0:
+                    continue
                 seen.add(sym)
                 result.append(sym)
     if analyses:
@@ -1595,8 +1651,9 @@ def _build_top_cryptos(
     analyses: dict[str, dict[str, Any]],
     target_count: int,
     gemini_insights: dict[str, Any] | None,
+    gemini_conf_scales: dict[Any, float] | None = None,
 ) -> list[dict[str, Any]]:
-    desired = _gemini_desired_symbols(gemini_insights, analyses)
+    desired = _gemini_desired_symbols(gemini_insights, analyses, gemini_conf_scales)
     if desired:
         return _to_crypto_items(desired, analyses, gemini_boost=True)
 
@@ -1648,6 +1705,7 @@ def make_trading_decisions(
             regime=regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
+            gemini_conf_scales=gemini_conf_scales,
         )
 
     def _mem_adjust(symbol: str) -> float:
@@ -1701,7 +1759,11 @@ def make_trading_decisions(
     ranked_buyable = buyable or ranked_liquid
 
     target_count = MAX_POSITIONS
-    desired = _gemini_desired_symbols(gemini_insights, analyses) if gemini_active else []
+    desired = (
+        _gemini_desired_symbols(gemini_insights, analyses, gemini_conf_scales)
+        if gemini_active
+        else []
+    )
 
     if gemini_active and desired:
         top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)
@@ -1714,7 +1776,9 @@ def make_trading_decisions(
         top_cryptos = _to_crypto_items(symbols, analyses)
     else:
         fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
-        top_cryptos = _build_top_cryptos(ranked_buyable, analyses, fallback_n, gemini_insights)
+        top_cryptos = _build_top_cryptos(
+            ranked_buyable, analyses, fallback_n, gemini_insights, gemini_conf_scales
+        )
 
     top_cryptos = _liquid_crypto_items(top_cryptos)
     top_cryptos = [
@@ -2163,6 +2227,7 @@ def make_trading_decisions(
             regime=regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
+            gemini_conf_scales=gemini_conf_scales,
         )
         if idle_symbols:
             focus_buyable = [
@@ -2204,6 +2269,7 @@ def make_trading_decisions(
             regime=regime,
             buy_scale=buy_scale,
             gemini_insights=gemini_insights,
+            gemini_conf_scales=gemini_conf_scales,
         )
 
     for d in decisions:
