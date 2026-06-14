@@ -11,10 +11,31 @@ from .market_learning import setup_key_for_analysis
 _GEMINI_CONF_RE = re.compile(r"Gemini\s*\((\d+)/10\)", re.I)
 
 
+def _regime_phase_meta(regime: str, regime_info: dict[str, Any] | None) -> dict[str, Any]:
+    """Tallenna regiimin vaihe myynti-/ostometadataan."""
+    if not regime_info:
+        return {}
+    phase = str(regime_info.get("phase") or regime_info.get("regime") or regime)
+    official = str(regime_info.get("regime") or regime)
+    extra: dict[str, Any] = {}
+    if phase:
+        extra["regimePhase"] = phase
+    shift = regime_info.get("shift_to")
+    if shift:
+        extra["shiftTo"] = shift
+    strength = regime_info.get("shift_strength")
+    if strength:
+        extra["shiftStrength"] = strength
+    if phase != official or phase.endswith("_entering") or phase.endswith("_emerging"):
+        extra["anticipated"] = True
+    return extra
+
+
 def meta_from_analysis(
     analysis: dict[str, Any] | None,
     regime: str,
     *,
+    regime_info: dict[str, Any] | None = None,
     for_sell: bool = False,
     profit_pct: float | None = None,
     peak_price: float | None = None,
@@ -22,6 +43,7 @@ def meta_from_analysis(
 ) -> dict[str, Any]:
     """Rakenna kauppakirjaukseen tallennettava meta analyysistä."""
     meta: dict[str, Any] = {"regime": regime}
+    meta.update(_regime_phase_meta(regime, regime_info))
     if not analysis:
         if for_sell:
             if profit_pct is not None:

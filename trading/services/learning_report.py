@@ -36,7 +36,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas"):
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas", "sell_learned", "sell_ideas", "anticipation_learned", "anticipation_ideas"):
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
     return cleaned
@@ -402,6 +402,49 @@ def build_learning_report(
                 }
             )
 
+        from .sell_outcome_learning import build_gemini_context as build_sell_context
+        from .sell_outcome_learning import learning_report_lines as sell_lines
+
+        sell_ctx = build_sell_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
+        sell_report_lines = sell_lines(sell_ctx)
+        if sell_report_lines:
+            sections.append(
+                {
+                    "id": "sell_outcomes",
+                    "icon": "💹",
+                    "title": "Voitto- vs tappiomyynnit",
+                    "lines": sell_report_lines,
+                }
+            )
+
+        from .regime_anticipation_learning import (
+            build_gemini_context as build_anticipation_context,
+        )
+        from .regime_anticipation_learning import (
+            learning_report_lines as anticipation_lines,
+        )
+
+        anticipation_ctx = build_anticipation_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+            regime=regime,
+        )
+        anticipation_report_lines = anticipation_lines(anticipation_ctx)
+        if anticipation_report_lines:
+            sections.append(
+                {
+                    "id": "regime_anticipation",
+                    "icon": "↻",
+                    "title": "Regiimin ennakointi",
+                    "lines": anticipation_report_lines,
+                }
+            )
+
     conf_lines = _gemini_conf_lines(learning)
     sections.append(
         {"id": "gemini_conf", "icon": "🔮", "title": "Gemini-confidence", "lines": conf_lines}
@@ -487,6 +530,8 @@ def build_learning_report(
     shadow_policy = None
     microstructure_learning = None
     exit_peak_learning = None
+    sell_outcome_learning = None
+    regime_anticipation_learning = None
     if bot_state:
         from .daily_policy_shadow import build_gemini_context
 
@@ -504,6 +549,21 @@ def build_learning_report(
             portfolio,
             learning=learning,
             bot_state=bot_state,
+        )
+        from .sell_outcome_learning import build_gemini_context as build_sell_context
+
+        sell_outcome_learning = build_sell_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+        )
+        from .regime_anticipation_learning import build_gemini_context as build_anticipation_context
+
+        regime_anticipation_learning = build_anticipation_context(
+            portfolio,
+            learning=learning,
+            bot_state=bot_state,
+            regime=regime,
         )
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -524,6 +584,8 @@ def build_learning_report(
         "shadowPolicy": shadow_policy,
         "microstructureLearning": microstructure_learning,
         "exitPeakLearning": exit_peak_learning,
+        "sellOutcomeLearning": sell_outcome_learning,
+        "regimeAnticipationLearning": regime_anticipation_learning,
         "narrative": narrative,
         "lastNarrativeAt": last_narrative_at,
         "nextNarrativeInSec": next_narrative,

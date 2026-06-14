@@ -1184,6 +1184,10 @@ def generate_learning_narrative(
     shadow_text = json.dumps(structured_report.get("shadowPolicy") or {}, ensure_ascii=False)
     micro_text = json.dumps(structured_report.get("microstructureLearning") or {}, ensure_ascii=False)
     exit_text = json.dumps(structured_report.get("exitPeakLearning") or {}, ensure_ascii=False)
+    sell_text = json.dumps(structured_report.get("sellOutcomeLearning") or {}, ensure_ascii=False)
+    anticipation_text = json.dumps(
+        structured_report.get("regimeAnticipationLearning") or {}, ensure_ascii=False
+    )
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
     prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
@@ -1201,6 +1205,10 @@ TÄRKEÄÄ:
 - "micro_ideas" = 1 kappale: konkreettiset ehdotukset microstructure-datan tarkempaan hyödyntämiseen — EI vielä käytössä bottiin.
 - "exit_learned" = 1–2 kappaletta: miten huippumyynti toimii (RSI/MTF/book-trailing, giveback ennen myyntiä, exit-setup-oppiminen). Kerro mitä data sanoo: myytiinkö liian myöhään (korkea giveback) vai liian aikaisin (paljon jäi pöydälle). Jos closedExitsWithMeta on 0, kerro että dynaaminen trailing on käytössä ja oppiminen alkaa seuraavista voitto-otoista.
 - "exit_ideas" = 1 kappale: konkreettiset ehdotukset huippumyynnin tarkempaan oppimiseen — EI vielä käytössä bottiin (vain exit_learned kuvaa jo käytössä olevaa).
+- "sell_learned" = 1–2 kappaletta: mitä on opittu VOITOLLA myydyistä vs. TAPPiOLLA myydyistä (byCategory, topWinExamples, topLossExamples). Kerro selkeästi mikä myyntityyppi (rotaatio, voitto-otto, Gemini, aikastoppi, stop-loss) tuottaa ja mikä syö tuottoa.
+- "sell_ideas" = 1 kappale: konkreettiset suositukset jotta jatkossa myydään ENEMMÄN voitolla — perustu recommendations-kenttään ja dataan. EI uusia automaattisia sääntöjä, vain ihmiselle luettavaa.
+- "anticipation_learned" = 1–2 kappaletta: miten regiimin ennakointi (entering/emerging, shift_to) on HYÖDYNNETTY käytännössä (usage.rulesInCode, rebalanceMinProfitPct, profitTakeScales) ja mitä myynneistä on opittu ennakointivaiheessa vs. vakaassa regiimissä (sellOutcomes). Jos anticipatedActive on true, kerro nykyinen vaihe.
+- "anticipation_ideas" = 1 kappale: ehdotukset ennakoinnin hyödyntämiseen kun dataa kertyy — EI vielä käytössä bottiin.
 
 Sisällytä kertomukseen (story):
 1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
@@ -1210,6 +1218,8 @@ Sisällytä kertomukseen (story):
 5) Lyhyt maininta varjopolitiikasta jos dataa on — viittaa shadow_learned-kenttään
 6) Lyhyt maininta order book & crowd -signaaleista jos dataa on — viittaa micro_learned-kenttään
 7) Lyhyt maininta huippumyynnistä jos dataa on — viittaa exit_learned-kenttään
+8) Lyhyt maininta voitto- vs tappiomyynneistä — viittaa sell_learned-kenttään
+9) Lyhyt maininta regiimin ennakoinnista jos aktiivinen tai dataa on — viittaa anticipation_learned-kenttään
 
 Oppimisdata:
 {sections_text}
@@ -1222,6 +1232,12 @@ Order book & crowd (Bitfinex microstructure — käytössä live-botissa):
 
 Huippumyynti (voitto-otto lähellä huippua — käytössä live-botissa):
 {exit_text}
+
+Voitto- vs tappiomyynnit (viimeiset myynnit, kategoriat ja suositukset):
+{sell_text}
+
+Regiimin ennakointi (entering/emerging, tasapainotus, voitto-otto — käytössä live-botissa):
+{anticipation_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
@@ -1245,6 +1261,10 @@ Vastaa VAIN validilla JSON:lla:
   "micro_ideas": "Order book & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "exit_learned": "Huippumyynti: miten voitto-otto lähellä huippua toimii ja mitä exit-setup-data opettaa (1–2 kappaletta)",
   "exit_ideas": "Huippumyynti: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "sell_learned": "Voitto- vs tappiomyynnit: mitä eri myyntityypeistä on opittu (1–2 kappaletta)",
+  "sell_ideas": "Myyntisuositukset: miten myydä enemmän voitolla jatkossa — ei vielä automaattisesti käytössä (1 kappale)",
+  "anticipation_learned": "Regiimin ennakointi: miten sitä hyödynnetään ja mitä myynneistä on opittu (1–2 kappaletta)",
+  "anticipation_ideas": "Ennakoinnin hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
@@ -1272,6 +1292,10 @@ Vastaa VAIN validilla JSON:lla:
                 "micro_ideas": str(parsed.get("micro_ideas") or "").strip(),
                 "exit_learned": str(parsed.get("exit_learned") or "").strip(),
                 "exit_ideas": str(parsed.get("exit_ideas") or "").strip(),
+                "sell_learned": str(parsed.get("sell_learned") or "").strip(),
+                "sell_ideas": str(parsed.get("sell_ideas") or "").strip(),
+                "anticipation_learned": str(parsed.get("anticipation_learned") or "").strip(),
+                "anticipation_ideas": str(parsed.get("anticipation_ideas") or "").strip(),
                 "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,

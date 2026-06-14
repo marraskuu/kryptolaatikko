@@ -153,7 +153,8 @@ def _check_profit_sells(
     shadow_flags: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     executed: list[dict[str, Any]] = []
-    regime = (state.get("regime") or {}).get("regime", "neutral")
+    regime_info = state.get("regime") or {}
+    regime = regime_info.get("regime", "neutral")
     pt_cfg = _profit_take_config(state, regime)
     shadow_cfg = shadow_profit_take_config(pt_cfg, shadow_flags or {})
     for symbol, holding in list(portfolio.holdings.items()):
@@ -215,6 +216,7 @@ def _check_profit_sells(
                 meta=meta_from_analysis(
                     state["analyses"].get(symbol),
                     regime,
+                    regime_info=regime_info,
                     for_sell=True,
                     profit_pct=result.get("profitPct"),
                     peak_price=result.get("peakPrice"),
@@ -369,6 +371,9 @@ def execute_trading_cycle() -> dict[str, Any]:
         regime_info = enrich_regime_phase(regime_info, prev_regime, prev_margin)
         regime = regime_info["regime"]
         state["regime"] = regime_info
+        from .regime_anticipation_learning import record_regime_snapshot
+
+        record_regime_snapshot(state, regime_info)
         learning = compute_tuning(
             state["portfolio"],
             state.get("geminiPickStats"),
@@ -607,7 +612,12 @@ def execute_trading_cycle() -> dict[str, Any]:
                 d["amount"],
                 analysis["currentPrice"],
                 d["reason"],
-                meta=meta_from_analysis(analysis, regime, for_sell=True),
+                meta=meta_from_analysis(
+                    analysis,
+                    regime,
+                    regime_info=regime_info,
+                    for_sell=True,
+                ),
             )
             log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
             _log_shadow_trade(

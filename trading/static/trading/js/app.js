@@ -1382,6 +1382,38 @@ function buildNarrativeContentHtml(narrative) {
           </div>`
             : ""
         }
+        ${
+          narrative.sell_learned
+            ? `<div class="learning-narrative-block sell-outcomes">
+            <h4>Voitto- vs tappiomyynnit — mitä data opettaa</h4>
+            <p>${escapeHtml(narrative.sell_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.sell_ideas
+            ? `<div class="learning-narrative-block sell-outcomes ideas">
+            <h4>Myyntisuositukset — enemmän voitolla (ei vielä automaattisesti käytössä)</h4>
+            <p>${escapeHtml(narrative.sell_ideas)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.anticipation_learned
+            ? `<div class="learning-narrative-block regime-anticipation">
+            <h4>Regiimin ennakointi — hyödyntäminen ja oppiminen</h4>
+            <p>${escapeHtml(narrative.anticipation_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.anticipation_ideas
+            ? `<div class="learning-narrative-block regime-anticipation ideas">
+            <h4>Ennakoinnin hyödyntämisehdotukset (ei vielä käytössä)</h4>
+            <p>${escapeHtml(narrative.anticipation_ideas)}</p>
+          </div>`
+            : ""
+        }
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
@@ -1395,6 +1427,10 @@ function buildNarrativeContentHtml(narrative) {
       ["micro_ideas", "Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)"],
       ["exit_learned", "Huippumyynti — mitä data opettaa"],
       ["exit_ideas", "Huippumyynti — hyödyntämisehdotukset (ei vielä käytössä)"],
+      ["sell_learned", "Voitto- vs tappiomyynnit — mitä data opettaa"],
+      ["sell_ideas", "Myyntisuositukset — enemmän voitolla (ei vielä automaattisesti käytössä)"],
+      ["anticipation_learned", "Regiimin ennakointi — hyödyntäminen ja oppiminen"],
+      ["anticipation_ideas", "Ennakoinnin hyödyntämisehdotukset (ei vielä käytössä)"],
       ["ideas", "Ideat (ei vielä käytössä)"],
     ];
     return `
@@ -1405,7 +1441,7 @@ function buildNarrativeContentHtml(narrative) {
           .map(
             ([key, title]) => `
           <div class="learning-narrative-block${
-            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas"
+            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas" || key === "sell_ideas" || key === "anticipation_ideas"
               ? " ideas"
               : key === "shadow_learned"
                 ? " shadow-policy"
@@ -1413,7 +1449,11 @@ function buildNarrativeContentHtml(narrative) {
                   ? " microstructure"
                   : key === "exit_learned"
                     ? " exit-peak"
-                    : ""
+                    : key === "sell_learned"
+                      ? " sell-outcomes"
+                      : key === "anticipation_learned"
+                        ? " regime-anticipation"
+                        : ""
           }">
             <h4>${title}</h4>
             <p>${escapeHtml(narrative[key])}</p>
@@ -1447,7 +1487,7 @@ function narrativeSearchBlob(entry) {
       formatted = ts;
     }
   }
-  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.exit_learned, n.exit_ideas, n.learned, n.in_use, n.next_steps]
+  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.exit_learned, n.exit_ideas, n.sell_learned, n.sell_ideas, n.anticipation_learned, n.anticipation_ideas, n.learned, n.in_use, n.next_steps]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

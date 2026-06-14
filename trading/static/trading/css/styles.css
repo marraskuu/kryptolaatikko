@@ -1327,6 +1327,24 @@ h1 {
   color: var(--yellow);
 }
 
+.learning-narrative-block.sell-outcomes {
+  border-top: 1px dashed rgba(52, 211, 153, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.sell-outcomes h4 {
+  color: #6ee7b7;
+}
+
+.learning-narrative-block.regime-anticipation {
+  border-top: 1px dashed rgba(96, 165, 250, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.regime-anticipation h4 {
+  color: #93c5fd;
+}
+
 .learning-narrative-block.ideas h4 {
   color: var(--yellow);
 }
