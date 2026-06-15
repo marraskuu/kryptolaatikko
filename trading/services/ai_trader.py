@@ -1734,6 +1734,7 @@ def _deploy_cash_to_targets(
     gemini_insights: dict[str, Any] | None = None,
     gemini_conf_scales: dict[Any, float] | None = None,
     gemini_buy_min_confidence: int | None = None,
+    bull_satellite_split: dict[str, Any] | None = None,
 ) -> None:
     """Osittaiset myynnit ylipainoon / pois rotaatiosta; kaikki käteinen kohteisiin."""
     normalized_targets = {normalize_symbol(s) for s in target_symbols}
@@ -1847,6 +1848,19 @@ def _deploy_cash_to_targets(
 
     if available < MIN_TRADE_EUR or not buy_targets:
         return
+
+    if bull_satellite_split:
+        from .bull_satellite import deploy_bull_satellite_cash
+
+        if deploy_bull_satellite_cash(
+            decisions,
+            available_cash=available,
+            split=bull_satellite_split,
+            analyses=analyses,
+            gemini_active=gemini_active,
+            format_reason=_format_trade_reason,
+        ):
+            return
 
     deficits: list[tuple[float, str, dict[str, Any]]] = []
     for sym in buy_targets:
@@ -1992,6 +2006,12 @@ def effective_max_positions(
     cap = regime_max_positions(regime_info)
     learned = int((learning or {}).get("max_new_positions") or cap)
     return max(1, min(cap, learned, MAX_POSITIONS))
+
+
+def _is_bull_regime_phase(regime: str, regime_info: dict[str, Any] | None) -> bool:
+    phase = str((regime_info or {}).get("phase") or regime or "neutral")
+    official = str((regime_info or {}).get("regime") or regime or "neutral")
+    return phase.startswith("bull") or official == "bull"
 
 
 def _technical_leader_symbols(
@@ -2836,6 +2856,38 @@ def make_trading_decisions(
         weights = diversify_weights(weights, analyses)
 
     skip_sell_symbols = {d["symbol"] for d in decisions if d.get("type") == "hold"}
+
+    bull_satellite_split = None
+    if _is_bull_regime_phase(regime, regime_info):
+        from .bull_satellite import evaluate_bull_satellite_split
+
+        cash_estimate = max(0.0, cash - CASH_BUFFER_EUR) * effective_buy_scale
+        bull_satellite_split = evaluate_bull_satellite_split(
+            regime=regime,
+            regime_info=regime_info,
+            holdings=holdings,
+            analyses=analyses,
+            total_value=total_value,
+            available_cash=cash_estimate,
+            gemini_insights=gemini_insights,
+            gemini_active=gemini_active,
+            ranked_buyable=ranked_buyable,
+            buy_blocked=buy_blocked,
+            entry_score_min=entry_score_min,
+        )
+        if bull_satellite_split:
+            alloc_symbols = list(
+                dict.fromkeys([bull_satellite_split["primary"], bull_satellite_split["satellite"]])
+            )
+            top_symbols = set(alloc_symbols)
+            top_norms = {normalize_symbol(s) for s in top_symbols}
+            logger.info(
+                "Bull-satelliitti: %s + %s (%s)",
+                bull_satellite_split["primary"],
+                bull_satellite_split["satellite"],
+                bull_satellite_split.get("reason"),
+            )
+
     if not churn_cooldown or concentration_mode or idle_cash:
         _deploy_cash_to_targets(
             decisions,
@@ -2859,6 +2911,7 @@ def make_trading_decisions(
             gemini_insights=gemini_insights,
             gemini_conf_scales=gemini_conf_scales,
             gemini_buy_min_confidence=gemini_buy_min_conf,
+            bull_satellite_split=bull_satellite_split,
         )
 
     for d in decisions:
@@ -2874,6 +2927,7 @@ def make_trading_decisions(
         "concentrationMode": concentration_mode,
         "idleCashDeploy": idle_cash,
         "positionCap": position_cap,
+        "bullSatellite": bull_satellite_split,
     }
 
 
