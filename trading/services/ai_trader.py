@@ -1955,7 +1955,43 @@ def _plan_initial_allocation(
     return planned
 
 
-MAX_POSITIONS = 5
+MAX_POSITIONS = 3
+
+# Regiimikohtainen position yläraja — bear/neutral 1–2, bull 2–3 (absoluuttinen max = MAX_POSITIONS).
+REGIME_MAX_POSITIONS: dict[str, int] = {
+    "bear": 2,
+    "bear_entering": 2,
+    "bear_emerging": 2,
+    "neutral": 2,
+    "neutral_entering": 2,
+    "neutral_emerging": 2,
+    "bull": 3,
+    "bull_entering": 3,
+    "bull_emerging": 3,
+}
+
+
+def regime_max_positions(regime_info: dict[str, Any] | str | None) -> int:
+    """Palauta regiimin/vaiheen sallima max-positionien määrä."""
+    if isinstance(regime_info, dict):
+        phase = str(regime_info.get("phase") or regime_info.get("regime") or "neutral")
+        regime = str(regime_info.get("regime") or "neutral")
+    else:
+        regime = str(regime_info or "neutral")
+        phase = regime
+    if phase in REGIME_MAX_POSITIONS:
+        return REGIME_MAX_POSITIONS[phase]
+    return REGIME_MAX_POSITIONS.get(regime, 2)
+
+
+def effective_max_positions(
+    learning: dict[str, Any] | None,
+    regime_info: dict[str, Any] | str | None,
+) -> int:
+    """Regiimikatto + oppimisen kiristys — ei koskaan yli MAX_POSITIONS."""
+    cap = regime_max_positions(regime_info)
+    learned = int((learning or {}).get("max_new_positions") or cap)
+    return max(1, min(cap, learned, MAX_POSITIONS))
 
 
 def _technical_leader_symbols(
@@ -1984,8 +2020,9 @@ def _gemini_desired_symbols(
     analyses: dict[str, dict[str, Any]] | None = None,
     gemini_conf_scales: dict[Any, float] | None = None,
     gemini_buy_min_confidence: int | None = None,
+    limit: int = MAX_POSITIONS,
 ) -> list[str]:
-    """Gemini valitsee 1–5 kohdetta — ei pakota viittä."""
+    """Gemini valitsee 1–limit kohdetta — ei pakota täyteen."""
     min_conf = (
         GEMINI_BUY_MIN_CONFIDENCE
         if gemini_buy_min_confidence is None
@@ -2029,7 +2066,7 @@ def _gemini_desired_symbols(
             for sym in result
             if entry_volume_ok(analyses.get(sym) or analyses.get(normalize_symbol(sym)))
         ]
-    return result[:MAX_POSITIONS]
+    return result[: max(1, limit)]
 
 
 def _to_crypto_items(
@@ -2061,6 +2098,7 @@ def _build_top_cryptos(
         analyses,
         gemini_conf_scales,
         gemini_buy_min_confidence=gemini_buy_min_confidence,
+        limit=target_count,
     )
     if desired:
         return _to_crypto_items(desired, analyses, gemini_boost=True)
@@ -2110,7 +2148,8 @@ def make_trading_decisions(
     blocked_buys = {normalize_symbol(s) for s in (learning.get("blocked_buys") or [])}
     blocked_setups = set(learning.get("blocked_setups") or [])
     entry_score_min = int(learning.get("entry_score_min", 1))
-    max_new_positions = max(1, int(learning.get("max_new_positions", MAX_POSITIONS)))
+    position_cap = effective_max_positions(learning, regime_info or regime)
+    max_new_positions = position_cap
     setup_memory = learning.get("setup_memory") or {}
     gemini_active = bool(gemini_insights and gemini_insights.get("signals"))
     effective_buy_scale = buy_scale
@@ -2180,29 +2219,30 @@ def make_trading_decisions(
     ]
     ranked_buyable = buyable or ranked_liquid
 
-    target_count = MAX_POSITIONS
+    target_count = position_cap
     desired = (
         _gemini_desired_symbols(
             gemini_insights,
             analyses,
             gemini_conf_scales,
             gemini_buy_min_confidence=gemini_buy_min_conf,
+            limit=position_cap,
         )
         if gemini_active
         else []
     )
 
     if gemini_active and desired:
-        top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)
+        top_cryptos = _to_crypto_items(desired, analyses, gemini_boost=True)[:position_cap]
     elif gemini_active:
-        leaders = _technical_leader_symbols(analyses, MAX_POSITIONS)
+        leaders = _technical_leader_symbols(analyses, position_cap)
         liquid_held = [
             s for s in holdings if entry_volume_ok(analyses.get(s))
         ]
-        symbols = list(dict.fromkeys(leaders + liquid_held))
-        top_cryptos = _to_crypto_items(symbols, analyses)
+        symbols = list(dict.fromkeys(leaders + liquid_held))[:position_cap]
+        top_cryptos = _to_crypto_items(symbols, analyses)[:position_cap]
     else:
-        fallback_n = max(1, min(MAX_POSITIONS, len(holdings) or 2))
+        fallback_n = max(1, min(position_cap, len(holdings) or 2))
         top_cryptos = _build_top_cryptos(
             ranked_buyable,
             analyses,
@@ -2235,7 +2275,8 @@ def make_trading_decisions(
     if concentration_mode:
         logger.info("Concentration mode active: %s", concentration_reason)
 
-    target_count = max(1, len(top_cryptos)) if top_cryptos else 1
+    top_cryptos = top_cryptos[:position_cap]
+    target_count = max(1, min(len(top_cryptos), position_cap)) if top_cryptos else 1
 
     top_symbols = {c["symbol"] for c in top_cryptos}
     top_norms = {normalize_symbol(s) for s in top_symbols}
@@ -2256,7 +2297,7 @@ def make_trading_decisions(
         if desired:
             picks = _to_crypto_items(desired, analyses, gemini_boost=True)
         elif not gemini_active and ranked_buyable:
-            picks = ranked_buyable[: min(2, max_new_positions, len(ranked_buyable))]
+            picks = ranked_buyable[: min(position_cap, max_new_positions, len(ranked_buyable))]
         elif ranked_buyable:
             picks = ranked_buyable[:1]
         if picks:
@@ -2759,7 +2800,7 @@ def make_trading_decisions(
 
     alloc_symbols = list(
         dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
-    )[:MAX_POSITIONS]
+    )[:position_cap]
     idle_cash = _is_idle_cash(cash, total_value)
     if idle_cash:
         _release_idle_dust_holdings(
@@ -2767,7 +2808,7 @@ def make_trading_decisions(
         )
         idle_symbols = _symbols_for_idle_deploy(
             ranked_buyable,
-            MAX_POSITIONS,
+            position_cap,
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
             regime=regime,
@@ -2832,6 +2873,7 @@ def make_trading_decisions(
         "geminiActive": gemini_active,
         "concentrationMode": concentration_mode,
         "idleCashDeploy": idle_cash,
+        "positionCap": position_cap,
     }
 
 

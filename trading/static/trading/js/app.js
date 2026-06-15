@@ -792,7 +792,7 @@ function renderMarketList() {
     return (b[1].volumeEur || 0) - (a[1].volumeEur || 0);
   });
 
-  const maxPos = state.maxPositions ?? 5;
+  const maxPos = state.maxPositions ?? 3;
   els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${heldSet.size} (max ${maxPos})`;
 
   if (entries.length === 0) {

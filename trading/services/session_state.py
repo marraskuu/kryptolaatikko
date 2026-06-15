@@ -2,7 +2,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from .ai_trader import MAX_POSITIONS
+from .ai_trader import effective_max_positions
 from .gemini import get_status as gemini_status_snapshot
 from .portfolio import Portfolio, default_portfolio
 
@@ -161,6 +161,10 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             state, tickers, total_value, get_crypto_label
         )
 
+    learning = state.get("learning")
+    regime_info = state.get("regime")
+    max_positions = effective_max_positions(learning, regime_info)
+
     return {
         "running": state.get("running", True),
         "portfolio": portfolio.to_dict(),
@@ -190,7 +194,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "realizedBreakdown": realized,
         },
         "marketCount": len(tickers),
-        "maxPositions": MAX_POSITIONS,
+        "maxPositions": max_positions,
         "tradeIntervalSec": trade_interval,
         "nextTradeInSec": next_trade_in,
         "lastTradeAt": _ms_to_iso(last_trade_ms),
