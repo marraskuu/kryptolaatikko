@@ -1345,6 +1345,15 @@ h1 {
   color: #93c5fd;
 }
 
+.learning-narrative-block.bull-satellite {
+  border-top: 1px dashed rgba(251, 191, 36, 0.35);
+  padding-top: 10px;
+}
+
+.learning-narrative-block.bull-satellite h4 {
+  color: #fcd34d;
+}
+
 .learning-narrative-block.ideas h4 {
   color: var(--yellow);
 }

@@ -7,6 +7,7 @@ vain jos odotettu hyöty ylittää pelkän ydinlisäyksen.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .ai_trader import (
@@ -17,7 +18,7 @@ from .ai_trader import (
     entry_eligible,
     normalize_symbol,
 )
-from .bitfinex import is_stablecoin
+from .bitfinex import get_crypto_label, is_stablecoin
 
 BULL_SATELLITE_PRIMARY_WEIGHT = 0.65
 BULL_SATELLITE_MIN_EDGE = 1.25
@@ -26,6 +27,348 @@ BULL_SATELLITE_MIN_GEMINI_CONF = 7
 BULL_SATELLITE_STRONG_GEMINI_CONF = 9
 BULL_SATELLITE_MIN_CASH_EUR = 30.0
 BULL_SATELLITE_MIN_HOLDING_SHARE = 0.55
+
+EVENT_MAX = 80
+WIN_EPS = 0.01
+
+
+def _parse_time(iso: Any) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def bull_satellite_trade_meta(
+    *,
+    split: dict[str, Any],
+    role: str,
+    eur: float,
+    entry_price: float,
+    pair_id: str,
+) -> dict[str, Any]:
+    """Meta bull-satelliitti-ostoille — seurantaan ja oppimisraporttiin."""
+    return {
+        "bullSatellite": True,
+        "bullSatellitePair": pair_id,
+        "bullSatelliteRole": role,
+        "bullSatellitePrimary": split.get("primary"),
+        "bullSatelliteSatellite": split.get("satellite"),
+        "bullSatelliteEdgeDelta": split.get("edge_delta"),
+        "bullSatelliteMomentumGap": split.get("momentum_gap"),
+        "bullSatelliteEur": round(float(eur), 2),
+        "bullSatelliteEntryPrice": round(float(entry_price), 6),
+    }
+
+
+def _events(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(state.get("bullSatelliteEvents") or [])
+
+
+def _save_events(state: dict[str, Any], events: list[dict[str, Any]]) -> None:
+    state["bullSatelliteEvents"] = events[-EVENT_MAX:]
+
+
+def sync_from_portfolio(
+    state: dict[str, Any],
+    portfolio: dict[str, Any],
+    tickers: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Päivitä split-tapahtumien tulokset kauppakirjauksesta ja mark-to-marketista."""
+    trades = portfolio.get("trades") or []
+    tickers = tickers or {}
+    by_pair: dict[str, dict[str, Any]] = {}
+
+    for trade in reversed(trades):
+        if trade.get("type") != "buy" or not trade.get("bullSatellitePair"):
+            continue
+        pair = str(trade["bullSatellitePair"])
+        bucket = by_pair.setdefault(
+            pair,
+            {
+                "id": pair,
+                "timestamp": trade.get("timestamp"),
+                "primary": trade.get("bullSatellitePrimary"),
+                "satellite": trade.get("bullSatelliteSatellite"),
+                "edgeDelta": trade.get("bullSatelliteEdgeDelta"),
+                "momentumGap": trade.get("bullSatelliteMomentumGap"),
+                "primaryEur": 0.0,
+                "satelliteEur": 0.0,
+                "primaryEntryPrice": None,
+                "satelliteEntryPrice": None,
+                "primaryBuyId": None,
+                "satelliteBuyId": None,
+            },
+        )
+        role = trade.get("bullSatelliteRole")
+        eur = float(trade.get("eurTotal") or 0)
+        if role == "primary":
+            bucket["primaryEur"] += eur
+            bucket["primaryEntryPrice"] = float(trade.get("price") or 0)
+            bucket["primaryBuyId"] = trade.get("id")
+        elif role == "satellite":
+            bucket["satelliteEur"] += eur
+            bucket["satelliteEntryPrice"] = float(trade.get("price") or 0)
+            bucket["satelliteBuyId"] = trade.get("id")
+        if not bucket.get("timestamp"):
+            bucket["timestamp"] = trade.get("timestamp")
+
+    updated: list[dict[str, Any]] = []
+    for pair_id, raw in by_pair.items():
+        event = _compute_event_outcome(raw, trades, tickers)
+        updated.append(event)
+
+    updated.sort(key=lambda e: str(e.get("timestamp") or ""), reverse=True)
+    _save_events(state, updated)
+
+
+def _mark_price(symbol: str, tickers: dict[str, dict[str, Any]]) -> float | None:
+    tk = tickers.get(symbol)
+    if tk and tk.get("last"):
+        return float(tk["last"])
+    return None
+
+
+def _leg_result(
+    *,
+    buy_trade: dict[str, Any] | None,
+    symbol: str,
+    sells: list[dict[str, Any]],
+    current_price: float | None,
+) -> dict[str, Any]:
+    if not buy_trade:
+        return {"invested": 0.0, "pl": 0.0, "closed": False}
+
+    invested = float(buy_trade.get("eurTotal") or 0)
+    amount = float(buy_trade.get("amount") or 0)
+    entry = float(buy_trade.get("price") or 0)
+    sold_amount = sum(float(s.get("amount") or 0) for s in sells)
+    realized = sum(float(s.get("profitLoss") or 0) for s in sells)
+    remaining = max(0.0, amount - sold_amount)
+
+    if remaining > 0.001 and current_price and entry > 0:
+        unrealized = remaining * (current_price - entry)
+        pl = realized + unrealized
+        closed = sold_amount >= amount * 0.999
+    else:
+        pl = realized
+        closed = amount > 0 and sold_amount >= amount * 0.999
+
+    return {
+        "invested": round(invested, 2),
+        "pl": round(pl, 2),
+        "closed": closed,
+        "remainingAmount": round(remaining, 8),
+    }
+
+
+def _compute_event_outcome(
+    raw: dict[str, Any],
+    trades: list[dict[str, Any]],
+    tickers: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    pair_id = raw["id"]
+    event_ts = _parse_time(raw.get("timestamp"))
+    primary = raw.get("primary")
+    satellite = raw.get("satellite")
+
+    primary_buy = None
+    satellite_buy = None
+    for trade in trades:
+        if trade.get("bullSatellitePair") != pair_id or trade.get("type") != "buy":
+            continue
+        if trade.get("bullSatelliteRole") == "primary":
+            primary_buy = trade
+        elif trade.get("bullSatelliteRole") == "satellite":
+            satellite_buy = trade
+
+    def sells_after(symbol: str) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        if not event_ts or not symbol:
+            return out
+        for trade in trades:
+            if trade.get("type") != "sell" or trade.get("symbol") != symbol:
+                continue
+            ts = _parse_time(trade.get("timestamp"))
+            if ts and ts >= event_ts:
+                out.append(trade)
+        return out
+
+    primary_leg = _leg_result(
+        buy_trade=primary_buy,
+        symbol=str(primary or ""),
+        sells=sells_after(str(primary or "")),
+        current_price=_mark_price(str(primary or ""), tickers),
+    )
+    satellite_leg = _leg_result(
+        buy_trade=satellite_buy,
+        symbol=str(satellite or ""),
+        sells=sells_after(str(satellite or "")),
+        current_price=_mark_price(str(satellite or ""), tickers),
+    )
+
+    total_invested = primary_leg["invested"] + satellite_leg["invested"]
+    actual_pl = primary_leg["pl"] + satellite_leg["pl"]
+
+    cf_pl = 0.0
+    primary_entry = float(raw.get("primaryEntryPrice") or (primary_buy or {}).get("price") or 0)
+    primary_now = _mark_price(str(primary or ""), tickers)
+    if total_invested > 0 and primary_entry > 0 and primary_now:
+        cf_pl = total_invested * (primary_now / primary_entry - 1.0)
+
+    advantage = actual_pl - cf_pl
+    closed = satellite_leg["invested"] > 0 and satellite_leg["closed"] and (
+        primary_leg["invested"] <= 0 or primary_leg["closed"]
+    )
+
+    return {
+        **raw,
+        "totalEur": round(total_invested, 2),
+        "actualPlEur": round(actual_pl, 2),
+        "counterfactualPrimaryOnlyPlEur": round(cf_pl, 2),
+        "advantageEur": round(advantage, 2),
+        "primaryPlEur": primary_leg["pl"],
+        "satellitePlEur": satellite_leg["pl"],
+        "status": "closed" if closed else "open",
+        "satelliteClosed": satellite_leg["closed"],
+    }
+
+
+def build_gemini_context(
+    portfolio: dict[str, Any],
+    bot_state: dict[str, Any] | None = None,
+    tickers: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Konteksti Geminin kertomukseen — bull-satelliitin käytännön tulokset."""
+    bot_state = bot_state or {}
+    tickers = tickers or bot_state.get("tickers") or {}
+    sync_from_portfolio(bot_state, portfolio, tickers)
+    events = _events(bot_state)
+
+    closed = [e for e in events if e.get("status") == "closed"]
+    open_ev = [e for e in events if e.get("status") != "closed"]
+    with_outcome = [e for e in events if e.get("totalEur", 0) > 0]
+
+    advantages = [float(e.get("advantageEur") or 0) for e in with_outcome]
+    wins = sum(1 for a in advantages if a > WIN_EPS)
+    losses = sum(1 for a in advantages if a < -WIN_EPS)
+    avg_adv = round(sum(advantages) / len(advantages), 2) if advantages else None
+    total_adv = round(sum(advantages), 2) if advantages else 0.0
+
+    examples = []
+    for e in sorted(with_outcome, key=lambda x: float(x.get("advantageEur") or 0), reverse=True)[:3]:
+        examples.append(
+            {
+                "timestamp": e.get("timestamp"),
+                "primary": get_crypto_label(str(e.get("primary") or "")),
+                "satellite": get_crypto_label(str(e.get("satellite") or "")),
+                "totalEur": e.get("totalEur"),
+                "actualPlEur": e.get("actualPlEur"),
+                "counterfactualPrimaryOnlyPlEur": e.get("counterfactualPrimaryOnlyPlEur"),
+                "advantageEur": e.get("advantageEur"),
+                "edgeDelta": e.get("edgeDelta"),
+                "momentumGap": e.get("momentumGap"),
+                "status": e.get("status"),
+            }
+        )
+    worst = sorted(with_outcome, key=lambda x: float(x.get("advantageEur") or 0))[:2]
+    for e in worst:
+        if e not in [x for x in with_outcome if x in examples]:
+            examples.append(
+                {
+                    "timestamp": e.get("timestamp"),
+                    "primary": get_crypto_label(str(e.get("primary") or "")),
+                    "satellite": get_crypto_label(str(e.get("satellite") or "")),
+                    "totalEur": e.get("totalEur"),
+                    "actualPlEur": e.get("actualPlEur"),
+                    "counterfactualPrimaryOnlyPlEur": e.get("counterfactualPrimaryOnlyPlEur"),
+                    "advantageEur": e.get("advantageEur"),
+                    "status": e.get("status"),
+                    "type": "weak",
+                }
+            )
+
+    return {
+        "enabled": True,
+        "splitCount": len(events),
+        "closedCount": len(closed),
+        "openCount": len(open_ev),
+        "withOutcomeCount": len(with_outcome),
+        "winsVsPrimaryOnly": wins,
+        "lossesVsPrimaryOnly": losses,
+        "avgAdvantageEur": avg_adv,
+        "totalAdvantageEur": total_adv,
+        "primaryWeightPct": int(BULL_SATELLITE_PRIMARY_WEIGHT * 100),
+        "satelliteWeightPct": int((1 - BULL_SATELLITE_PRIMARY_WEIGHT) * 100),
+        "rules": {
+            "minEdgeDelta": BULL_SATELLITE_MIN_EDGE,
+            "minMomentumGap": BULL_SATELLITE_MIN_MOMENTUM_GAP,
+            "minGeminiConf": BULL_SATELLITE_MIN_GEMINI_CONF,
+            "noRotation": True,
+        },
+        "examples": examples[:5],
+        "recommendations": _recommendations_from_events(with_outcome, avg_adv, wins, losses),
+    }
+
+
+def _recommendations_from_events(
+    events: list[dict[str, Any]],
+    avg_adv: float | None,
+    wins: int,
+    losses: int,
+) -> list[str]:
+    recs: list[str] = []
+    n = len(events)
+    if n == 0:
+        recs.append("Strategia käytössä — odottaa ensimmäistä 65/35-jakoa bull-regiimissä")
+        return recs
+    if n < 3:
+        recs.append(f"Kerätään dataa ({n}/3 split-tapahtumaa) ennen vahvoja johtopäätöksiä")
+    if avg_adv is not None and avg_adv > 0.5:
+        recs.append(f"Jako on tuottanut keskimäärin {avg_adv:+.2f} € enemmän kuin pelkkä ydin")
+    elif avg_adv is not None and avg_adv < -0.5:
+        recs.append(f"Jako on jäänyt keskimäärin {avg_adv:+.2f} € alle pelkkä ydin - tiukenna kynnyksiä")
+    if wins and losses and wins > losses:
+        recs.append(f"Enemmän voitollisia ({wins}) kuin tappiollisia ({losses}) vs pelkkä ydin")
+    elif losses > wins:
+        recs.append(f"Tappiollisia jakoja ({losses}) enemmän kuin voitollisia ({wins})")
+    if not recs:
+        recs.append("Tulokset tasaiset — jatketaan seurantaa")
+    return recs[:4]
+
+
+def learning_report_lines(context: dict[str, Any]) -> list[str]:
+    """Rule-pohjaiset rivit oppimisraportin korttiin."""
+    if not context.get("enabled"):
+        return []
+
+    lines: list[str] = []
+    n = int(context.get("splitCount") or 0)
+    if n == 0:
+        lines.append("Bull-satelliitti (65/35) — odottaa ensimmäistä jakotilannetta")
+        return lines
+
+    wins = int(context.get("winsVsPrimaryOnly") or 0)
+    losses = int(context.get("lossesVsPrimaryOnly") or 0)
+    total_adv = float(context.get("totalAdvantageEur") or 0)
+    avg = context.get("avgAdvantageEur")
+    open_n = int(context.get("openCount") or 0)
+
+    lines.append(f"Split-jakoja: {n} ({open_n} auki)")
+    if context.get("withOutcomeCount", 0) > 0:
+        avg_txt = f", keskim. {avg:+.2f} €" if avg is not None else ""
+        lines.append(
+            f"Vs pelkkä ydin: {wins}V / {losses}T · yhteis etu {total_adv:+.2f} €{avg_txt}"
+        )
+    recs = context.get("recommendations") or []
+    if recs:
+        lines.append(recs[0])
+    return lines
 
 
 def _is_bull_phase(regime: str, regime_info: dict[str, Any] | None) -> bool:
@@ -278,8 +621,11 @@ def deploy_bull_satellite_cash(
     if not planned:
         return False
 
+    pair_id = datetime.now(timezone.utc).strftime("bs-%Y%m%d%H%M%S")
+
     for sym, eur, analysis, weight in planned:
         price = float(analysis["currentPrice"])
+        role = "primary" if sym == primary else "satellite"
         alloc_pct = round(weight * 100, 1)
         reason = format_reason(
             analysis,
@@ -291,6 +637,14 @@ def deploy_bull_satellite_cash(
         if sym == satellite:
             reason = f"{split_note} · {reason}" if gemini_active else split_note
 
+        bs_meta = bull_satellite_trade_meta(
+            split=split,
+            role=role,
+            eur=eur,
+            entry_price=price,
+            pair_id=pair_id,
+        )
+
         existing = next(
             (d for d in decisions if d.get("type") == "buy" and d.get("symbol") == sym),
             None,
@@ -299,6 +653,7 @@ def deploy_bull_satellite_cash(
             existing["eurAmount"] = float(existing.get("eurAmount") or 0) + eur
             existing["amount"] = existing["eurAmount"] / price
             existing["reason"] = reason
+            existing["bullSatelliteMeta"] = bs_meta
             continue
 
         decisions.append(
@@ -309,6 +664,7 @@ def deploy_bull_satellite_cash(
                 "amount": eur / price,
                 "reason": reason,
                 "analysis": analysis,
+                "bullSatelliteMeta": bs_meta,
             }
         )
 

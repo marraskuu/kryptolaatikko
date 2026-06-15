@@ -1414,6 +1414,22 @@ function buildNarrativeContentHtml(narrative) {
           </div>`
             : ""
         }
+        ${
+          narrative.satellite_learned
+            ? `<div class="learning-narrative-block bull-satellite">
+            <h4>Bull-satelliitti (65/35) — käytännön tulokset</h4>
+            <p>${escapeHtml(narrative.satellite_learned)}</p>
+          </div>`
+            : ""
+        }
+        ${
+          narrative.satellite_ideas
+            ? `<div class="learning-narrative-block bull-satellite ideas">
+            <h4>Satelliittijaon hienosäätö (ei vielä automaattisesti käytössä)</h4>
+            <p>${escapeHtml(narrative.satellite_ideas)}</p>
+          </div>`
+            : ""
+        }
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
@@ -1431,6 +1447,8 @@ function buildNarrativeContentHtml(narrative) {
       ["sell_ideas", "Myyntisuositukset — enemmän voitolla (ei vielä automaattisesti käytössä)"],
       ["anticipation_learned", "Regiimin ennakointi — hyödyntäminen ja oppiminen"],
       ["anticipation_ideas", "Ennakoinnin hyödyntämisehdotukset (ei vielä käytössä)"],
+      ["satellite_learned", "Bull-satelliitti (65/35) — käytännön tulokset"],
+      ["satellite_ideas", "Satelliittijaon hienosäätö (ei vielä automaattisesti käytössä)"],
       ["ideas", "Ideat (ei vielä käytössä)"],
     ];
     return `
@@ -1441,7 +1459,7 @@ function buildNarrativeContentHtml(narrative) {
           .map(
             ([key, title]) => `
           <div class="learning-narrative-block${
-            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas" || key === "sell_ideas" || key === "anticipation_ideas"
+            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas" || key === "sell_ideas" || key === "anticipation_ideas" || key === "satellite_ideas"
               ? " ideas"
               : key === "shadow_learned"
                 ? " shadow-policy"
@@ -1453,7 +1471,9 @@ function buildNarrativeContentHtml(narrative) {
                       ? " sell-outcomes"
                       : key === "anticipation_learned"
                         ? " regime-anticipation"
-                        : ""
+                        : key === "satellite_learned"
+                          ? " bull-satellite"
+                          : ""
           }">
             <h4>${title}</h4>
             <p>${escapeHtml(narrative[key])}</p>
@@ -1487,7 +1507,7 @@ function narrativeSearchBlob(entry) {
       formatted = ts;
     }
   }
-  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.exit_learned, n.exit_ideas, n.sell_learned, n.sell_ideas, n.anticipation_learned, n.anticipation_ideas, n.learned, n.in_use, n.next_steps]
+  return [ts, formatted, n.story, n.intro, n.ideas, n.shadow_learned, n.shadow_ideas, n.micro_learned, n.micro_ideas, n.exit_learned, n.exit_ideas, n.sell_learned, n.sell_ideas, n.anticipation_learned, n.anticipation_ideas, n.satellite_learned, n.satellite_ideas, n.learned, n.in_use, n.next_steps]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

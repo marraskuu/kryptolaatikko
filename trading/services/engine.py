@@ -643,12 +643,14 @@ def execute_trading_cycle() -> dict[str, Any]:
 
         for d in [x for x in decisions if x["type"] == "buy"]:
             analysis = d.get("analysis") or {}
+            buy_meta = meta_from_analysis(analysis, regime)
+            buy_meta.update(d.get("bullSatelliteMeta") or {})
             ok = portfolio.buy(
                 d["symbol"],
                 d["eurAmount"],
                 analysis["currentPrice"],
                 d["reason"],
-                meta=meta_from_analysis(analysis, regime),
+                meta=buy_meta,
             )
             if ok:
                 log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
@@ -707,6 +709,12 @@ def execute_trading_cycle() -> dict[str, Any]:
             log_watch_event(state, w["symbol"], state["profitWatch"].get(w["symbol"]))
 
         state["portfolio"] = portfolio.to_dict()
+        try:
+            from .bull_satellite import sync_from_portfolio
+
+            sync_from_portfolio(state, state["portfolio"], state.get("tickers"))
+        except Exception:
+            pass
         save_state(state)
 
         payload = build_api_payload(state)

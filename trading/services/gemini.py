@@ -1188,6 +1188,7 @@ def generate_learning_narrative(
     anticipation_text = json.dumps(
         structured_report.get("regimeAnticipationLearning") or {}, ensure_ascii=False
     )
+    satellite_text = json.dumps(structured_report.get("bullSatelliteLearning") or {}, ensure_ascii=False)
     prev_text = json.dumps(previous_narrative or {}, ensure_ascii=False)
 
     prompt = f"""Olet Krypto Simulaattori -sovelluksen oppimisraportin kirjoittaja. Kirjoita selkeä, vapaamuotoinen kertomus suomeksi.
@@ -1209,6 +1210,8 @@ TÄRKEÄÄ:
 - "sell_ideas" = 1 kappale: konkreettiset suositukset jotta jatkossa myydään ENEMMÄN voitolla — perustu recommendations-kenttään ja dataan. EI uusia automaattisia sääntöjä, vain ihmiselle luettavaa.
 - "anticipation_learned" = 1–2 kappaletta: miten regiimin ennakointi (entering/emerging, shift_to) on HYÖDYNNETTY käytännössä (usage.rulesInCode, rebalanceMinProfitPct, profitTakeScales) ja mitä myynneistä on opittu ennakointivaiheessa vs. vakaassa regiimissä (sellOutcomes). Jos anticipatedActive on true, kerro nykyinen vaihe.
 - "anticipation_ideas" = 1 kappale: ehdotukset ennakoinnin hyödyntämiseen kun dataa kertyy — EI vielä käytössä bottiin.
+- "satellite_learned" = 1–2 kappaletta: miten bull-satelliitti-strategia (65/35 jako käteisestä ilman rotaatiota) on MENESTYNYT käytännössä. Vertaa actualPlEur vs counterfactualPrimaryOnlyPlEur ja advantageEur (kuinka paljon € enemmän/vähemmän kuin pelkkä ydin). Kerro winsVsPrimaryOnly / lossesVsPrimaryOnly, avgAdvantageEur ja totalAdvantageEur. Jos splitCount on 0, kerro että strategia on käytössä bull-regiimissä mutta ensimmäistä jakoa odotetaan.
+- "satellite_ideas" = 1 kappale: ehdotukset satelliittijaon kynnyksien tai painotuksen hienosäätöön dataan perustuen — EI vielä automaattisesti käytössä bottiin.
 
 Sisällytä kertomukseen (story):
 1) Mitä botti on oppinut (markkina-asetelmat, kauppatyypit, Gemini-conf, symbolit)
@@ -1220,6 +1223,7 @@ Sisällytä kertomukseen (story):
 7) Lyhyt maininta huippumyynnistä jos dataa on — viittaa exit_learned-kenttään
 8) Lyhyt maininta voitto- vs tappiomyynneistä — viittaa sell_learned-kenttään
 9) Lyhyt maininta regiimin ennakoinnista jos aktiivinen tai dataa on — viittaa anticipation_learned-kenttään
+10) Lyhyt maininta bull-satelliitista (65/35) jos dataa on tai strategia on aktiivinen — viittaa satellite_learned-kenttään
 
 Oppimisdata:
 {sections_text}
@@ -1238,6 +1242,9 @@ Voitto- vs tappiomyynnit (viimeiset myynnit, kategoriat ja suositukset):
 
 Regiimin ennakointi (entering/emerging, tasapainotus, voitto-otto — käytössä live-botissa):
 {anticipation_text}
+
+Bull-satelliitti (65/35 jako käteisestä bull-regiimissä — käytössä live-botissa):
+{satellite_text}
 
 Muutokset edelliseen raporttiin:
 {changes_text}
@@ -1265,6 +1272,8 @@ Vastaa VAIN validilla JSON:lla:
   "sell_ideas": "Myyntisuositukset: miten myydä enemmän voitolla jatkossa — ei vielä automaattisesti käytössä (1 kappale)",
   "anticipation_learned": "Regiimin ennakointi: miten sitä hyödynnetään ja mitä myynneistä on opittu (1–2 kappaletta)",
   "anticipation_ideas": "Ennakoinnin hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "satellite_learned": "Bull-satelliitti: miten 65/35-jako on tuottanut vs pelkkä ydin (1–2 kappaletta, €-luvut)",
+  "satellite_ideas": "Satelliittijaon hienosäätöehdotukset — ei vielä automaattisesti käytössä (1 kappale)",
   "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
 }}"""
 
@@ -1296,6 +1305,8 @@ Vastaa VAIN validilla JSON:lla:
                 "sell_ideas": str(parsed.get("sell_ideas") or "").strip(),
                 "anticipation_learned": str(parsed.get("anticipation_learned") or "").strip(),
                 "anticipation_ideas": str(parsed.get("anticipation_ideas") or "").strip(),
+                "satellite_learned": str(parsed.get("satellite_learned") or "").strip(),
+                "satellite_ideas": str(parsed.get("satellite_ideas") or "").strip(),
                 "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,

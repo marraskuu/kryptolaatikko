@@ -36,7 +36,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas", "sell_learned", "sell_ideas", "anticipation_learned", "anticipation_ideas"):
+    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas", "sell_learned", "sell_ideas", "anticipation_learned", "anticipation_ideas", "satellite_learned", "satellite_ideas"):
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
     return cleaned
@@ -445,6 +445,25 @@ def build_learning_report(
                 }
             )
 
+        from .bull_satellite import build_gemini_context as build_satellite_context
+        from .bull_satellite import learning_report_lines as satellite_lines
+
+        satellite_ctx = build_satellite_context(
+            portfolio,
+            bot_state=bot_state,
+            tickers=bot_state.get("tickers") if bot_state else None,
+        )
+        satellite_report_lines = satellite_lines(satellite_ctx)
+        if satellite_report_lines:
+            sections.append(
+                {
+                    "id": "bull_satellite",
+                    "icon": "🛰️",
+                    "title": "Bull-satelliitti (65/35)",
+                    "lines": satellite_report_lines,
+                }
+            )
+
     conf_lines = _gemini_conf_lines(learning)
     sections.append(
         {"id": "gemini_conf", "icon": "🔮", "title": "Gemini-confidence", "lines": conf_lines}
@@ -532,6 +551,7 @@ def build_learning_report(
     exit_peak_learning = None
     sell_outcome_learning = None
     regime_anticipation_learning = None
+    bull_satellite_learning = None
     if bot_state:
         from .daily_policy_shadow import build_gemini_context
 
@@ -565,6 +585,13 @@ def build_learning_report(
             bot_state=bot_state,
             regime=regime,
         )
+        from .bull_satellite import build_gemini_context as build_satellite_context
+
+        bull_satellite_learning = build_satellite_context(
+            portfolio,
+            bot_state=bot_state,
+            tickers=bot_state.get("tickers"),
+        )
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     last_ms = 0
@@ -586,6 +613,7 @@ def build_learning_report(
         "exitPeakLearning": exit_peak_learning,
         "sellOutcomeLearning": sell_outcome_learning,
         "regimeAnticipationLearning": regime_anticipation_learning,
+        "bullSatelliteLearning": bull_satellite_learning,
         "narrative": narrative,
         "lastNarrativeAt": last_narrative_at,
         "nextNarrativeInSec": next_narrative,
