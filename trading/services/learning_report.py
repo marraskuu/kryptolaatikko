@@ -50,6 +50,8 @@ NARRATIVE_STALE_SEC = int(os.environ.get("NARRATIVE_STALE_SEC", "300"))
 logger = logging.getLogger(__name__)
 _narrative_refresh_lock = threading.Lock()
 _narrative_refresh_running = False
+_narrative_kick_lock = threading.Lock()
+_last_narrative_kick_ms = 0
 
 ROADMAP_ITEMS = (
     {
@@ -743,6 +745,52 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     return not _has_narrative_story(state, report)
 
 
+def kick_narrative_refresh_if_due(min_interval_sec: int = 90) -> None:
+    """Herätä Gemini-kertomus taustalla (API-poll / wake) ilman että blokataan pyyntöä."""
+    global _last_narrative_kick_ms
+
+    from .gemini import is_configured
+
+    if not is_configured():
+        return
+
+    state = None
+    try:
+        from .state_store import load_state
+
+        state = load_state()
+    except Exception:
+        logger.warning("Gemini-kertomuksen kick: tilan luku epäonnistui", exc_info=True)
+        return
+
+    if not needs_narrative_refresh(state):
+        return
+
+    pending_since = _parse_time(state.get("learningNarrativePendingSince"))
+    if pending_since:
+        age = (datetime.now(timezone.utc) - pending_since).total_seconds()
+        if age < NARRATIVE_STALE_SEC:
+            return
+
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    with _narrative_kick_lock:
+        if now_ms - _last_narrative_kick_ms < min_interval_sec * 1000:
+            return
+        _last_narrative_kick_ms = now_ms
+
+    def _run() -> None:
+        try:
+            from .state_store import load_state, save_state
+
+            s = load_state()
+            refresh_narrative_if_due(s)
+            save_state(s)
+        except Exception:
+            logger.exception("Gemini-kertomuksen taustakick epäonnistui")
+
+    threading.Thread(target=_run, name="learning-narrative-kick", daemon=True).start()
+
+
 def refresh_narrative_if_due(state: dict[str, Any]) -> dict[str, Any]:
     """Päivitä vain Gemini-kertomus (rule-kortit pysyvät) kun 6 h täyttyy."""
     cached = state.get("learningReport")
@@ -874,19 +922,12 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
             state = load_state()
             state["learningNarrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
             state.pop("learningNarrativePendingSince", None)
-            merged = build_learning_report(
-                learning=state.get("learning") or {},
-                market_learning=state.get("marketLearning"),
-                regime=state.get("regime"),
-                portfolio=state.get("portfolio") or {},
-                previous_snapshot=state.get("learningReportSnapshot"),
-                narrative=state.get("learningNarrative"),
-                last_narrative_at=state.get("lastLearningNarrativeAt"),
-                bot_state=state,
+            merged = _merge_cached_learning_report(
+                state,
+                dict(state.get("learningReport") or report),
             )
             merged["narrativePending"] = False
             merged["narrativeError"] = state["learningNarrativeError"]
-            state.pop("learningNarrativePendingSince", None)
             state["learningReport"] = merged
             save_state(state)
             return
@@ -980,8 +1021,6 @@ def maybe_refresh_narrative(
 
     if not already_running:
         report["narrativePending"] = True
-        report.pop("narrativeError", None)
-        state.pop("learningNarrativeError", None)
         threading.Thread(
             target=_run_narrative_refresh,
             args=(
@@ -993,19 +1032,16 @@ def maybe_refresh_narrative(
             name="learning-narrative",
             daemon=True,
         ).start()
-        report.pop("narrativeError", None)
     elif retry_after_error or pending_stale:
         report["narrativePending"] = True
-        report.pop("narrativeError", None)
     elif already_running and due:
         report["narrativePending"] = True
-        report.pop("narrativeError", None)
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
     report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
-    if report.get("narrativePending"):
-        report.pop("narrativeError", None)
-    elif state.get("learningNarrativeError"):
+    if state.get("learningNarrativeError"):
         report["narrativeError"] = state["learningNarrativeError"]
+    elif report.get("narrativePending"):
+        report.pop("narrativeError", None)
     return report

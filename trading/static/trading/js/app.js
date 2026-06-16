@@ -1612,13 +1612,16 @@ function renderLearningReportMeta(report) {
   }
   if (report.narrativePending) {
     // countdown hidden while writing
+  } else if (report.narrativeError) {
+    parts.push("uusi kertomus epäonnistui — yritetään uudelleen");
   } else if (next != null && next > 0) {
     parts.push(`seuraava kertomus ${formatDurationSec(next)} kuluttua`);
   } else if (next === 0 && last) {
     parts.push("seuraava kertomus nyt");
   }
   if (report.narrativeError) {
-    parts.push("Gemini-virhe — yritetään uudelleen");
+    const errShort = String(report.narrativeError).slice(0, 80);
+    parts.push(errShort);
   }
   els.learningReportMeta.textContent = parts.join(" · ");
 }

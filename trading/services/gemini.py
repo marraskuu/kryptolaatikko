@@ -57,13 +57,44 @@ def _read_model() -> str:
     return model or DEFAULT_GEMINI_MODEL
 
 
-def _model_candidates() -> list[str]:
+def _allow_model_fallback() -> bool:
+    return os.environ.get("GEMINI_ALLOW_FALLBACK", "0").lower() not in ("0", "false", "no", "off")
+
+
+def _model_candidates(*, narrative: bool = False) -> list[str]:
     primary = _read_model()
+    if narrative or not _allow_model_fallback():
+        return [primary]
     models = [primary]
     for model in SUPPORTED_GEMINI_MODELS:
         if model not in models:
             models.append(model)
     return models
+
+
+def _request_error_detail(exc: requests.RequestException) -> str:
+    if hasattr(exc, "response") and exc.response is not None:
+        try:
+            err_body = exc.response.json()
+            return str(err_body.get("error", {}).get("message", "") or exc.response.text[:200])
+        except (ValueError, AttributeError, TypeError):
+            return (exc.response.text or type(exc).__name__)[:200]
+    return type(exc).__name__
+
+
+def _is_quota_or_billing_error(message: str) -> bool:
+    lower = (message or "").lower()
+    return any(
+        token in lower
+        for token in (
+            "spending cap",
+            "quota",
+            "resource_exhausted",
+            "billing",
+            "exceeded your",
+            "rate limit",
+        )
+    )
 
 
 def _post_with_retry(
@@ -1124,20 +1155,15 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
             }
 
         except requests.RequestException as exc:
-            detail = ""
-            status_code = None
-            if hasattr(exc, "response") and exc.response is not None:
-                status_code = exc.response.status_code
-                try:
-                    err_body = exc.response.json()
-                    detail = err_body.get("error", {}).get("message", "")[:160]
-                except (ValueError, AttributeError):
-                    detail = exc.response.text[:160] if exc.response.text else ""
+            status_code = exc.response.status_code if getattr(exc, "response", None) is not None else None
+            detail = _request_error_detail(exc)
             if status_code is not None and status_code not in RETRYABLE_STATUS:
                 transient_only = False
             err_msg = detail or type(exc).__name__
             errors.append(f"{model}: {err_msg}")
             logger.warning("Gemini API error (%s): %s", model, err_msg)
+            if _is_quota_or_billing_error(err_msg):
+                break
             continue
         except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
             transient_only = False
@@ -1278,8 +1304,9 @@ Vastaa VAIN validilla JSON:lla:
 }}"""
 
     api_key = _read_api_key()
-    models = _model_candidates()
-    narrative_timeout = int(os.environ.get("LEARNING_NARRATIVE_TIMEOUT", "90"))
+    models = _model_candidates(narrative=True)
+    narrative_timeout = int(os.environ.get("LEARNING_NARRATIVE_TIMEOUT", "120"))
+    errors: list[str] = []
 
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -1320,13 +1347,31 @@ Vastaa VAIN validilla JSON:lla:
                 "model": model,
                 "configured": True,
             }
-        except (requests.RequestException, KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
-            logger.warning("Learning narrative Gemini error (%s): %s", model, exc)
+        except requests.RequestException as exc:
+            detail = _request_error_detail(exc)
+            errors.append(f"{model}: {detail}")
+            logger.warning("Learning narrative Gemini error (%s): %s", model, detail)
+            if _is_quota_or_billing_error(detail):
+                break
+            continue
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            err_msg = type(exc).__name__
+            errors.append(f"{model}: {err_msg}")
+            logger.warning("Learning narrative Gemini parse error (%s): %s", model, err_msg)
             continue
 
+    detail = errors[0].split(": ", 1)[-1] if errors else ""
+    if _is_quota_or_billing_error(detail):
+        msg = "Gemini-budjetti tai kiintiö täynnä — kertomus odottaa (AI Studio Spend)"
+    else:
+        msg = "Oppimisraportin Gemini-kutsu epäonnistui"
+    if detail and not _is_quota_or_billing_error(detail):
+        msg = f"{msg} ({detail[:160]})"
+    elif detail:
+        msg = f"{msg}: {detail[:120]}"
     return None, {
         "ok": False,
-        "message": "Oppimisraportin Gemini-kutsu epäonnistui",
+        "message": msg,
         "provider": "gemini",
         "configured": True,
     }

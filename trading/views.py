@@ -53,8 +53,10 @@ def api_state(request):
     state = load_state()
     try:
         from .services.bot_worker import bot_is_stale, bot_stale_seconds, maybe_wake_bot
+        from .services.learning_report import kick_narrative_refresh_if_due
 
         maybe_wake_bot(state)
+        kick_narrative_refresh_if_due()
         state = load_state()
         bot_stale = bot_is_stale(state)
         stale_sec = int(bot_stale_seconds(state))
