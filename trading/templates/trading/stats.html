@@ -52,9 +52,10 @@
 
     <section class="panel stats-panel">
       <h2 class="panel-title">Käynnit päivittäin</h2>
+      <p class="stats-hint">Paina päivää nähdäksesi kyseisen päivän käynnit.</p>
       {% if byDay %}
       <div class="stats-day-table-wrap">
-        <table class="stats-table">
+        <table class="stats-table stats-day-summary">
           <thead>
             <tr>
               <th>Päivä</th>
@@ -65,13 +66,35 @@
           </thead>
           <tbody>
             {% for row in byDay %}
-            <tr>
-              <td>{{ row.day_label }}</td>
+            <tr
+              class="stats-day-row"
+              data-day="{{ row.day }}"
+              tabindex="0"
+              role="button"
+              aria-expanded="false"
+              aria-controls="stats-day-detail-{{ row.day }}"
+            >
+              <td>
+                <span class="stats-day-chevron" aria-hidden="true">▸</span>
+                {{ row.day_label }}
+              </td>
               <td class="stats-num">{{ row.visits }}</td>
               <td class="stats-num">{{ row.unique_visitors }}</td>
               <td class="stats-bar-col">
                 <div class="stats-bar-track" title="{{ row.visits }} käyntiä">
                   <div class="stats-bar-fill" style="width: {% localize off %}{{ row.bar_pct }}{% endlocalize %}%"></div>
+                </div>
+              </td>
+            </tr>
+            <tr
+              class="stats-day-detail is-collapsed"
+              id="stats-day-detail-{{ row.day }}"
+              data-day-detail="{{ row.day }}"
+              hidden
+            >
+              <td colspan="4">
+                <div class="stats-day-detail-inner">
+                  {% include "trading/_visit_log_table.html" with visits=row.visit_log %}
                 </div>
               </td>
             </tr>
@@ -123,6 +146,7 @@
             <thead>
               <tr>
                 <th>IP</th>
+                <th>Operaattori</th>
                 <th>Maa</th>
                 <th>Käynnit</th>
                 <th>Viimeisin</th>
@@ -132,6 +156,7 @@
               {% for row in byIp %}
               <tr>
                 <td><code>{{ row.ip }}</code></td>
+                <td>{% if row.client_isp %}{{ row.client_isp }}{% else %}—{% endif %}</td>
                 <td>{% if row.country_code %}<code>{{ row.country_code }}</code> {{ row.country_name }}{% else %}—{% endif %}</td>
                 <td>{{ row.visits }}</td>
                 <td>{{ row.last_visit|date:"d.m. H:i" }}</td>
@@ -150,28 +175,7 @@
       <h2 class="panel-title">Viimeisimmät käynnit</h2>
       {% if recentVisits %}
       <div class="stats-day-table-wrap">
-        <table class="stats-table stats-table-compact">
-          <thead>
-            <tr>
-              <th>Aika</th>
-              <th>Sivu</th>
-              <th>IP</th>
-              <th>Maa</th>
-              <th>Lähde</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for v in recentVisits %}
-            <tr>
-              <td>{{ v.visited_at|date:"d.m. H:i:s" }}</td>
-              <td><code>{{ v.path }}</code></td>
-              <td>{% if v.client_ip %}<code>{{ v.client_ip }}</code>{% else %}—{% endif %}</td>
-              <td>{% if v.country_code %}<code>{{ v.country_code }}</code> {{ v.country_name }}{% else %}—{% endif %}</td>
-              <td>{{ v.referer_source }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        {% include "trading/_visit_log_table.html" with visits=recentVisits %}
       </div>
       {% else %}
       <p class="stats-empty">Ei käyntejä.</p>
@@ -180,10 +184,42 @@
 
     <p class="stats-footer-note">
       Kirjautunut: {{ stats_user }}.
+      Operaattori haetaan ip-api.com:sta (uudet käynnit tallentavat sen automaattisesti).
       <a href="?days=7">7 pv</a> ·
       <a href="?days=30">30 pv</a> ·
       <a href="?days=90">90 pv</a>
     </p>
   </div>
+  <script>
+    (function () {
+      function toggleDayRow(row) {
+        var day = row.getAttribute("data-day");
+        var detail = document.querySelector('[data-day-detail="' + day + '"]');
+        if (!detail) return;
+        var open = detail.hasAttribute("hidden");
+        if (open) {
+          detail.removeAttribute("hidden");
+          row.classList.add("is-open");
+          row.setAttribute("aria-expanded", "true");
+        } else {
+          detail.setAttribute("hidden", "");
+          row.classList.remove("is-open");
+          row.setAttribute("aria-expanded", "false");
+        }
+      }
+
+      document.querySelectorAll(".stats-day-row").forEach(function (row) {
+        row.addEventListener("click", function () {
+          toggleDayRow(row);
+        });
+        row.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleDayRow(row);
+          }
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

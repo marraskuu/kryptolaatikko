@@ -27,6 +27,7 @@ class PageVisit(models.Model):
     user_agent = models.CharField(max_length=256, blank=True)
     ip_hash = models.CharField(max_length=32, db_index=True)
     client_ip = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    client_isp = models.CharField(max_length=128, blank=True, default="")
     country_code = models.CharField(max_length=2, blank=True, default="", db_index=True)
     is_bot = models.BooleanField(default=False, db_index=True)
 

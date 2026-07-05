@@ -1984,6 +1984,47 @@ body.modal-open {
   font-weight: 600;
 }
 
+.stats-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: -4px 0 12px;
+}
+
+.stats-day-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.stats-day-row.is-open,
+.stats-day-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stats-day-chevron {
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.stats-day-row.is-open .stats-day-chevron {
+  transform: rotate(90deg);
+}
+
+.stats-day-detail td {
+  padding: 0;
+  background: rgba(0, 0, 0, 0.18);
+  border-top: none;
+}
+
+.stats-day-detail-inner {
+  padding: 8px 12px 14px 28px;
+}
+
+.stats-visit-log {
+  margin: 0;
+}
+
 .stat-value-sm {
   font-size: 1.25rem !important;
 }

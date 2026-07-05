@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import logging
+from collections import defaultdict
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -70,7 +71,53 @@ COUNTRY_NAMES: dict[str, str] = {
     "LV": "Latvia",
 }
 
-_geo_cache: dict[str, str] = {}
+_geo_cache: dict[str, dict[str, str]] = {}
+
+
+def _is_private_ip(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_private or ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return True
+
+
+def _geo_lookup(client_ip: str) -> dict[str, str]:
+    """Maa + operaattori (ip-api.com, muistissa)."""
+    empty = {"country_code": "", "isp": ""}
+    if not client_ip or _is_private_ip(client_ip):
+        return empty
+
+    cached = _geo_cache.get(client_ip)
+    if cached is not None:
+        return cached
+
+    result = dict(empty)
+    try:
+        resp = requests.get(
+            f"http://ip-api.com/json/{client_ip}",
+            params={"fields": "countryCode,isp,org,status"},
+            timeout=1.2,
+        )
+        if resp.ok:
+            data = resp.json()
+            if data.get("status") == "success":
+                result["country_code"] = (data.get("countryCode") or "").upper()[:2]
+                result["isp"] = (
+                    (data.get("isp") or data.get("org") or "").strip()[:128]
+                )
+    except Exception:
+        logger.debug("Geo lookup failed for %s", client_ip, exc_info=True)
+
+    _geo_cache[client_ip] = result
+    return result
+
+
+def isp_for_ip(client_ip: str, stored_isp: str = "") -> str:
+    if stored_isp:
+        return stored_isp
+    if not client_ip or client_ip.startswith("hash "):
+        return ""
+    return _geo_lookup(client_ip).get("isp") or ""
 
 
 def _client_ip(request) -> str:
@@ -92,13 +139,6 @@ def country_name(code: str) -> str:
     return COUNTRY_NAMES.get(code, code)
 
 
-def _is_private_ip(ip: str) -> bool:
-    try:
-        return ipaddress.ip_address(ip).is_private or ipaddress.ip_address(ip).is_loopback
-    except ValueError:
-        return True
-
-
 def _country_code_for_request(request, client_ip: str) -> str:
     for header in (
         "HTTP_CF_IPCOUNTRY",
@@ -112,26 +152,13 @@ def _country_code_for_request(request, client_ip: str) -> str:
     if not client_ip or _is_private_ip(client_ip):
         return ""
 
-    cached = _geo_cache.get(client_ip)
-    if cached is not None:
-        return cached
+    return _geo_lookup(client_ip).get("country_code") or ""
 
-    code = ""
-    try:
-        resp = requests.get(
-            f"http://ip-api.com/json/{client_ip}",
-            params={"fields": "countryCode,status"},
-            timeout=1.2,
-        )
-        if resp.ok:
-            data = resp.json()
-            if data.get("status") == "success":
-                code = (data.get("countryCode") or "").upper()[:2]
-    except Exception:
-        logger.debug("Geo lookup failed for %s", client_ip, exc_info=True)
 
-    _geo_cache[client_ip] = code
-    return code
+def _isp_for_request(request, client_ip: str) -> str:
+    if not client_ip or _is_private_ip(client_ip):
+        return ""
+    return _geo_lookup(client_ip).get("isp") or ""
 
 
 def is_bot_user_agent(user_agent: str) -> bool:
@@ -187,6 +214,7 @@ def record_page_visit(request, path: str = "/") -> None:
     source, source_host = parse_referrer(referer)
     client_ip = _client_ip(request) or None
     country_code = _country_code_for_request(request, client_ip or "")
+    client_isp = _isp_for_request(request, client_ip or "")
 
     from trading.models import PageVisit
 
@@ -198,6 +226,7 @@ def record_page_visit(request, path: str = "/") -> None:
         user_agent=user_agent,
         ip_hash=ip_hash_for_request(request),
         client_ip=client_ip,
+        client_isp=client_isp[:128],
         country_code=country_code,
         is_bot=False,
     )
@@ -236,6 +265,17 @@ def get_visitor_stats(*, days: int = 30) -> dict[str, Any]:
     }
 
 
+def _enrich_visit_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lisää näyttömuotoilu ja operaattori (vanhoille riveille lookup)."""
+    out = dict(row)
+    out["country_name"] = country_name(out.get("country_code") or "")
+    raw_ip = out.get("client_ip") or ""
+    out["client_isp"] = isp_for_ip(raw_ip, out.get("client_isp") or "")
+    if not raw_ip and out.get("ip_hash"):
+        out["client_ip"] = f"hash {out['ip_hash'][:10]}…"
+    return out
+
+
 def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
     """HTML /stats-sivulle: päivittäiset käynnit, IP:t ja maat."""
     from trading.models import PageVisit
@@ -246,19 +286,37 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
 
     base = get_visitor_stats(days=days)
 
+    visit_rows = list(
+        human.order_by("-visited_at").values(
+            "visited_at",
+            "path",
+            "client_ip",
+            "ip_hash",
+            "country_code",
+            "referer_source",
+            "client_isp",
+        )
+    )
+    visits_by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in visit_rows:
+        day_key = row["visited_at"].date().isoformat()
+        visits_by_day[day_key].append(_enrich_visit_row(row))
+
     by_day_raw = base["byDay"]
     max_day_visits = max((int(row["visits"]) for row in by_day_raw), default=1) or 1
     by_day = []
     for row in by_day_raw:
         visits = int(row["visits"])
         day = row["day"]
+        day_key = day.isoformat() if hasattr(day, "isoformat") else str(day)
         by_day.append(
             {
-                "day": day.isoformat() if hasattr(day, "isoformat") else str(day),
+                "day": day_key,
                 "day_label": day.strftime("%d.%m.%Y") if hasattr(day, "strftime") else str(day),
                 "visits": visits,
                 "unique_visitors": int(row["unique_visitors"]),
                 "bar_pct": int(round(100 * visits / max_day_visits)),
+                "visit_log": visits_by_day.get(day_key, []),
             }
         )
 
@@ -284,10 +342,12 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
     by_ip_raw = list(
         human.exclude(client_ip__isnull=True)
         .exclude(client_ip="")
-        .values("client_ip", "country_code")
+        .values("client_ip")
         .annotate(
             visits=Count("id"),
             last_visit=Max("visited_at"),
+            country_code=Max("country_code"),
+            client_isp=Max("client_isp"),
         )
         .order_by("-visits", "-last_visit")[:100]
     )
@@ -296,6 +356,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
             "ip": row["client_ip"],
             "country_code": row["country_code"] or "",
             "country_name": country_name(row["country_code"] or ""),
+            "client_isp": isp_for_ip(row["client_ip"], row.get("client_isp") or ""),
             "visits": int(row["visits"]),
             "last_visit": row["last_visit"],
         }
@@ -322,21 +383,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
                 }
             )
 
-    recent = list(
-        human.order_by("-visited_at")
-        .values(
-            "visited_at",
-            "path",
-            "client_ip",
-            "ip_hash",
-            "country_code",
-            "referer_source",
-        )[:80]
-    )
-    for row in recent:
-        row["country_name"] = country_name(row.get("country_code") or "")
-        if not row.get("client_ip") and row.get("ip_hash"):
-            row["client_ip"] = f"hash {row['ip_hash'][:10]}…"
+    recent = [_enrich_visit_row(row) for row in visit_rows[:80]]
 
     unknown_country = human.filter(country_code="").count()
 
