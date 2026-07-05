@@ -1,6 +1,8 @@
 import time
 from typing import Any
 
+from .market_microstructure import SPREAD_BLOCK_PCT
+
 PROFIT_TRIGGER_PCT = 2.0
 # Odotus huipun jälkeen ennen myyntivalmiutta (tasaantuminen)
 STABILIZE_WAIT_MS = 180 * 1000
@@ -106,6 +108,13 @@ def compute_peak_exit_adjustments(
     mtf = int(analysis.get("mtfAlign")) if analysis and analysis.get("mtfAlign") is not None else None
     book = (analysis or {}).get("bookBucket") or ""
     crowd = (analysis or {}).get("crowdBucket") or ""
+    spread = float(analysis["bookSpreadPct"]) if analysis and analysis.get("bookSpreadPct") is not None else None
+
+    if analysis and analysis.get("condBlocked") and profit_pct > 0:
+        force_arm = True
+        stabilize_mult *= 0.5
+        pullback_mult *= 0.85
+        signals.append("shadow-oppiminen: huono setup voitolla")
 
     if rsi is not None and rsi >= RSI_OVERBOUGHT and profit_pct >= PROFIT_TRIGGER_PCT:
         stabilize_mult *= 0.33
@@ -131,6 +140,17 @@ def compute_peak_exit_adjustments(
         stabilize_mult *= 0.7
         pullback_mult *= 0.85
         signals.append("crowd extreme long")
+
+    if (
+        spread is not None
+        and spread >= SPREAD_BLOCK_PCT
+        and profit_pct >= PROFIT_TRIGGER_PCT
+    ):
+        force_arm = True
+        pullback_mult *= 0.75
+        if pullback_pct > 0:
+            force_sell = True
+            signals.append(f"leveä spread {spread:.2f} % + lasku huipusta")
 
     if (
         elapsed_ms <= FAST_DUMP_WINDOW_MS
@@ -266,8 +286,11 @@ def update_profit_sell(
     if (
         peak_adj.get("force_sell")
         and peak > 0
-        and pullback_pct >= FAST_DUMP_PULLBACK_PCT
         and covers_cost
+        and (
+            pullback_pct >= FAST_DUMP_PULLBACK_PCT
+            or any("leveä spread" in s for s in exit_signals)
+        )
     ):
         should_sell = True
         reason = (

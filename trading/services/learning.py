@@ -46,6 +46,7 @@ MIN_SAMPLES_GEMINI_CONF = 2      # per confidence-taso (5–10)
 MIN_GEMINI_CONF_TAGGED = 6         # tagattuja Gemini-myyntejä ennen conf-oppimista
 MIN_SAMPLES_PROFIT_TAKE_LIGHT = 6  # kevyt voitto-otto-viritys
 MIN_SAMPLES_PROFIT_TAKE_FULL = 15  # täysi ATR/regiimi-viritys
+MIN_SAMPLES_MICRO_PROFIT_TAKE = 3  # book/crowd-bucket voitto-otto
 MIN_SAMPLES_STOP_LIGHT = 6         # kevyt stop-loss-viritys
 MIN_SAMPLES_STOP_FULL = 15         # täysi stop-loss-viritys
 BUY_SCALE_MIN = 0.5                # pienin ostokerroin tappioputkessa
@@ -395,8 +396,59 @@ def _compute_stop_tuning(
     return config, notes
 
 
+def _micro_profit_take_adjustments(
+    trades: list[dict[str, Any]],
+) -> tuple[dict[str, float], list[str]]:
+    """Suljettujen voitto-ottotransaktioiden book/crowd-bucket → trailing-säätö."""
+    from .market_microstructure import _linked_micro_outcomes
+
+    linked = [
+        item
+        for item in _linked_micro_outcomes(trades)
+        if _category(item.get("reason", "")) == "profit_take"
+    ]
+    if len(linked) < MIN_SAMPLES_MICRO_PROFIT_TAKE:
+        return {"trigger_scale": 1.0, "pullback_scale": 1.0}, []
+
+    by_book: dict[str, list[float]] = defaultdict(list)
+    by_crowd: dict[str, list[float]] = defaultdict(list)
+    for item in linked:
+        entry = item.get("entry") or {}
+        net = float(item.get("net_eur") or 0)
+        bk = str(entry.get("bookBucket") or "bk0")
+        cr = str(entry.get("crowdBucket") or "cr0")
+        if bk != "bk0":
+            by_book[bk].append(net)
+        if cr != "cr0":
+            by_crowd[cr].append(net)
+
+    adj = {"trigger_scale": 1.0, "pullback_scale": 1.0}
+    notes: list[str] = []
+
+    def _apply_bucket(label: str, nets: list[float]) -> None:
+        nonlocal adj, notes
+        if len(nets) < MIN_SAMPLES_MICRO_PROFIT_TAKE:
+            return
+        exp = sum(nets) / len(nets)
+        if exp < -0.1:
+            adj["pullback_scale"] = min(adj["pullback_scale"], 0.88)
+            adj["trigger_scale"] = min(adj["trigger_scale"], 0.92)
+            notes.append(f"micro {label} voitto-otto {exp:+.2f} €/kauppa → tiukempi")
+        elif exp > 0.2:
+            adj["pullback_scale"] = max(adj["pullback_scale"], 1.08)
+            notes.append(f"micro {label} voitto-otto {exp:+.2f} €/kauppa → löysempi")
+
+    for bk, nets in by_book.items():
+        _apply_bucket(bk, nets)
+    for cr, nets in by_crowd.items():
+        _apply_bucket(cr, nets)
+
+    return adj, notes
+
+
 def _compute_profit_take_tuning(
     stats: dict[str, dict[str, float]],
+    trades: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Expectancy-pohjainen voitto-otto: kevyt ≥6 kauppaa, täysi ≥15."""
     pt = stats.get("profit_take", {})
@@ -445,6 +497,20 @@ def _compute_profit_take_tuning(
             config["partial_trigger_scale"] = 0.9
             config["partial_fraction_scale"] = 0.85
             notes.append("voitto-otto täysi: anna voittojen juosta")
+
+    if trades:
+        micro_adj, micro_notes = _micro_profit_take_adjustments(trades)
+        if micro_adj["trigger_scale"] != 1.0:
+            config["trigger_scale"] = round(
+                float(config["trigger_scale"]) * micro_adj["trigger_scale"],
+                3,
+            )
+        if micro_adj["pullback_scale"] != 1.0:
+            config["pullback_scale"] = round(
+                float(config["pullback_scale"]) * micro_adj["pullback_scale"],
+                3,
+            )
+        notes.extend(micro_notes)
 
     return config, notes
 
@@ -747,7 +813,7 @@ def compute_tuning(
 
     stats = _aggregate_category_stats(sells)
     global_params, tune_notes = _apply_category_tuning(stats, min_samples=MIN_SAMPLES)
-    profit_take_tuning, pt_notes = _compute_profit_take_tuning(stats)
+    profit_take_tuning, pt_notes = _compute_profit_take_tuning(stats, all_trades)
     stop_tuning, stop_notes = _compute_stop_tuning(stats)
 
     rotation_enabled = global_params["rotation_enabled"]

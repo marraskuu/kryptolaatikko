@@ -30,8 +30,13 @@ ENABLED = os.environ.get("MICROSTRUCTURE_ENABLED", "1").strip().lower() not in (
 BOOK_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_BOOK_LIMIT", "12"))
 STATS_SYMBOL_LIMIT = int(os.environ.get("MICROSTRUCTURE_STATS_LIMIT", "8"))
 STATS_CACHE_TTL_SEC = int(os.environ.get("MICROSTRUCTURE_STATS_TTL_SEC", "300"))
-STATS_FETCH_PER_CYCLE = int(os.environ.get("MICROSTRUCTURE_STATS_PER_CYCLE", "1"))
+STATS_FETCH_PER_CYCLE = int(os.environ.get("MICROSTRUCTURE_STATS_PER_CYCLE", "3"))
 BOOK_REQ_PAUSE_SEC = float(os.environ.get("MICROSTRUCTURE_BOOK_PAUSE_SEC", "0.15"))
+HOLDINGS_EXIT_BOOK_ENABLED = os.environ.get("MICROSTRUCTURE_HOLDINGS_EXIT_BOOK", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
 
 # Score-säätö ja estot
 BOOK_IMBALANCE_BONUS = 0.25
@@ -105,16 +110,40 @@ def _cached_position_stats(symbol: str, *, force: bool = False) -> dict[str, Any
     return stats
 
 
-def _stats_pool(candidates: list[str]) -> list[str]:
-    return candidates[: max(1, STATS_SYMBOL_LIMIT)]
+def _holding_symbols(portfolio: dict[str, Any], tickers: dict[str, dict[str, Any]]) -> list[str]:
+    return [
+        normalize_symbol(s)
+        for s in portfolio.get("holdings", {})
+        if not is_stablecoin(s) and normalize_symbol(s) in tickers
+    ]
 
 
-def _stats_refresh_targets(pool: list[str]) -> list[str]:
-    """Hae korkeintaan STATS_FETCH_PER_CYCLE symbolia, joiden cache on vanhentunut."""
+def _stats_pool(candidates: list[str], holdings: list[str] | None = None) -> list[str]:
+    """Kaikki avoimet positiot aina poolissa; loput top-kandidaatit."""
+    held = list(dict.fromkeys(holdings or []))
+    pool = list(held)
+    room = max(0, STATS_SYMBOL_LIMIT - len(pool))
+    for sym in candidates:
+        if room <= 0:
+            break
+        if sym in pool:
+            continue
+        pool.append(sym)
+        room -= 1
+    return pool if pool else candidates[: max(1, STATS_SYMBOL_LIMIT)]
+
+
+def _stats_refresh_targets(
+    pool: list[str],
+    *,
+    priority: list[str] | None = None,
+) -> list[str]:
+    """Hae korkeintaan STATS_FETCH_PER_CYCLE symbolia; holdings ensin."""
     global _stats_rotation_idx
     if not pool:
         return []
 
+    priority_set = set(priority or [])
     stale = [
         sym
         for sym in pool
@@ -124,12 +153,20 @@ def _stats_refresh_targets(pool: list[str]) -> list[str]:
     if not stale:
         return []
 
+    stale.sort(
+        key=lambda sym: (
+            0 if sym in priority_set else 1,
+            pool.index(sym) if sym in pool else 999,
+        )
+    )
+
+    fetch_n = min(max(1, STATS_FETCH_PER_CYCLE), len(stale))
     targets: list[str] = []
-    for _ in range(min(max(1, STATS_FETCH_PER_CYCLE), len(stale))):
-        sym = stale[_stats_rotation_idx % len(stale)]
-        _stats_rotation_idx += 1
+    for i in range(fetch_n):
+        sym = stale[(_stats_rotation_idx + i) % len(stale)]
         if sym not in targets:
             targets.append(sym)
+    _stats_rotation_idx += fetch_n
     return targets
 
 
@@ -227,8 +264,9 @@ def enrich_analyses(
         return summary
 
     book_targets = candidates[: max(1, BOOK_SYMBOL_LIMIT)]
-    stats_pool = _stats_pool(candidates)
-    stats_fetch_targets = _stats_refresh_targets(stats_pool)
+    holdings = _holding_symbols(portfolio, tickers)
+    stats_pool = _stats_pool(candidates, holdings)
+    stats_fetch_targets = _stats_refresh_targets(stats_pool, priority=holdings)
 
     for sym in book_targets:
         rows = fetch_order_book(sym)
@@ -260,6 +298,62 @@ def enrich_analyses(
         _apply_micro_fields(analysis, stats)
 
     for sym in set(book_targets + stats_pool):
+        analysis = analyses.get(sym)
+        if analysis and (
+            analysis.get("bookImbalance") is not None
+            or analysis.get("longShortRatio") is not None
+        ):
+            _score_and_block(analysis, regime)
+
+    return summary
+
+
+def enrich_holdings_for_exits(
+    tickers: dict[str, dict[str, Any]],
+    analyses: dict[str, dict[str, Any]],
+    portfolio: dict[str, Any],
+    regime: str,
+) -> dict[str, Any]:
+    """
+    Kevyt microstructure vain avoimille positioille (15 s voitto-polku).
+    Order book aina tuore; crowd käytetään cachesta (60 s sykli päivittää).
+    """
+    summary = {
+        "enabled": ENABLED and HOLDINGS_EXIT_BOOK_ENABLED,
+        "bookFetched": 0,
+        "statsCached": 0,
+        "symbols": [],
+    }
+    if not ENABLED or not HOLDINGS_EXIT_BOOK_ENABLED:
+        return summary
+
+    holdings = _holding_symbols(portfolio, tickers)
+    if not holdings:
+        return summary
+
+    for sym in holdings:
+        rows = fetch_order_book(sym)
+        parsed = parse_order_book(rows)
+        if not parsed:
+            continue
+        analysis = analyses.setdefault(sym, {})
+        _apply_micro_fields(analysis, parsed)
+        summary["bookFetched"] += 1
+        summary["symbols"].append(sym)
+        if BOOK_REQ_PAUSE_SEC > 0:
+            time.sleep(BOOK_REQ_PAUSE_SEC)
+
+    for sym in holdings:
+        stats = _cached_position_stats(sym)
+        if not stats:
+            continue
+        analysis = analyses.setdefault(sym, {})
+        _apply_micro_fields(analysis, stats)
+        summary["statsCached"] += 1
+        if sym not in summary["symbols"]:
+            summary["symbols"].append(sym)
+
+    for sym in holdings:
         analysis = analyses.get(sym)
         if analysis and (
             analysis.get("bookImbalance") is not None
@@ -329,6 +423,7 @@ def _linked_micro_outcomes(trades: list[dict[str, Any]]) -> list[dict[str, Any]]
             {
                 "symbol": sym,
                 "net_eur": round(_net_eur(trade), 2),
+                "reason": trade.get("reason") or "",
                 "entry": entry_meta,
             }
         )

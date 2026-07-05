@@ -287,8 +287,19 @@ def refresh_prices() -> dict[str, Any]:
         if state.get("running", True):
             portfolio = Portfolio(state["portfolio"])
             total_value = portfolio.get_total_value(state["tickers"])
-            regime = (state.get("regime") or {}).get("regime", "neutral")
+            regime_info = state.get("regime") or {}
+            regime = regime_info.get("regime", "neutral")
             learning = state.get("learning") or {}
+            try:
+                micro_exit = market_microstructure.enrich_holdings_for_exits(
+                    state["tickers"],
+                    state["analyses"],
+                    state["portfolio"],
+                    regime,
+                )
+                state["microstructureExit"] = micro_exit
+            except Exception:
+                logger.warning("Microstructure exit enrich failed", exc_info=True)
             shadow_flags = record_cycle(
                 state,
                 total_value=total_value,
