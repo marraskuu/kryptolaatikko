@@ -1942,3 +1942,120 @@ body.modal-open {
     max-height: none;
   }
 }
+
+/* Kävijätilastot /stats */
+.stats-page .header-title-row {
+  align-items: center;
+}
+
+.stats-back-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.stats-back-link:hover {
+  text-decoration: underline;
+}
+
+.stats-panel {
+  margin-bottom: 24px;
+}
+
+.stats-panel .panel-title {
+  margin-bottom: 16px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.stat-value-sm {
+  font-size: 1.25rem !important;
+}
+
+.stats-day-table-wrap {
+  overflow-x: auto;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stats-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.stats-table code {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.stats-bar-col {
+  width: 40%;
+  min-width: 120px;
+}
+
+.stats-bar-track {
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stats-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.stats-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.stats-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stats-footer-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 8px;
+  margin-bottom: 32px;
+}
+
+.stats-footer-note a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.stats-footer-note a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .stats-two-col {
+    grid-template-columns: 1fr;
+  }
+}

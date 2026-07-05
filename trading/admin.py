@@ -11,9 +11,16 @@ class BotStateAdmin(admin.ModelAdmin):
 
 @admin.register(PageVisit)
 class PageVisitAdmin(admin.ModelAdmin):
-    list_display = ("visited_at", "referer_source", "referer_host", "path", "is_bot")
-    list_filter = ("referer_source", "is_bot", "visited_at")
-    search_fields = ("referer_host", "referer", "user_agent", "ip_hash")
+    list_display = (
+        "visited_at",
+        "client_ip",
+        "country_code",
+        "referer_source",
+        "path",
+        "is_bot",
+    )
+    list_filter = ("referer_source", "country_code", "is_bot", "visited_at")
+    search_fields = ("referer_host", "referer", "user_agent", "ip_hash", "client_ip")
     readonly_fields = (
         "visited_at",
         "path",
@@ -22,6 +29,8 @@ class PageVisitAdmin(admin.ModelAdmin):
         "referer_host",
         "user_agent",
         "ip_hash",
+        "client_ip",
+        "country_code",
         "is_bot",
     )
     date_hierarchy = "visited_at"

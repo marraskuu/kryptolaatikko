@@ -1,0 +1,185 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Kävijätilastot — hiekkalaatikko.pro</title>
+  <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
+</head>
+<body>
+  <div class="app stats-page">
+    <header class="header">
+      <div class="logo">◈</div>
+      <div class="header-body">
+        <div class="header-title-row">
+          <h1>Kävijätilastot</h1>
+          <a class="stats-back-link" href="/">← Etusivu</a>
+        </div>
+        <p class="subtitle">hiekkalaatikko.pro · viimeiset {{ days }} päivää · build {{ app_build }}</p>
+      </div>
+    </header>
+
+    <section class="stats-section">
+      <div class="stats-row">
+        <div class="stat-card highlight">
+          <span class="stat-label">Käynnit yhteensä</span>
+          <span class="stat-value">{{ totalVisits }}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Uniikit kävijät</span>
+          <span class="stat-value">{{ uniqueVisitors }}</span>
+          <span class="stat-change neutral">ip_hash / IP</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Maita</span>
+          <span class="stat-value">{{ byCountry|length }}</span>
+          {% if unknownCountryVisits %}
+          <span class="stat-change neutral">{{ unknownCountryVisits }} ilman maatietoa</span>
+          {% endif %}
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Päivitetty</span>
+          <span class="stat-value stat-value-sm">{{ generatedAt|date:"d.m.Y H:i" }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel stats-panel">
+      <h2 class="panel-title">Käynnit päivittäin</h2>
+      {% if byDay %}
+      <div class="stats-day-table-wrap">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Päivä</th>
+              <th>Käynnit</th>
+              <th>Uniikit</th>
+              <th class="stats-bar-col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in byDay %}
+            <tr>
+              <td>{{ row.day_label }}</td>
+              <td>{{ row.visits }}</td>
+              <td>{{ row.unique_visitors }}</td>
+              <td class="stats-bar-col">
+                <div class="stats-bar-track">
+                  <div class="stats-bar-fill" style="width: {{ row.bar_pct }}%"></div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="stats-empty">Ei käyntidataa valitulla jaksolla.</p>
+      {% endif %}
+    </section>
+
+    <div class="stats-two-col">
+      <section class="panel stats-panel">
+        <h2 class="panel-title">Maittain</h2>
+        {% if byCountry %}
+        <div class="stats-day-table-wrap">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>Maa</th>
+                <th>Koodi</th>
+                <th>Käynnit</th>
+                <th>IP:t</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in byCountry %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td><code>{{ row.code }}</code></td>
+                <td>{{ row.visits }}</td>
+                <td>{{ row.unique_ips }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="stats-empty">Maatietoa ei vielä — uudet käynnit tallentavat maan automaattisesti.</p>
+        {% endif %}
+      </section>
+
+      <section class="panel stats-panel">
+        <h2 class="panel-title">IP-osoitteittain</h2>
+        {% if byIp %}
+        <div class="stats-day-table-wrap">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>IP</th>
+                <th>Maa</th>
+                <th>Käynnit</th>
+                <th>Viimeisin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in byIp %}
+              <tr>
+                <td><code>{{ row.ip }}</code></td>
+                <td>{% if row.country_code %}<code>{{ row.country_code }}</code> {{ row.country_name }}{% else %}—{% endif %}</td>
+                <td>{{ row.visits }}</td>
+                <td>{{ row.last_visit|date:"d.m. H:i" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="stats-empty">IP-tietoja ei vielä — vanhat käynnit näkyvät vain uniikkina hashina.</p>
+        {% endif %}
+      </section>
+    </div>
+
+    <section class="panel stats-panel">
+      <h2 class="panel-title">Viimeisimmät käynnit</h2>
+      {% if recentVisits %}
+      <div class="stats-day-table-wrap">
+        <table class="stats-table stats-table-compact">
+          <thead>
+            <tr>
+              <th>Aika</th>
+              <th>Sivu</th>
+              <th>IP</th>
+              <th>Maa</th>
+              <th>Lähde</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in recentVisits %}
+            <tr>
+              <td>{{ v.visited_at|date:"d.m. H:i:s" }}</td>
+              <td><code>{{ v.path }}</code></td>
+              <td>{% if v.client_ip %}<code>{{ v.client_ip }}</code>{% else %}—{% endif %}</td>
+              <td>{% if v.country_code %}<code>{{ v.country_code }}</code> {{ v.country_name }}{% else %}—{% endif %}</td>
+              <td>{{ v.referer_source }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="stats-empty">Ei käyntejä.</p>
+      {% endif %}
+    </section>
+
+    <p class="stats-footer-note">
+      Suojattu sivu — älä jaa URL:ia avaimen kanssa. Vanhat käynnit (ennen 07/2026) eivät sisällä IP/maata.
+      <a href="?key={{ stats_key }}&days=7">7 pv</a> ·
+      <a href="?key={{ stats_key }}&days=30">30 pv</a> ·
+      <a href="?key={{ stats_key }}&days=90">90 pv</a>
+    </p>
+  </div>
+</body>
+</html>

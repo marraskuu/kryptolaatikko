@@ -17,7 +17,7 @@ class BotState(models.Model):
 
 
 class PageVisit(models.Model):
-    """Etusivun käynti — referer, selain, hashattu IP (ei raaka-IP:tä)."""
+    """Etusivun käynti — referer, selain, IP ja maa (stats-sivulle)."""
 
     visited_at = models.DateTimeField(auto_now_add=True, db_index=True)
     path = models.CharField(max_length=200, default="/")
@@ -26,6 +26,8 @@ class PageVisit(models.Model):
     referer_host = models.CharField(max_length=128, blank=True)
     user_agent = models.CharField(max_length=256, blank=True)
     ip_hash = models.CharField(max_length=32, db_index=True)
+    client_ip = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    country_code = models.CharField(max_length=2, blank=True, default="", db_index=True)
     is_bot = models.BooleanField(default=False, db_index=True)
 
     class Meta:

@@ -179,3 +179,41 @@ def api_visitor_stats(request):
     payload = get_visitor_stats(days=days)
     payload["appBuild"] = getattr(settings, "APP_BUILD", "dev")
     return JsonResponse(payload)
+
+
+@require_GET
+def stats_page(request):
+    """
+    Kävijätilastot HTML-sivuna.
+
+    GET /stats?key=SECRET_KEY&days=30
+    """
+    if not _check_admin_key(request):
+        return HttpResponse(
+            "Ei oikeuksia — avaa /stats?key=SECRET_KEY (tai ADMIN_TASK_KEY)",
+            status=403,
+            content_type="text/plain; charset=utf-8",
+        )
+
+    try:
+        days = int(request.GET.get("days", "30"))
+    except ValueError:
+        days = 30
+
+    try:
+        record_page_visit(request, path="/stats")
+    except Exception:
+        logger.exception("Käyntitallennus /stats epäonnistui")
+
+    from .services.visitor_analytics import get_stats_page_data
+
+    stats = get_stats_page_data(days=days)
+    context = {
+        **stats,
+        "days": days,
+        "app_build": getattr(settings, "APP_BUILD", "dev"),
+        "stats_key": request.GET.get("key", ""),
+    }
+    response = render(request, "trading/stats.html", context)
+    response["Cache-Control"] = "no-store"
+    return response
