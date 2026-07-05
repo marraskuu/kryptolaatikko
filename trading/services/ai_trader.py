@@ -88,6 +88,18 @@ STAGNANT_MAX_PROFIT_PCT = 0.5
 STAGNANT_MIN_LOSS_PCT = -0.25        # aikastoppi vain selvästä tappiosta (ei tasapaino/-0.1 %)
 FAST_EXIT_LOSS_PCT = -1.5
 
+# Bear-puolustus — vähemmän tappiollisia rotaatio-/aikastoppi-/ostoja laskevassa markkinassa.
+BEAR_DEFENSE_ENABLED = os.environ.get("BEAR_DEFENSE_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+BEAR_MIN_CASH_SHARE = float(os.environ.get("BEAR_MIN_CASH_SHARE", "0.25"))
+BEAR_STAGNANT_MIN_LOSS_PCT = float(os.environ.get("BEAR_STAGNANT_MIN_LOSS_PCT", "-0.75"))
+BEAR_STAGNANT_HOURS = float(os.environ.get("BEAR_STAGNANT_HOURS", "7.0"))
+BEAR_STUCK_POSITION_HOURS = float(os.environ.get("BEAR_STUCK_POSITION_HOURS", "6.0"))
+
 # 3: Hajautussuoja — rajoita korkeasti korreloivan klusterin yhteispaino.
 CORR_THRESHOLD = 0.85
 CORR_MIN_SAMPLES = 8
@@ -665,6 +677,38 @@ def risk_regime_key(regime_info: dict[str, Any] | str) -> str:
     return current
 
 
+def _bear_defense_active(regime_info: dict[str, Any] | str | None) -> bool:
+    if not BEAR_DEFENSE_ENABLED or not regime_info:
+        return False
+    return risk_regime_key(regime_info) == "bear"
+
+
+def _stagnant_min_loss_pct(regime: str) -> float:
+    if regime == "bear" and BEAR_DEFENSE_ENABLED:
+        return BEAR_STAGNANT_MIN_LOSS_PCT
+    return STAGNANT_MIN_LOSS_PCT
+
+
+def _stagnant_hours(regime: str) -> float:
+    if regime == "bull":
+        return STAGNANT_HOURS_BULL
+    if regime == "bear":
+        return BEAR_STAGNANT_HOURS if BEAR_DEFENSE_ENABLED else STAGNANT_HOURS_BEAR
+    return STAGNANT_HOURS_NEUTRAL
+
+
+def _stuck_position_hours(regime: str) -> float:
+    if regime == "bear" and BEAR_DEFENSE_ENABLED:
+        return BEAR_STUCK_POSITION_HOURS
+    return STUCK_POSITION_HOURS
+
+
+def _bear_cash_deploy_ok(cash: float, total_value: float, regime_info: dict[str, Any] | str | None) -> bool:
+    if not _bear_defense_active(regime_info) or total_value <= 0:
+        return True
+    return (cash / total_value) >= BEAR_MIN_CASH_SHARE
+
+
 def entry_regime_key(regime_info: dict[str, Any] | str) -> str:
     """Osto-/Gemini-sääntöihin (ennakoitu suunta)."""
     return anticipated_regime_key(regime_info)
@@ -771,14 +815,6 @@ def _is_buy_blocked(
     return setup_key_for_analysis(analysis, regime) in blocked_setups
 
 
-def _stagnant_hours(regime: str) -> float:
-    if regime == "bull":
-        return STAGNANT_HOURS_BULL
-    if regime == "bear":
-        return STAGNANT_HOURS_BEAR
-    return STAGNANT_HOURS_NEUTRAL
-
-
 def _gemini_signal_for(
     gemini_insights: dict[str, Any] | None,
     symbol: str,
@@ -856,10 +892,11 @@ def _market_stagnant_exit(
         aged_ok = age_h is not None and age_h >= stagnant_h
     else:
         aged_ok = aged > 1e-12
+    stagnant_min_loss = _stagnant_min_loss_pct(regime)
     if not (
         aged_ok
         and profit_pct < STAGNANT_MAX_PROFIT_PCT
-        and profit_pct <= STAGNANT_MIN_LOSS_PCT
+        and profit_pct <= stagnant_min_loss
         and regime != "bull"
         and change_24h <= 0
     ):
@@ -1649,11 +1686,11 @@ def _holding_profit_pct(holding: dict[str, Any], analysis: dict[str, Any]) -> fl
     return ((price - avg) / avg) * 100
 
 
-def _rotation_trim_allowed(profit_pct: float) -> bool:
+def _rotation_trim_allowed(profit_pct: float, regime: str = "neutral") -> bool:
     """Älä tee pieniä tappiomyyntejä rotaatiolla — odota stop tai selvä heikkous."""
     if profit_pct >= 0:
         return True
-    return profit_pct <= STAGNANT_MIN_LOSS_PCT
+    return profit_pct <= _stagnant_min_loss_pct(regime)
 
 
 def _rebalance_sell_allowed(
@@ -1822,7 +1859,7 @@ def _deploy_cash_to_targets(
                 # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
                 # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
                 profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
-                if not _rotation_trim_allowed(profit_pct):
+                if not _rotation_trim_allowed(profit_pct, regime):
                     continue
                 weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
                 if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
@@ -1847,6 +1884,9 @@ def _deploy_cash_to_targets(
         available *= buy_scale
 
     if available < MIN_TRADE_EUR or not buy_targets:
+        return
+
+    if not _bear_cash_deploy_ok(cash, total_value, regime_info):
         return
 
     if bull_satellite_split:
@@ -2449,7 +2489,7 @@ def make_trading_decisions(
         if concentration_mode and norm_hold not in top_norms:
             edge_here = _edge_pct(analysis)
             gap = best_target_edge - edge_here
-            if profit_pct <= -0.5:
+            if profit_pct <= -0.5 and not _bear_defense_active(regime_info):
                 decisions.append(
                     {
                         "type": "sell",
@@ -2473,7 +2513,7 @@ def make_trading_decisions(
                 and _in_uptrend(analysis)
                 and gap < ROTATION_MIN_EDGE_PCT
             )
-            if not skip_consolidate and _rotation_trim_allowed(profit_pct):
+            if not skip_consolidate and _rotation_trim_allowed(profit_pct, defense_regime):
                 sell_amount = _rotation_sell_amount(
                     holding["amount"], profit_pct, concentration_trim
                 )
@@ -2525,19 +2565,21 @@ def make_trading_decisions(
 
         age_h = _holding_age_hours(holding.get("openedAt"))
         if defense_regime != "bull" and profit_pct < STAGNANT_MAX_PROFIT_PCT:
+            stuck_h = _stuck_position_hours(defense_regime)
+            stagnant_min_loss = _stagnant_min_loss_pct(defense_regime)
             stuck_sell_amt = _fifo_time_stop_sell_amount(
                 symbol,
                 holding["amount"],
                 analysis["currentPrice"],
                 portfolio_trades,
                 fifo_lots,
-                STUCK_POSITION_HOURS,
+                stuck_h,
             )
             if stuck_sell_amt is not None:
                 oldest_stuck_h = fifo_oldest_stuck_lot_age_hours(
                     symbol,
                     portfolio_trades,
-                    STUCK_POSITION_HOURS,
+                    stuck_h,
                     lots_cache=fifo_lots,
                 )
                 stuck_forced = _stuck_release_forced(
@@ -2545,7 +2587,7 @@ def make_trading_decisions(
                 )
                 if (
                     not stuck_forced
-                    and profit_pct > STAGNANT_MIN_LOSS_PCT
+                    and profit_pct > stagnant_min_loss
                 ):
                     pass
                 elif (
@@ -2561,7 +2603,7 @@ def make_trading_decisions(
                         }
                     )
                     continue
-                elif stuck_forced or profit_pct <= STAGNANT_MIN_LOSS_PCT:
+                elif stuck_forced or profit_pct <= stagnant_min_loss:
                     partial = stuck_sell_amt < holding["amount"] * 0.99
                     fifo_note = " (vain vanhat lotit)" if partial else ""
                     decisions.append(
@@ -2571,7 +2613,7 @@ def make_trading_decisions(
                             "amount": stuck_sell_amt,
                             "eurAmount": stuck_sell_amt * analysis["currentPrice"],
                             "reason": (
-                                f"Positio jämähtänyt ≥{STUCK_POSITION_HOURS:.0f} h "
+                                f"Positio jämähtänyt ≥{stuck_h:.0f} h "
                                 f"({profit_pct:+.1f} %){fifo_note} — "
                                 f"myydään riippumatta markkinan noususta"
                             ),
@@ -2598,6 +2640,7 @@ def make_trading_decisions(
         change_24h = analysis.get("changePct") or analysis.get("momentum") or 0
 
         stagnant_h = _stagnant_hours(defense_regime)
+        stagnant_min_loss = _stagnant_min_loss_pct(defense_regime)
         sell_amt = _fifo_time_stop_sell_amount(
             symbol,
             holding["amount"],
@@ -2615,7 +2658,7 @@ def make_trading_decisions(
             )
             aikastoppi_ready = (
                 profit_pct < STAGNANT_MAX_PROFIT_PCT
-                and profit_pct <= STAGNANT_MIN_LOSS_PCT
+                and profit_pct <= stagnant_min_loss
                 and defense_regime != "bull"
                 and change_24h <= 0
             )
@@ -2741,6 +2784,21 @@ def make_trading_decisions(
                 }
             )
         elif (
+            _bear_defense_active(regime_info)
+            and profit_pct < 0
+        ):
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": (
+                        f"Karhu-puolustus — ei rotaatiota tappiolla ({profit_pct:+.1f} %), "
+                        f"odotetaan stop-lossia"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+        elif (
             rotation_enabled
             and profit_pct < ROTATE_LOSS_PCT
             and (symbol not in top_symbols or change_24h < -2)
@@ -2772,14 +2830,26 @@ def make_trading_decisions(
                     }
                 )
         elif rotation_enabled and analysis["action"] == "sell":
-            if not _rotation_trim_allowed(profit_pct):
+            if _bear_defense_active(regime_info) and profit_pct < 0:
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": (
+                            f"Karhu-puolustus — ei teknistä rotaatiota tappiolla "
+                            f"({profit_pct:+.1f} %)"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+            elif not _rotation_trim_allowed(profit_pct, defense_regime):
                 decisions.append(
                     {
                         "type": "hold",
                         "symbol": symbol,
                         "reason": (
                             f"Tekninen myynti ({profit_pct:+.1f} %) — lievä tappio, "
-                            f"odotetaan stop-lossia (≥{STAGNANT_MIN_LOSS_PCT:.1f} %)"
+                            f"odotetaan stop-lossia (≥{stagnant_min_loss:.1f} %)"
                         ),
                         "analysis": analysis,
                     }
@@ -2822,6 +2892,8 @@ def make_trading_decisions(
         dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
     )[:position_cap]
     idle_cash = _is_idle_cash(cash, total_value)
+    if idle_cash and not _bear_cash_deploy_ok(cash, total_value, regime_info):
+        idle_cash = False
     if idle_cash:
         _release_idle_dust_holdings(
             decisions, holdings, analyses, blocked_buys=blocked_buys
