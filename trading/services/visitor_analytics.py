@@ -258,7 +258,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
                 "day_label": day.strftime("%d.%m.%Y") if hasattr(day, "strftime") else str(day),
                 "visits": visits,
                 "unique_visitors": int(row["unique_visitors"]),
-                "bar_pct": round(100 * visits / max_day_visits, 1),
+                "bar_pct": int(round(100 * visits / max_day_visits)),
             }
         )
 
@@ -302,18 +302,41 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
         for row in by_ip_raw
     ]
 
+    if len(by_ip) < 100:
+        legacy_raw = list(
+            human.filter(client_ip__isnull=True)
+            .values("ip_hash")
+            .annotate(visits=Count("id"), last_visit=Max("visited_at"))
+            .order_by("-visits", "-last_visit")[: max(0, 100 - len(by_ip))]
+        )
+        for row in legacy_raw:
+            h = row["ip_hash"] or ""
+            by_ip.append(
+                {
+                    "ip": f"hash {h[:10]}…" if h else "—",
+                    "country_code": "",
+                    "country_name": "vanha (ei IP:tä)",
+                    "visits": int(row["visits"]),
+                    "last_visit": row["last_visit"],
+                    "legacy": True,
+                }
+            )
+
     recent = list(
         human.order_by("-visited_at")
         .values(
             "visited_at",
             "path",
             "client_ip",
+            "ip_hash",
             "country_code",
             "referer_source",
         )[:80]
     )
     for row in recent:
         row["country_name"] = country_name(row.get("country_code") or "")
+        if not row.get("client_ip") and row.get("ip_hash"):
+            row["client_ip"] = f"hash {row['ip_hash'][:10]}…"
 
     unknown_country = human.filter(country_code="").count()
 

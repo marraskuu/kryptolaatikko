@@ -1961,6 +1961,8 @@ body.modal-open {
 
 .stats-panel {
   margin-bottom: 24px;
+  padding: 20px;
+  overflow: visible;
 }
 
 .stats-panel .panel-title {
@@ -1988,6 +1990,13 @@ body.modal-open {
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.stats-table .stats-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 1%;
 }
 
 .stats-table th {
@@ -2008,8 +2017,9 @@ body.modal-open {
 }
 
 .stats-bar-col {
-  width: 40%;
-  min-width: 120px;
+  width: 160px;
+  max-width: 28%;
+  min-width: 100px;
 }
 
 .stats-bar-track {
@@ -2017,6 +2027,7 @@ body.modal-open {
   background: var(--surface2);
   border-radius: 4px;
   overflow: hidden;
+  max-width: 140px;
 }
 
 .stats-bar-fill {

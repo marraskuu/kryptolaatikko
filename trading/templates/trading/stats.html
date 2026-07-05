@@ -1,4 +1,4 @@
-{% load static %}
+{% load static l10n %}
 <!DOCTYPE html>
 <html lang="fi">
 <head>
@@ -63,11 +63,11 @@
             {% for row in byDay %}
             <tr>
               <td>{{ row.day_label }}</td>
-              <td>{{ row.visits }}</td>
-              <td>{{ row.unique_visitors }}</td>
+              <td class="stats-num">{{ row.visits }}</td>
+              <td class="stats-num">{{ row.unique_visitors }}</td>
               <td class="stats-bar-col">
-                <div class="stats-bar-track">
-                  <div class="stats-bar-fill" style="width: {{ row.bar_pct }}%"></div>
+                <div class="stats-bar-track" title="{{ row.visits }} käyntiä">
+                  <div class="stats-bar-fill" style="width: {% localize off %}{{ row.bar_pct }}{% endlocalize %}%"></div>
                 </div>
               </td>
             </tr>
@@ -107,7 +107,7 @@
           </table>
         </div>
         {% else %}
-        <p class="stats-empty">Maatietoa ei vielä — uudet käynnit tallentavat maan automaattisesti.</p>
+        <p class="stats-empty">Maatietoa ei vielä vanhoista käynneistä — uudet käynnit tallentavat maan automaattisesti.</p>
         {% endif %}
       </section>
 
@@ -137,7 +137,7 @@
           </table>
         </div>
         {% else %}
-        <p class="stats-empty">IP-tietoja ei vielä — vanhat käynnit näkyvät vain uniikkina hashina.</p>
+        <p class="stats-empty">Ei vielä uusia IP-tietoja — alla hash-ryhmät vanhoista käynneistä.</p>
         {% endif %}
       </section>
     </div>
