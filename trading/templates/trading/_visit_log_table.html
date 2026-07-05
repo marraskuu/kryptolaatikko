@@ -7,6 +7,7 @@
       <th>Operaattori</th>
       <th>Maa</th>
       <th>Lähde</th>
+      <th>Kesto</th>
     </tr>
   </thead>
   <tbody>
@@ -18,10 +19,11 @@
       <td>{% if v.client_isp %}{{ v.client_isp }}{% else %}—{% endif %}</td>
       <td>{% if v.country_code %}<code>{{ v.country_code }}</code> {{ v.country_name }}{% else %}—{% endif %}</td>
       <td>{{ v.referer_source }}</td>
+      <td class="stats-num">{{ v.duration_label }}</td>
     </tr>
     {% empty %}
     <tr>
-      <td colspan="6" class="stats-empty">Ei käyntejä tänä päivänä.</td>
+      <td colspan="7" class="stats-empty">Ei käyntejä tänä päivänä.</td>
     </tr>
     {% endfor %}
   </tbody>

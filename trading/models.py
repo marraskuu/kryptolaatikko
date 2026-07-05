@@ -29,6 +29,7 @@ class PageVisit(models.Model):
     client_ip = models.GenericIPAddressField(null=True, blank=True, db_index=True)
     client_isp = models.CharField(max_length=128, blank=True, default="")
     country_code = models.CharField(max_length=2, blank=True, default="", db_index=True)
+    duration_sec = models.PositiveIntegerField(null=True, blank=True)
     is_bot = models.BooleanField(default=False, db_index=True)
 
     class Meta:

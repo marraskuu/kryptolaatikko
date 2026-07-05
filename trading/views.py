@@ -13,17 +13,18 @@ from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
-from .services.visitor_analytics import record_page_visit
+from .services.visitor_analytics import record_page_visit, record_visit_duration
 
 logger = logging.getLogger(__name__)
 
 
 def index(request):
+    visit_id = None
     try:
-        record_page_visit(request)
+        visit_id = record_page_visit(request)
     except Exception:
         logger.exception("Käyntitallennus epäonnistui")
-    return render(request, "trading/index.html")
+    return render(request, "trading/index.html", {"visit_id": visit_id})
 
 
 @csrf_exempt
@@ -200,6 +201,25 @@ def api_visitor_stats(request):
     payload = get_visitor_stats(days=days)
     payload["appBuild"] = getattr(settings, "APP_BUILD", "dev")
     return JsonResponse(payload)
+
+
+@csrf_exempt
+@require_GET
+def api_visit_duration(request):
+    """
+    Selain raportoi sivullaoloajan poistuessaan.
+
+    GET /api/visit-duration/?id=123&sec=45
+    """
+    try:
+        visit_id = int(request.GET.get("id", "0"))
+        duration_sec = int(request.GET.get("sec", "0"))
+    except (TypeError, ValueError):
+        return HttpResponse(status=400)
+
+    if record_visit_duration(visit_id, duration_sec):
+        return HttpResponse(status=204)
+    return HttpResponse(status=404)
 
 
 def stats_login(request):

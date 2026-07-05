@@ -201,14 +201,30 @@ def parse_referrer(referer: str) -> tuple[str, str]:
     return host, host
 
 
-def record_page_visit(request, path: str = "/") -> None:
-    """Tallenna yksi etusivun käynti (ei blokkaa virheellä)."""
+def format_duration_label(duration_sec: int | None) -> str:
+    if duration_sec is None:
+        return "—"
+    sec = max(0, int(duration_sec))
+    if sec < 60:
+        return f"{sec} s"
+    minutes = sec // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours = minutes // 60
+    rem_min = minutes % 60
+    if rem_min:
+        return f"{hours} t {rem_min} min"
+    return f"{hours} t"
+
+
+def record_page_visit(request, path: str = "/") -> int | None:
+    """Tallenna yksi etusivun käynti. Palauttaa rivin id:n keston raportointia varten."""
     if request.method != "GET":
-        return
+        return None
 
     user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:256]
     if is_bot_user_agent(user_agent):
-        return
+        return None
 
     referer = (request.META.get("HTTP_REFERER") or "")[:512]
     source, source_host = parse_referrer(referer)
@@ -218,7 +234,7 @@ def record_page_visit(request, path: str = "/") -> None:
 
     from trading.models import PageVisit
 
-    PageVisit.objects.create(
+    visit = PageVisit.objects.create(
         path=path[:200],
         referer=referer,
         referer_source=source[:64],
@@ -230,6 +246,20 @@ def record_page_visit(request, path: str = "/") -> None:
         country_code=country_code,
         is_bot=False,
     )
+    return visit.pk
+
+
+def record_visit_duration(visit_id: int, duration_sec: int) -> bool:
+    """Päivitä käynnin kesto (ensimmäinen raportti voittaa)."""
+    if visit_id <= 0:
+        return False
+    duration_sec = max(1, min(int(duration_sec), 86400))
+    updated = PageVisit.objects.filter(
+        pk=visit_id,
+        is_bot=False,
+        duration_sec__isnull=True,
+    ).update(duration_sec=duration_sec)
+    return updated > 0
 
 
 def get_visitor_stats(*, days: int = 30) -> dict[str, Any]:
@@ -273,6 +303,7 @@ def _enrich_visit_row(row: dict[str, Any]) -> dict[str, Any]:
     out["client_isp"] = isp_for_ip(raw_ip, out.get("client_isp") or "")
     if not raw_ip and out.get("ip_hash"):
         out["client_ip"] = f"hash {out['ip_hash'][:10]}…"
+    out["duration_label"] = format_duration_label(out.get("duration_sec"))
     return out
 
 
@@ -295,6 +326,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
             "country_code",
             "referer_source",
             "client_isp",
+            "duration_sec",
         )
     )
     visits_by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)

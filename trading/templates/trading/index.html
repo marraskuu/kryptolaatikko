@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  {% if visit_id %}<meta name="visit-id" content="{{ visit_id }}" />{% endif %}
   <title>Krypto Simulaattori — Bitfinex</title>
   <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
 </head>
@@ -246,5 +247,35 @@
   </div>
 
   <script src="{% static 'trading/js/app.js' %}?v=21"></script>
+  <script>
+    (function () {
+      var meta = document.querySelector('meta[name="visit-id"]');
+      if (!meta) return;
+      var visitId = meta.getAttribute("content");
+      if (!visitId) return;
+      var started = Date.now();
+      var sent = false;
+      function reportDuration() {
+        if (sent) return;
+        var sec = Math.round((Date.now() - started) / 1000);
+        if (sec < 1) return;
+        sent = true;
+        var url =
+          "/api/visit-duration/?id=" +
+          encodeURIComponent(visitId) +
+          "&sec=" +
+          encodeURIComponent(String(sec));
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(url);
+        } else {
+          fetch(url, { keepalive: true, credentials: "same-origin" }).catch(function () {});
+        }
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") reportDuration();
+      });
+      window.addEventListener("pagehide", reportDuration);
+    })();
+  </script>
 </body>
 </html>
