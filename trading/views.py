@@ -32,7 +32,14 @@ def index(request):
         visit_id = record_page_visit(request)
     except Exception:
         logger.exception("Käyntitallennus epäonnistui")
-    return render(request, "trading/index.html", {"visit_id": visit_id})
+    return render(
+        request,
+        "trading/index.html",
+        {
+            "visit_id": visit_id,
+            "canonical_url": f"{_public_site_url(request)}/",
+        },
+    )
 
 
 @csrf_exempt
