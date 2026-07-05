@@ -250,12 +250,13 @@ def _period_starts() -> tuple[Any, Any, Any]:
 
 
 def get_visit_count_cards() -> dict[str, int]:
-    """Käyntimäärät tänään ja kuluvan kuukauden aikana."""
+    """Käyntimäärät: kaikki ajat, tänään ja kuluvan kuukauden aikana."""
     from trading.models import PageVisit
 
     today_start, month_start, _ = _period_starts()
     base = _public_visits_qs()
     return {
+        "all": base.count(),
         "today": base.filter(visited_at__gte=today_start).count(),
         "month": base.filter(visited_at__gte=month_start).count(),
     }
