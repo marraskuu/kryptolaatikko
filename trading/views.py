@@ -7,7 +7,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
 from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
@@ -204,16 +204,17 @@ def api_visitor_stats(request):
 
 
 @csrf_exempt
-@require_GET
+@require_http_methods(["GET", "POST"])
 def api_visit_duration(request):
     """
-    Selain raportoi sivullaoloajan poistuessaan.
+    Selain raportoi sivullaoloajan poistuessaan tai heartbeatilla.
 
-    GET /api/visit-duration/?id=123&sec=45
+    GET/POST /api/visit-duration/?id=123&sec=45
+    (sendBeacon lähettää POSTin — query string säilyy.)
     """
     try:
-        visit_id = int(request.GET.get("id", "0"))
-        duration_sec = int(request.GET.get("sec", "0"))
+        visit_id = int(request.GET.get("id") or request.POST.get("id") or 0)
+        duration_sec = int(request.GET.get("sec") or request.POST.get("sec") or 0)
     except (TypeError, ValueError):
         return HttpResponse(status=400)
 

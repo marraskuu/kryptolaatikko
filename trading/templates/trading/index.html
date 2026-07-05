@@ -254,27 +254,49 @@
       var visitId = meta.getAttribute("content");
       if (!visitId) return;
       var started = Date.now();
-      var sent = false;
-      function reportDuration() {
-        if (sent) return;
-        var sec = Math.round((Date.now() - started) / 1000);
-        if (sec < 1) return;
-        sent = true;
+      var lastSentSec = 0;
+
+      function sendDuration(sec, final) {
+        sec = Math.max(1, Math.round(sec));
+        if (!final && sec <= lastSentSec) return;
+        lastSentSec = sec;
         var url =
           "/api/visit-duration/?id=" +
           encodeURIComponent(visitId) +
           "&sec=" +
           encodeURIComponent(String(sec));
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(url);
-        } else {
-          fetch(url, { keepalive: true, credentials: "same-origin" }).catch(function () {});
+        var sent = false;
+        if (typeof fetch === "function") {
+          fetch(url, { method: "GET", keepalive: true, credentials: "same-origin" }).catch(
+            function () {}
+          );
+          sent = true;
+        }
+        if (!sent && navigator.sendBeacon) {
+          var body = new FormData();
+          body.append("id", visitId);
+          body.append("sec", String(sec));
+          navigator.sendBeacon("/api/visit-duration/", body);
         }
       }
+
+      function reportDuration(final) {
+        var sec = (Date.now() - started) / 1000;
+        if (sec < 1) return;
+        sendDuration(sec, !!final);
+      }
+
       document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden") reportDuration();
+        if (document.visibilityState === "hidden") reportDuration(true);
       });
-      window.addEventListener("pagehide", reportDuration);
+      window.addEventListener("pagehide", function () {
+        reportDuration(true);
+      });
+
+      // Varmuus: päivitys 30 s välein — kesto näkyy vaikka poistumisbeacon epäonnistuisi
+      setInterval(function () {
+        if (document.visibilityState === "visible") reportDuration(false);
+      }, 30000);
     })();
   </script>
 </body>

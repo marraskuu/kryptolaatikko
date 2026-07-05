@@ -250,15 +250,21 @@ def record_page_visit(request, path: str = "/") -> int | None:
 
 
 def record_visit_duration(visit_id: int, duration_sec: int) -> bool:
-    """Päivitä käynnin kesto (ensimmäinen raportti voittaa)."""
+    """Päivitä käynnin kesto — kasvaa heartbeat/poistumisraporttien mukana."""
     if visit_id <= 0:
         return False
     duration_sec = max(1, min(int(duration_sec), 86400))
-    updated = PageVisit.objects.filter(
-        pk=visit_id,
-        is_bot=False,
-        duration_sec__isnull=True,
-    ).update(duration_sec=duration_sec)
+    from trading.models import PageVisit
+
+    visit = PageVisit.objects.filter(pk=visit_id, is_bot=False).only("duration_sec").first()
+    if not visit:
+        return False
+    current = visit.duration_sec
+    if current is not None and duration_sec <= current:
+        return True
+    updated = PageVisit.objects.filter(pk=visit_id, is_bot=False).update(
+        duration_sec=duration_sec
+    )
     return updated > 0
 
 
