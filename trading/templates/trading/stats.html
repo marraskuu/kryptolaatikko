@@ -42,6 +42,38 @@
             </div>
           </div>
         </div>
+        <div class="stat-card stat-card-duration">
+          <span class="stat-label">Keskim. kesto sivulla</span>
+          <div class="stat-card-breakdown" aria-label="Keskimääräinen kesto tänään, kuukaudessa ja vuonna">
+            <div class="stat-card-breakdown-item">
+              <span class="stat-card-breakdown-label">Tänään</span>
+              <span class="stat-card-breakdown-value">{{ avgDuration.today.label }}</span>
+              {% if avgDuration.today.measured %}
+              <span class="stat-card-breakdown-meta">{{ avgDuration.today.measured }} mitattua</span>
+              {% else %}
+              <span class="stat-card-breakdown-meta">ei mitattuja</span>
+              {% endif %}
+            </div>
+            <div class="stat-card-breakdown-item">
+              <span class="stat-card-breakdown-label">Kuukausi</span>
+              <span class="stat-card-breakdown-value">{{ avgDuration.month.label }}</span>
+              {% if avgDuration.month.measured %}
+              <span class="stat-card-breakdown-meta">{{ avgDuration.month.measured }} mitattua</span>
+              {% else %}
+              <span class="stat-card-breakdown-meta">ei mitattuja</span>
+              {% endif %}
+            </div>
+            <div class="stat-card-breakdown-item">
+              <span class="stat-card-breakdown-label">Vuosi</span>
+              <span class="stat-card-breakdown-value">{{ avgDuration.year.label }}</span>
+              {% if avgDuration.year.measured %}
+              <span class="stat-card-breakdown-meta">{{ avgDuration.year.measured }} mitattua</span>
+              {% else %}
+              <span class="stat-card-breakdown-meta">ei mitattuja</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
         <div class="stat-card">
           <span class="stat-label">Uniikit kävijät</span>
           <span class="stat-value">{{ uniqueVisitors }}</span>
@@ -57,35 +89,6 @@
         <div class="stat-card">
           <span class="stat-label">Päivitetty</span>
           <span class="stat-value stat-value-sm">{{ generatedAt|date:"d.m.Y H:i" }}</span>
-        </div>
-      </div>
-      <div class="stats-row stats-row-duration">
-        <div class="stat-card">
-          <span class="stat-label">Keskim. kesto tänään</span>
-          <span class="stat-value stat-value-sm">{{ avgDuration.today.label }}</span>
-          {% if avgDuration.today.measured %}
-          <span class="stat-change neutral">{{ avgDuration.today.measured }} mitattua käyntiä</span>
-          {% else %}
-          <span class="stat-change neutral">ei mitattuja käyntejä</span>
-          {% endif %}
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Keskim. kesto kuukaudessa</span>
-          <span class="stat-value stat-value-sm">{{ avgDuration.month.label }}</span>
-          {% if avgDuration.month.measured %}
-          <span class="stat-change neutral">{{ avgDuration.month.measured }} mitattua käyntiä</span>
-          {% else %}
-          <span class="stat-change neutral">ei mitattuja käyntejä</span>
-          {% endif %}
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Keskim. kesto vuonna</span>
-          <span class="stat-value stat-value-sm">{{ avgDuration.year.label }}</span>
-          {% if avgDuration.year.measured %}
-          <span class="stat-change neutral">{{ avgDuration.year.measured }} mitattua käyntiä</span>
-          {% else %}
-          <span class="stat-change neutral">ei mitattuja käyntejä</span>
-          {% endif %}
         </div>
       </div>
     </section>

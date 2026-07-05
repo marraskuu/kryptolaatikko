@@ -254,11 +254,6 @@ h1 {
   width: 100%;
 }
 
-.stats-row-duration {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 20px;
-}
-
 .stats-row-shadow {
   grid-template-columns: 1fr;
   margin-bottom: 20px;
@@ -416,8 +411,21 @@ h1 {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
-.stat-card-visits {
+.stat-card-visits,
+.stat-card-duration {
   gap: 6px;
+}
+
+.stat-card-duration .stat-card-breakdown {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.stat-card-breakdown-meta {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .stat-card-breakdown {
