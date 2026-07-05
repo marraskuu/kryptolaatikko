@@ -416,6 +416,40 @@ h1 {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
+.stat-card-visits {
+  gap: 6px;
+}
+
+.stat-card-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.stat-card-breakdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 5rem;
+}
+
+.stat-card-breakdown-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.stat-card-breakdown-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
 .stat-card-next {
   min-height: 100%;
 }
