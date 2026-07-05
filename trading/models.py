@@ -33,7 +33,10 @@ class PageVisit(models.Model):
         verbose_name_plural = "Sivukäynnit"
         ordering = ["-visited_at"]
         indexes = [
-            models.Index(fields=["-visited_at", "referer_source"]),
+            models.Index(
+                fields=["-visited_at", "referer_source"],
+                name="trading_pag_visited_6a0f0d_idx",
+            ),
         ]
 
     def __str__(self) -> str:
