@@ -543,6 +543,7 @@ def execute_trading_cycle() -> dict[str, Any]:
             regime=regime,
             learning=learning,
             regime_info=regime_info,
+            profit_watches=state.get("watches"),
         )
         decisions = decision_result["decisions"]
         state["activeSymbols"] = decision_result.get("topSymbols", [])

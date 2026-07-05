@@ -96,6 +96,13 @@ BEAR_DEFENSE_ENABLED = os.environ.get("BEAR_DEFENSE_ENABLED", "1").lower() not i
     "off",
 )
 BEAR_MIN_CASH_SHARE = float(os.environ.get("BEAR_MIN_CASH_SHARE", "0.25"))
+BEAR_CASH_TRIM_ENABLED = os.environ.get("BEAR_CASH_TRIM_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+BEAR_CASH_TRIM_MAX_FRACTION = float(os.environ.get("BEAR_CASH_TRIM_MAX_FRACTION", "0.5"))
 BEAR_STAGNANT_MIN_LOSS_PCT = float(os.environ.get("BEAR_STAGNANT_MIN_LOSS_PCT", "-0.75"))
 BEAR_STAGNANT_HOURS = float(os.environ.get("BEAR_STAGNANT_HOURS", "7.0"))
 BEAR_STUCK_POSITION_HOURS = float(os.environ.get("BEAR_STUCK_POSITION_HOURS", "6.0"))
@@ -707,6 +714,111 @@ def _bear_cash_deploy_ok(cash: float, total_value: float, regime_info: dict[str,
     if not _bear_defense_active(regime_info) or total_value <= 0:
         return True
     return (cash / total_value) >= BEAR_MIN_CASH_SHARE
+
+
+def _decision_cash_flow(decisions: list[dict[str, Any]]) -> tuple[float, float]:
+    sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d.get("type") == "sell")
+    buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d.get("type") == "buy")
+    return sell_proceeds, buy_spent
+
+
+def _projected_cash(cash: float, decisions: list[dict[str, Any]]) -> float:
+    sell_proceeds, buy_spent = _decision_cash_flow(decisions)
+    return cash + sell_proceeds - buy_spent
+
+
+def _bear_cash_reserve_gap_eur(
+    cash: float,
+    total_value: float,
+    regime_info: dict[str, Any] | str | None,
+    decisions: list[dict[str, Any]],
+) -> float:
+    if not BEAR_CASH_TRIM_ENABLED or not _bear_defense_active(regime_info) or total_value <= 0:
+        return 0.0
+    target_cash = total_value * BEAR_MIN_CASH_SHARE
+    return max(0.0, target_cash - _projected_cash(cash, decisions))
+
+
+def _apply_bear_cash_reserve_trim(
+    decisions: list[dict[str, Any]],
+    holdings: dict[str, Any],
+    analyses: dict[str, dict[str, Any]],
+    cash: float,
+    total_value: float,
+    regime_info: dict[str, Any] | str | None,
+    label_fn: Callable[[str], str],
+    *,
+    preferred_symbols: set[str] | None = None,
+) -> None:
+    """Pakota karhu-kassavara trimmaamalla heikoimmista positioista (ei rotaatiota)."""
+    gap_eur = _bear_cash_reserve_gap_eur(cash, total_value, regime_info, decisions)
+    if gap_eur < MIN_TRADE_EUR:
+        return
+
+    preferred = preferred_symbols or set()
+    candidates: list[tuple[tuple[int, float, float], str, float, float, dict[str, Any]]] = []
+    for symbol, holding in holdings.items():
+        if is_stablecoin(symbol):
+            continue
+        analysis = analyses.get(symbol)
+        if not analysis:
+            continue
+        price = float(analysis.get("currentPrice") or 0)
+        if price <= 0:
+            continue
+        amount = _effective_holding_amount(symbol, holdings, decisions)
+        if amount <= 0:
+            continue
+        value = amount * price
+        if value < MIN_TRADE_EUR:
+            continue
+        norm = normalize_symbol(symbol)
+        trim_priority = 1 if norm in preferred or symbol in preferred else 0
+        score = float(analysis.get("score") or 0)
+        candidates.append(
+            ((trim_priority, score, -value), symbol, amount, price, analysis)
+        )
+
+    candidates.sort(key=lambda item: item[0])
+    remaining = gap_eur
+    target_pct = BEAR_MIN_CASH_SHARE * 100
+    for _, symbol, amount, price, analysis in candidates:
+        if remaining < MIN_TRADE_EUR:
+            break
+        max_sell_eur = amount * price * BEAR_CASH_TRIM_MAX_FRACTION
+        sell_eur = min(remaining, max_sell_eur)
+        if sell_eur < MIN_TRADE_EUR:
+            continue
+        sell_amount = min(amount, sell_eur / price)
+        if sell_amount * price < MIN_TRADE_EUR:
+            continue
+        _append_sell_decision(
+            decisions,
+            symbol,
+            sell_amount,
+            price,
+            (
+                f"Karhu-kassavara — {label_fn(symbol)} trimmaus "
+                f"{sell_eur:.0f} € kohti {target_pct:.0f} % käteistä"
+            ),
+            analysis,
+        )
+        remaining -= sell_amount * price
+
+
+def _tier1_taken_for_symbol(
+    symbol: str,
+    profit_watches: dict[str, Any] | None,
+) -> bool:
+    if not profit_watches:
+        return False
+    watch = profit_watches.get(symbol) or profit_watches.get(normalize_symbol(symbol))
+    if not watch:
+        return False
+    if watch.get("tier1Taken"):
+        return True
+    state = watch.get("state")
+    return bool(isinstance(state, dict) and state.get("tier1Taken"))
 
 
 def entry_regime_key(regime_info: dict[str, Any] | str) -> str:
@@ -2177,6 +2289,7 @@ def make_trading_decisions(
     regime: str = "neutral",
     learning: dict[str, Any] | None = None,
     regime_info: dict[str, Any] | None = None,
+    profit_watches: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     holdings = portfolio_data["holdings"]
     cash = portfolio_data["cash"]
@@ -2750,6 +2863,18 @@ def make_trading_decisions(
                             "analysis": analysis,
                         }
                     )
+                elif _tier1_taken_for_symbol(symbol, profit_watches):
+                    decisions.append(
+                        {
+                            "type": "hold",
+                            "symbol": symbol,
+                            "reason": (
+                                "Gemini osittainen myynti ohitettu — "
+                                "voitto-otto porras 1 jo tehty (trailing jatkuu)"
+                            ),
+                            "analysis": analysis,
+                        }
+                    )
                 else:
                     sell_amount = (
                         holding["amount"]
@@ -2959,6 +3084,17 @@ def make_trading_decisions(
                 bull_satellite_split["satellite"],
                 bull_satellite_split.get("reason"),
             )
+
+    _apply_bear_cash_reserve_trim(
+        decisions,
+        holdings,
+        analyses,
+        cash,
+        total_value,
+        regime_info,
+        label_fn,
+        preferred_symbols=top_norms,
+    )
 
     if not churn_cooldown or concentration_mode or idle_cash:
         _deploy_cash_to_targets(
