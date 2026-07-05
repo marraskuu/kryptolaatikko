@@ -48,6 +48,35 @@
           <span class="stat-value stat-value-sm">{{ generatedAt|date:"d.m.Y H:i" }}</span>
         </div>
       </div>
+      <div class="stats-row stats-row-duration">
+        <div class="stat-card">
+          <span class="stat-label">Keskim. kesto tänään</span>
+          <span class="stat-value stat-value-sm">{{ avgDuration.today.label }}</span>
+          {% if avgDuration.today.measured %}
+          <span class="stat-change neutral">{{ avgDuration.today.measured }} mitattua käyntiä</span>
+          {% else %}
+          <span class="stat-change neutral">ei mitattuja käyntejä</span>
+          {% endif %}
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Keskim. kesto kuukaudessa</span>
+          <span class="stat-value stat-value-sm">{{ avgDuration.month.label }}</span>
+          {% if avgDuration.month.measured %}
+          <span class="stat-change neutral">{{ avgDuration.month.measured }} mitattua käyntiä</span>
+          {% else %}
+          <span class="stat-change neutral">ei mitattuja käyntejä</span>
+          {% endif %}
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Keskim. kesto vuonna</span>
+          <span class="stat-value stat-value-sm">{{ avgDuration.year.label }}</span>
+          {% if avgDuration.year.measured %}
+          <span class="stat-change neutral">{{ avgDuration.year.measured }} mitattua käyntiä</span>
+          {% else %}
+          <span class="stat-change neutral">ei mitattuja käyntejä</span>
+          {% endif %}
+        </div>
+      </div>
     </section>
 
     <section class="panel stats-panel">

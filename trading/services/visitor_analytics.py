@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Avg, Count, Max
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -215,6 +215,38 @@ def format_duration_label(duration_sec: int | None) -> str:
     if rem_min:
         return f"{hours} t {rem_min} min"
     return f"{hours} t"
+
+
+def _avg_duration_summary(qs) -> dict[str, Any]:
+    """Keskimääräinen kesto vain käynneille joilla duration_sec on mitattu."""
+    total = qs.count()
+    measured_qs = qs.filter(duration_sec__isnull=False)
+    measured = measured_qs.count()
+    avg_val = measured_qs.aggregate(avg=Avg("duration_sec"))["avg"]
+    avg_sec = int(round(avg_val)) if avg_val is not None else None
+    return {
+        "label": format_duration_label(avg_sec),
+        "avg_sec": avg_sec,
+        "measured": measured,
+        "total": total,
+    }
+
+
+def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
+    """Keskimääräinen sivullaolo: tänään, tässä kuussa, tänä vuonna."""
+    from trading.models import PageVisit
+
+    now = timezone.localtime(timezone.now())
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = today_start.replace(day=1)
+    year_start = today_start.replace(month=1, day=1)
+    base = PageVisit.objects.filter(is_bot=False)
+
+    return {
+        "today": _avg_duration_summary(base.filter(visited_at__gte=today_start)),
+        "month": _avg_duration_summary(base.filter(visited_at__gte=month_start)),
+        "year": _avg_duration_summary(base.filter(visited_at__gte=year_start)),
+    }
 
 
 def record_page_visit(request, path: str = "/") -> int | None:
@@ -432,5 +464,6 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
         "byIp": by_ip,
         "recentVisits": recent,
         "unknownCountryVisits": unknown_country,
+        "avgDuration": get_avg_duration_cards(),
         "generatedAt": timezone.now(),
     }

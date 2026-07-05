@@ -254,6 +254,11 @@ h1 {
   width: 100%;
 }
 
+.stats-row-duration {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
 .stats-row-shadow {
   grid-template-columns: 1fr;
   margin-bottom: 20px;
