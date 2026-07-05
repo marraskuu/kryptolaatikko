@@ -3,8 +3,9 @@ import os
 import secrets
 
 from django.conf import settings
+from django.contrib.auth import authenticate, login, logout
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 
@@ -107,6 +108,26 @@ def _check_admin_key(request) -> bool:
     return secrets.compare_digest(supplied, expected)
 
 
+def _stats_login_url(next_path: str = "/stats/") -> str:
+    from urllib.parse import quote
+
+    return f"/stats/login/?next={quote(next_path, safe='')}"
+
+
+def _require_stats_superuser(request) -> HttpResponse | None:
+    if not request.user.is_authenticated:
+        query = request.GET.urlencode()
+        next_path = request.path + (f"?{query}" if query else "")
+        return redirect(_stats_login_url(next_path))
+    if not request.user.is_superuser:
+        return HttpResponse(
+            "Vain superuser-käyttäjällä on pääsy tilastoihin.",
+            status=403,
+            content_type="text/plain; charset=utf-8",
+        )
+    return None
+
+
 @csrf_exempt
 @require_GET
 def api_historical_backfill(request):
@@ -181,19 +202,46 @@ def api_visitor_stats(request):
     return JsonResponse(payload)
 
 
+def stats_login(request):
+    """Kirjautuminen /stats-sivulle (Django superuser)."""
+    if request.user.is_authenticated and request.user.is_superuser:
+        return redirect(request.GET.get("next") or "/stats/")
+
+    error = None
+    next_url = request.POST.get("next") or request.GET.get("next") or "/stats/"
+
+    if request.method == "POST":
+        username = (request.POST.get("username") or "").strip()
+        password = request.POST.get("password") or ""
+        user = authenticate(request, username=username, password=password)
+        if user is not None and user.is_superuser:
+            login(request, user)
+            return redirect(next_url)
+        error = "Virheellinen tunnus tai salasana — tarvitaan superuser-oikeudet."
+
+    return render(
+        request,
+        "trading/stats_login.html",
+        {"error": error, "next": next_url},
+    )
+
+
+@require_GET
+def stats_logout(request):
+    logout(request)
+    return redirect("/stats/login/")
+
+
 @require_GET
 def stats_page(request):
     """
-    Kävijätilastot HTML-sivuna.
+    Kävijätilastot HTML-sivuna (vaatii superuser-kirjautumisen).
 
-    GET /stats?key=SECRET_KEY&days=30
+    GET /stats/?days=30
     """
-    if not _check_admin_key(request):
-        return HttpResponse(
-            "Ei oikeuksia — avaa /stats?key=SECRET_KEY (tai ADMIN_TASK_KEY)",
-            status=403,
-            content_type="text/plain; charset=utf-8",
-        )
+    denied = _require_stats_superuser(request)
+    if denied:
+        return denied
 
     try:
         days = int(request.GET.get("days", "30"))
@@ -212,7 +260,7 @@ def stats_page(request):
         **stats,
         "days": days,
         "app_build": getattr(settings, "APP_BUILD", "dev"),
-        "stats_key": request.GET.get("key", ""),
+        "stats_user": request.user.username,
     }
     response = render(request, "trading/stats.html", context)
     response["Cache-Control"] = "no-store"

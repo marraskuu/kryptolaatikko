@@ -1948,6 +1948,19 @@ body.modal-open {
   align-items: center;
 }
 
+.stats-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stats-user-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .stats-back-link {
   color: var(--accent);
   text-decoration: none;
@@ -2069,4 +2082,57 @@ body.modal-open {
   .stats-two-col {
     grid-template-columns: 1fr;
   }
+}
+
+.stats-login-page {
+  max-width: 520px;
+}
+
+.stats-login-panel {
+  max-width: 100%;
+}
+
+.stats-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-login-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stats-login-input {
+  font: inherit;
+  font-size: 1rem;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.stats-login-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.stats-login-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.stats-login-error {
+  color: var(--red);
+  background: var(--red-dim);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
 }

@@ -1,0 +1,62 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Kirjaudu — kävijätilastot</title>
+  <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
+</head>
+<body>
+  <div class="app stats-page stats-login-page">
+    <header class="header">
+      <div class="logo">◈</div>
+      <div class="header-body">
+        <h1>Kävijätilastot</h1>
+        <p class="subtitle">Kirjaudu Django-superuser-tunnuksilla</p>
+      </div>
+    </header>
+
+    <section class="panel stats-panel stats-login-panel">
+      {% if error %}
+      <p class="stats-login-error">{{ error }}</p>
+      {% endif %}
+
+      <form method="post" action="{% url 'stats_login' %}" class="stats-login-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}" />
+
+        <label class="stats-login-label" for="username">Käyttäjätunnus</label>
+        <input
+          class="stats-login-input"
+          id="username"
+          name="username"
+          type="text"
+          autocomplete="username"
+          required
+          autofocus
+        />
+
+        <label class="stats-login-label" for="password">Salasana</label>
+        <input
+          class="stats-login-input"
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+
+        <button type="submit" class="btn btn-primary stats-login-btn">Kirjaudu</button>
+      </form>
+
+      <p class="stats-footer-note">
+        Sama tunnus kuin Railway-deployn <code>DJANGO_SUPERUSER_USERNAME</code> /
+        <code>DJANGO_SUPERUSER_PASSWORD</code> (admin-käyttäjä).
+        <a href="/">← Etusivu</a>
+      </p>
+    </section>
+  </div>
+</body>
+</html>

@@ -15,7 +15,11 @@
       <div class="header-body">
         <div class="header-title-row">
           <h1>Kävijätilastot</h1>
-          <a class="stats-back-link" href="/">← Etusivu</a>
+          <div class="stats-header-actions">
+            <span class="stats-user-label">{{ stats_user }}</span>
+            <a class="stats-back-link" href="{% url 'stats_logout' %}">Kirjaudu ulos</a>
+            <a class="stats-back-link" href="/">← Etusivu</a>
+          </div>
         </div>
         <p class="subtitle">hiekkalaatikko.pro · viimeiset {{ days }} päivää · build {{ app_build }}</p>
       </div>
@@ -175,10 +179,10 @@
     </section>
 
     <p class="stats-footer-note">
-      Suojattu sivu — älä jaa URL:ia avaimen kanssa. Vanhat käynnit (ennen 07/2026) eivät sisällä IP/maata.
-      <a href="?key={{ stats_key }}&days=7">7 pv</a> ·
-      <a href="?key={{ stats_key }}&days=30">30 pv</a> ·
-      <a href="?key={{ stats_key }}&days=90">90 pv</a>
+      Kirjautunut: {{ stats_user }}.
+      <a href="?days=7">7 pv</a> ·
+      <a href="?days=30">30 pv</a> ·
+      <a href="?days=90">90 pv</a>
     </p>
   </div>
 </body>
