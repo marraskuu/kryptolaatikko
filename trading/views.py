@@ -269,11 +269,6 @@ def stats_page(request):
     except ValueError:
         days = 30
 
-    try:
-        record_page_visit(request, path="/stats")
-    except Exception:
-        logger.exception("Käyntitallennus /stats epäonnistui")
-
     from .services.visitor_analytics import get_stats_page_data
 
     stats = get_stats_page_data(days=days)

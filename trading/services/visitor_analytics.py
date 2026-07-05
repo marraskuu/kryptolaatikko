@@ -73,6 +73,15 @@ COUNTRY_NAMES: dict[str, str] = {
 
 _geo_cache: dict[str, dict[str, str]] = {}
 
+# Admin-kävijätilastot — ei julkisia tilastoja
+_STATS_PATH_PREFIX = "/stats"
+
+
+def _public_visits_qs():
+    from trading.models import PageVisit
+
+    return PageVisit.objects.filter(is_bot=False).exclude(path__startswith=_STATS_PATH_PREFIX)
+
 
 def _is_private_ip(ip: str) -> bool:
     try:
@@ -232,15 +241,32 @@ def _avg_duration_summary(qs) -> dict[str, Any]:
     }
 
 
-def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
-    """Keskimääräinen sivullaolo: tänään, tässä kuussa, tänä vuonna."""
-    from trading.models import PageVisit
-
+def _period_starts() -> tuple[Any, Any, Any]:
     now = timezone.localtime(timezone.now())
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = today_start.replace(day=1)
     year_start = today_start.replace(month=1, day=1)
-    base = PageVisit.objects.filter(is_bot=False)
+    return today_start, month_start, year_start
+
+
+def get_visit_count_cards() -> dict[str, int]:
+    """Käyntimäärät tänään ja kuluvan kuukauden aikana."""
+    from trading.models import PageVisit
+
+    today_start, month_start, _ = _period_starts()
+    base = _public_visits_qs()
+    return {
+        "today": base.filter(visited_at__gte=today_start).count(),
+        "month": base.filter(visited_at__gte=month_start).count(),
+    }
+
+
+def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
+    """Keskimääräinen sivullaolo: tänään, tässä kuussa, tänä vuonna."""
+    from trading.models import PageVisit
+
+    today_start, month_start, year_start = _period_starts()
+    base = _public_visits_qs()
 
     return {
         "today": _avg_duration_summary(base.filter(visited_at__gte=today_start)),
@@ -252,6 +278,10 @@ def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
 def record_page_visit(request, path: str = "/") -> int | None:
     """Tallenna yksi etusivun käynti. Palauttaa rivin id:n keston raportointia varten."""
     if request.method != "GET":
+        return None
+
+    path = (path or "/")[:200]
+    if path.startswith(_STATS_PATH_PREFIX):
         return None
 
     user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:256]
@@ -302,11 +332,9 @@ def record_visit_duration(visit_id: int, duration_sec: int) -> bool:
 
 def get_visitor_stats(*, days: int = 30) -> dict[str, Any]:
     """Yhteenveto admin/API:lle."""
-    from trading.models import PageVisit
-
     days = max(1, min(int(days), 365))
     since = timezone.now() - timedelta(days=days)
-    human = PageVisit.objects.filter(visited_at__gte=since, is_bot=False)
+    human = _public_visits_qs().filter(visited_at__gte=since)
 
     total = human.count()
     unique = human.values("ip_hash").distinct().count()
@@ -347,11 +375,9 @@ def _enrich_visit_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
     """HTML /stats-sivulle: päivittäiset käynnit, IP:t ja maat."""
-    from trading.models import PageVisit
-
     days = max(1, min(int(days), 365))
     since = timezone.now() - timedelta(days=days)
-    human = PageVisit.objects.filter(visited_at__gte=since, is_bot=False)
+    human = _public_visits_qs().filter(visited_at__gte=since)
 
     base = get_visitor_stats(days=days)
 
@@ -464,6 +490,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
         "byIp": by_ip,
         "recentVisits": recent,
         "unknownCountryVisits": unknown_country,
+        "visitCounts": get_visit_count_cards(),
         "avgDuration": get_avg_duration_cards(),
         "generatedAt": timezone.now(),
     }

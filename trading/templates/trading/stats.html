@@ -30,6 +30,15 @@
         <div class="stat-card highlight">
           <span class="stat-label">Käynnit yhteensä</span>
           <span class="stat-value">{{ totalVisits }}</span>
+          <span class="stat-change neutral">viimeiset {{ days }} pv</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Käynnit tänään</span>
+          <span class="stat-value">{{ visitCounts.today }}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Käynnit tässä kuussa</span>
+          <span class="stat-value">{{ visitCounts.month }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-label">Uniikit kävijät</span>
