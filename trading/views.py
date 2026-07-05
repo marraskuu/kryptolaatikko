@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -16,6 +17,13 @@ from .services.state_store import load_state
 from .services.visitor_analytics import record_page_visit, record_visit_duration
 
 logger = logging.getLogger(__name__)
+
+
+def _public_site_url(request) -> str:
+    domain = (getattr(settings, "CUSTOM_DOMAIN", "") or "").strip().removeprefix("www.")
+    if domain:
+        return f"https://{domain}"
+    return request.build_absolute_uri("/").rstrip("/")
 
 
 def index(request):
@@ -201,6 +209,41 @@ def api_visitor_stats(request):
     payload = get_visitor_stats(days=days)
     payload["appBuild"] = getattr(settings, "APP_BUILD", "dev")
     return JsonResponse(payload)
+
+
+@require_GET
+def robots_txt(request):
+    """Hakukoneet: julkinen etusivu, ei stats/API/admin."""
+    base = _public_site_url(request)
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /stats/",
+        "Disallow: /api/",
+        "Disallow: /admin/",
+        "",
+        f"Sitemap: {base}/sitemap.xml",
+    ]
+    return HttpResponse("\n".join(lines), content_type="text/plain; charset=utf-8")
+
+
+@require_GET
+def sitemap_xml(request):
+    """Yksi julkinen URL — etusivu."""
+    base = _public_site_url(request)
+    lastmod = timezone.localdate().isoformat()
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        "  <url>\n"
+        f"    <loc>{base}/</loc>\n"
+        f"    <lastmod>{lastmod}</lastmod>\n"
+        "    <changefreq>daily</changefreq>\n"
+        "    <priority>1.0</priority>\n"
+        "  </url>\n"
+        "</urlset>\n"
+    )
+    return HttpResponse(xml, content_type="application/xml; charset=utf-8")
 
 
 @csrf_exempt
