@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import secrets
@@ -26,18 +27,95 @@ def _public_site_url(request) -> str:
     return request.build_absolute_uri("/").rstrip("/")
 
 
+def _site_json_ld(base_url: str) -> str:
+    """Schema.org WebSite + SoftwareApplication etusivulle (hakukoneet / AI-tiivistelmät)."""
+    graph = [
+        {
+            "@type": "WebSite",
+            "@id": f"{base_url}#website",
+            "url": base_url,
+            "name": "hiekkalaatikko.pro",
+            "description": (
+                "Avoin kryptovaluutta-simulaattori: live-botti, Bitfinex-kurssit "
+                "ja noin 1000 € virtuaalisalkku. Ei oikeaa rahaa eikä sijoitusneuvontaa."
+            ),
+            "inLanguage": "fi-FI",
+        },
+        {
+            "@type": "SoftwareApplication",
+            "@id": f"{base_url}#app",
+            "name": "Krypto Simulaattori",
+            "url": base_url,
+            "applicationCategory": "FinanceApplication",
+            "operatingSystem": "Web",
+            "description": (
+                "Simuloitu kryptokaupankäynti 24/7: tekninen analyysi, order book, "
+                "Gemini AI ja oppiva botti Bitfinexin reaaliaikaisilla kursseilla."
+            ),
+            "isAccessibleForFree": True,
+            "inLanguage": "fi-FI",
+            "offers": {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "EUR",
+            },
+        },
+    ]
+    return json.dumps({"@context": "https://schema.org", "@graph": graph}, ensure_ascii=False)
+
+
+def _llms_txt_body(base_url: str) -> str:
+    """llms.txt — lyhyt indeksi AI-agenteille ja crawlersille (https://llmstxt.org/)."""
+    home = f"{base_url}/"
+    return "\n".join(
+        [
+            "# hiekkalaatikko.pro — Krypto Simulaattori",
+            "",
+            "> Avoin kryptovaluutta-simulaattori ja simuloitu kaupankäynti-demo. "
+            "Live-botti käy kauppaa Bitfinexin reaaliaikaisilla kursseilla noin "
+            "1000 € virtuaalisalkulla. Ei oikeaa rahaa, ei sijoituspalvelua, "
+            "ei sijoitusneuvontaa.",
+            "",
+            "## Julkinen sisältö",
+            "",
+            f"- [Etusivu — live-kryptobotti]({home}): salkku, kauppahistoria, "
+            "oppimisraportit, regiimi ja botin päätökset reaaliajassa selaimessa.",
+            "",
+            "## Tekninen yhteenveto",
+            "",
+            "- Markkinadata: Bitfinex (reaaliaikaiset kurssit).",
+            "- Strategia: tekninen analyysi (momentum, RSI, moniaikainen trendi, order book).",
+            "- AI: Gemini voi täydentää päätöksiä; järjestelmä oppii omista kaupoistaan.",
+            "- Riskinhallinta: regiimit (nousu, lasku, neutraali), voittojen kotiutus, karhu-puolustus.",
+            "",
+            "## Ei julkista",
+            "",
+            "- `/stats/` — ylläpitäjän kävijätilastot (vaatii kirjautumisen).",
+            "- `/api/` — botin sisäinen API (ei dokumentoitu ulkoiseen käyttöön).",
+            "",
+            "## Löydettävyys",
+            "",
+            f"- [Sitemap]({base_url}/sitemap.xml)",
+            f"- [robots.txt]({base_url}/robots.txt)",
+            "",
+        ]
+    )
+
+
 def index(request):
     visit_id = None
     try:
         visit_id = record_page_visit(request)
     except Exception:
         logger.exception("Käyntitallennus epäonnistui")
+    canonical_url = f"{_public_site_url(request)}/"
     return render(
         request,
         "trading/index.html",
         {
             "visit_id": visit_id,
-            "canonical_url": f"{_public_site_url(request)}/",
+            "canonical_url": canonical_url,
+            "json_ld": _site_json_ld(canonical_url),
         },
     )
 
@@ -251,6 +329,13 @@ def sitemap_xml(request):
         "</urlset>\n"
     )
     return HttpResponse(xml, content_type="application/xml; charset=utf-8")
+
+
+@require_GET
+def llms_txt(request):
+    """AI-agentit: lyhyt markdown-indeksi sivustosta (https://llmstxt.org/)."""
+    body = _llms_txt_body(_public_site_url(request))
+    return HttpResponse(body, content_type="text/plain; charset=utf-8")
 
 
 GOOGLE_SITE_VERIFICATION_FILE = "google311958127e9d9124.html"
