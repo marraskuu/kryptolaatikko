@@ -253,6 +253,18 @@ def sitemap_xml(request):
     return HttpResponse(xml, content_type="application/xml; charset=utf-8")
 
 
+GOOGLE_SITE_VERIFICATION_FILE = "google311958127e9d9124.html"
+GOOGLE_SITE_VERIFICATION_BODY = (
+    f"google-site-verification: {GOOGLE_SITE_VERIFICATION_FILE}"
+)
+
+
+@require_GET
+def google_site_verification(request):
+    """Google Search Console — HTML-tiedoston vahvistus."""
+    return HttpResponse(GOOGLE_SITE_VERIFICATION_BODY, content_type="text/html; charset=utf-8")
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def api_visit_duration(request):
