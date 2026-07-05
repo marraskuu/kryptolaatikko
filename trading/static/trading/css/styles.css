@@ -411,15 +411,79 @@ h1 {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
-.stat-card-visits,
-.stat-card-duration {
-  gap: 6px;
+.stats-page .stats-row {
+  align-items: stretch;
 }
 
-.stat-card-duration .stat-card-breakdown {
-  margin-top: 4px;
+.stats-page .stats-row > .stat-card {
+  min-height: 6.75rem;
+}
+
+.stat-card-visits,
+.stat-card-duration {
+  gap: 4px;
+}
+
+.stat-card-split {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+}
+
+.stat-card-split-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stat-card-duration .stat-card-breakdown-stack {
+  flex: 1;
+  justify-content: center;
+}
+
+.stat-card-breakdown-stack {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin-top: 0;
   padding-top: 0;
   border-top: none;
+  min-width: 0;
+}
+
+.stat-card-breakdown-stack .stat-card-breakdown-item {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stat-card-breakdown-stack .stat-card-breakdown-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.stat-card-breakdown-stack .stat-card-breakdown-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stat-card-breakdown-stack .stat-card-breakdown-meta {
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.stat-card-duration .stat-card-breakdown-item {
+  flex-wrap: nowrap;
 }
 
 .stat-card-breakdown-meta {
