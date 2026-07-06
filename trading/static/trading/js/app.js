@@ -1705,12 +1705,13 @@ function renderLearningReport() {
         <ul>${report.roadmap
           .map((r) => {
             const cls =
-              r.status === "valmis"
+              r.status === "aktiivinen" || r.status === "valmis"
                 ? "roadmap-status-ready"
                 : r.status === "tulossa"
                   ? "roadmap-status-soon"
                   : "";
-            return `<li><span class="${cls}">${escapeHtml(r.label)} · ${escapeHtml(r.progress)}</span><span>${escapeHtml(r.action)}</span></li>`;
+            const progress = r.progress ? ` · ${r.progress}` : "";
+            return `<li><span class="${cls}">${escapeHtml(r.label)}${escapeHtml(progress)}</span><span>${escapeHtml(r.action)}</span></li>`;
           })
           .join("")}</ul>
       </div>`

@@ -69,18 +69,34 @@ ROADMAP_ITEMS = (
         "action": "ATR/regiimi-pohjainen trailing sell_strategy.py",
     },
     {
+        "key": "trade_flow_learning",
+        "label": "Trade flow (fl+/fl−)",
+        "metric": "closed_trades_with_flow",
+        "target": 8,
+        "action": "Arvioidaan ostoalotteisen flow'n vaikutus entryihin",
+    },
+    {
+        "key": "shadow_portfolio",
+        "label": "Varjosalkku vs. live",
+        "metric": "shadow_mirror_trades",
+        "target": 3,
+        "action": "Luotettava varjo-live-vertailu ennen sääntöjen siirtoa",
+    },
+    {
         "key": "setup_learning",
         "label": "Setup-oppiminen (omat sisäänostot)",
         "metric": "regime_tagged_sells",
         "target": 4,
-        "action": "Setup-muisti aktivoituu chipillä 📐",
+        "mode": "active",
+        "action": "Setup-muisti chipillä 📐 — käytössä",
     },
     {
         "key": "richer_buckets",
         "label": "Richer markkina-ämpärit",
         "metric": "buckets_learned",
         "target": 18,
-        "action": "Regiimi×24h×MTF×RSI×vol×deep + fallback (käytössä)",
+        "mode": "active",
+        "action": "Regiimi×24h×MTF×RSI×vol×deep + fallback — käytössä",
     },
 )
 
@@ -107,8 +123,27 @@ def _fmt_exp(val: float | None) -> str:
     return f"{val:+.2f} €/kauppa"
 
 
-def _roadmap_metrics(learning: dict[str, Any], ml: dict[str, Any]) -> dict[str, float]:
+def _roadmap_metrics(
+    learning: dict[str, Any],
+    ml: dict[str, Any],
+    *,
+    portfolio: dict[str, Any] | None = None,
+    bot_state: dict[str, Any] | None = None,
+) -> dict[str, float]:
     stats = learning.get("stats") or {}
+    closed_with_flow = 0
+    if portfolio:
+        from .market_microstructure import _linked_micro_outcomes
+
+        linked = _linked_micro_outcomes(portfolio.get("trades") or [])
+        closed_with_flow = sum(1 for item in linked if item["entry"].get("flowBucket"))
+
+    shadow = (bot_state or {}).get("dailyPolicyShadow") or {}
+    shadow_metrics = shadow.get("portfolioMetrics") or {}
+    shadow_mirror = int(shadow_metrics.get("tradesMirrored") or 0) + int(
+        shadow_metrics.get("tradesSkipped") or 0
+    )
+
     return {
         "profit_take_trades": float((stats.get("profit_take") or {}).get("trades") or 0),
         "regime_tagged_sells": float(learning.get("regime_tagged_sells") or 0),
@@ -116,26 +151,41 @@ def _roadmap_metrics(learning: dict[str, Any], ml: dict[str, Any]) -> dict[str, 
         "buckets_learned": float(ml.get("bucketsLearned") or 0),
         "buckets_tracked": float(ml.get("bucketsTracked") or 0),
         "gemini_confidence_tagged": float(learning.get("gemini_confidence_tagged") or 0),
+        "closed_trades_with_flow": float(closed_with_flow),
+        "shadow_mirror_trades": float(shadow_mirror),
     }
 
 
-def _roadmap_progress(learning: dict[str, Any], ml: dict[str, Any]) -> list[dict[str, Any]]:
-    metrics = _roadmap_metrics(learning, ml)
+def _roadmap_progress(
+    learning: dict[str, Any],
+    ml: dict[str, Any],
+    *,
+    portfolio: dict[str, Any] | None = None,
+    bot_state: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metrics = _roadmap_metrics(learning, ml, portfolio=portfolio, bot_state=bot_state)
     items: list[dict[str, Any]] = []
     for cfg in ROADMAP_ITEMS:
         current = int(metrics.get(cfg["metric"], 0))
         target = int(cfg["target"])
-        if current >= target:
-            status = "valmis"
+        mode = cfg.get("mode", "collect")
+        if mode == "active":
+            status = "aktiivinen"
+            progress = "käytössä"
+        elif current >= target:
+            status = "aktiivinen"
+            progress = "käytössä"
         elif current >= target * 0.5:
             status = "tulossa"
+            progress = f"{current}/{target}"
         else:
             status = "kerätään"
+            progress = f"{current}/{target}"
         items.append(
             {
                 "key": cfg["key"],
                 "label": cfg["label"],
-                "progress": f"{current}/{target}",
+                "progress": progress,
                 "status": status,
                 "action": cfg["action"],
             }
@@ -546,7 +596,7 @@ def build_learning_report(
 
     snapshot = _learning_snapshot(learning, ml, regime)
     changes = _compute_changes(previous_snapshot, snapshot)
-    roadmap = _roadmap_progress(learning, ml)
+    roadmap = _roadmap_progress(learning, ml, portfolio=portfolio, bot_state=bot_state)
 
     shadow_policy = None
     microstructure_learning = None
