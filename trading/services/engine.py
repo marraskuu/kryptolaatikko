@@ -23,7 +23,13 @@ from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, ensure
 from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
-from .daily_policy_shadow import record_cycle, record_executed_trade, record_profit_take_shadow, shadow_profit_take_config
+from .daily_policy_shadow import (
+    mirror_live_trade,
+    record_cycle,
+    record_executed_trade,
+    record_profit_take_shadow,
+    shadow_profit_take_config,
+)
 from .trade_meta import meta_from_analysis
 from . import exit_learning
 from . import market_learning
@@ -130,10 +136,23 @@ def _log_shadow_trade(
     portfolio: Portfolio,
     price: float | None = None,
     amount: float | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> None:
     profit_loss = None
     if trade_type == "sell" and portfolio.trades:
         profit_loss = portfolio.trades[0].get("profitLoss")
+    if price is not None and amount is not None:
+        mirror_live_trade(
+            state,
+            trade_type=trade_type,
+            symbol=symbol,
+            eur_amount=eur_amount,
+            reason=reason,
+            flags=flags,
+            price=float(price),
+            amount=float(amount),
+            meta=meta,
+        )
     record_executed_trade(
         state,
         trade_type=trade_type,
@@ -676,6 +695,7 @@ def execute_trading_cycle() -> dict[str, Any]:
                     portfolio=portfolio,
                     price=float(analysis["currentPrice"]),
                     amount=float(d.get("amount") or 0),
+                    meta=buy_meta,
                 )
                 executed_buys.append(
                     {

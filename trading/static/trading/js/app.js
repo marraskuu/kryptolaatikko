@@ -488,10 +488,10 @@ function renderShadowPolicy() {
   const shadow = state.dailyPolicyShadow;
   const empty = () => {
     setShadowMetricValue(els.shadowTodayPnl, "—");
-    if (els.shadowDayStart) els.shadowDayStart.textContent = "Ei dataa";
-    if (els.shadowYearLabel) els.shadowYearLabel.textContent = "Varjopolitiikka · —";
+    if (els.shadowDayStart) els.shadowDayStart.textContent = "Live tänään —";
+    if (els.shadowYearLabel) els.shadowYearLabel.textContent = "Varjosalkku · vuosi";
     setShadowMetricValue(els.shadowYearPnl, "—");
-    if (els.shadowYearStart) els.shadowYearStart.textContent = "Vuoden alku —";
+    if (els.shadowYearStart) els.shadowYearStart.textContent = "Live vuosi —";
     setShadowMetricValue(els.shadowPolicyFlags, "—", null);
     if (els.shadowPolicyFlags) els.shadowPolicyFlags.className = "shadow-metric-value shadow-metric-sm";
     if (els.shadowThresholds) els.shadowThresholds.textContent = "Testidata kerääntyy";
@@ -511,59 +511,72 @@ function renderShadowPolicy() {
   }
 
   const thresholds = shadow.thresholds || {};
+  const comparison = shadow.portfolioComparison || {};
   if (els.shadowThresholds) {
     els.shadowThresholds.textContent = `Stop ${thresholds.dailyStopPct ?? -1} % · lock +${thresholds.profitLockSoftPct ?? 0.5} / +${thresholds.profitLockFirmPct ?? 1} %`;
   }
 
   if (els.shadowDayStart) {
-    const start = shadow.dayStartValue;
-    els.shadowDayStart.textContent =
-      start != null ? `Päivän alku ${formatEur(start)}` : "Päivän alku —";
+    const liveTodayEur = comparison.liveTodayPnlEur ?? shadow.liveTodayPnlEur ?? shadow.todayPnlEur;
+    if (liveTodayEur != null) {
+      const sign = liveTodayEur >= 0 ? "+" : "";
+      els.shadowDayStart.textContent = `Live tänään ${sign}${Number(liveTodayEur).toFixed(2)} €`;
+    } else {
+      els.shadowDayStart.textContent = "Live tänään —";
+    }
   }
 
-  const pnlPct = shadow.todayPnlPct;
-  const pnlEur = shadow.todayPnlEur;
-  if (pnlPct != null && pnlEur != null) {
-    const sign = pnlEur >= 0 ? "+" : "";
-    const tone = pnlEur > 0.005 ? "positive" : pnlEur < -0.005 ? "negative" : null;
+  const shadowTodayEur = comparison.shadowTodayPnlEur;
+  const shadowTodayPct = comparison.shadowTodayPnlPct;
+  if (shadowTodayEur != null && shadowTodayPct != null) {
+    const sign = shadowTodayEur >= 0 ? "+" : "";
+    const tone = shadowTodayEur > 0.005 ? "positive" : shadowTodayEur < -0.005 ? "negative" : null;
     setShadowMetricValue(
       els.shadowTodayPnl,
-      `${sign}${formatEur(pnlEur).replace("€", "").trim()} € (${formatPct(pnlPct)})`,
+      `${sign}${shadowTodayEur.toFixed(2)} € (${formatPct(shadowTodayPct)})`,
       tone
     );
+  } else if (shadowTodayEur != null) {
+    const sign = shadowTodayEur >= 0 ? "+" : "";
+    const tone = shadowTodayEur > 0.005 ? "positive" : shadowTodayEur < -0.005 ? "negative" : null;
+    setShadowMetricValue(els.shadowTodayPnl, `${sign}${shadowTodayEur.toFixed(2)} €`, tone);
   } else {
     setShadowMetricValue(els.shadowTodayPnl, "Tänään —");
   }
 
-  const yearPnl = shadow.yearPnl || {};
-  const yearNum = yearPnl.year ?? state.stats?.taxCurrentYearLabel ?? new Date().getFullYear();
+  const shadowYear = shadow.shadowYearPnl || {};
+  const liveYear = shadow.yearPnl || {};
+  const yearNum = shadowYear.year ?? liveYear.year ?? state.stats?.taxCurrentYearLabel ?? new Date().getFullYear();
   if (els.shadowYearLabel) {
-    els.shadowYearLabel.textContent = `Varjopolitiikka · ${yearNum}`;
+    els.shadowYearLabel.textContent = `Varjosalkku · ${yearNum}`;
   }
-  const yearEur = yearPnl.pnlEur;
-  const yearPct = yearPnl.pnlPct;
+  const yearEur = shadowYear.pnlEur;
+  const yearPct = shadowYear.pnlPct;
   if (yearEur != null && yearPct != null) {
     const sign = yearEur >= 0 ? "+" : "";
     const tone = yearEur > 0.005 ? "positive" : yearEur < -0.005 ? "negative" : null;
     setShadowMetricValue(
       els.shadowYearPnl,
-      `${sign}${formatEur(yearEur).replace("€", "").trim()} € (${formatPct(yearPct)})`,
+      `${sign}${yearEur.toFixed(2)} € (${formatPct(yearPct)})`,
       tone
     );
   } else if (yearEur != null) {
     const sign = yearEur >= 0 ? "+" : "";
     const tone = yearEur > 0.005 ? "positive" : yearEur < -0.005 ? "negative" : null;
-    setShadowMetricValue(els.shadowYearPnl, `${sign}${formatEur(yearEur).replace("€", "").trim()} €`, tone);
+    setShadowMetricValue(els.shadowYearPnl, `${sign}${yearEur.toFixed(2)} €`, tone);
   } else {
     setShadowMetricValue(els.shadowYearPnl, `${yearNum} —`);
   }
   if (els.shadowYearStart) {
-    const yStart = yearPnl.yearStartValue;
-    const daysInYear = yearPnl.daysInYear ?? 0;
-    if (yStart != null) {
-      els.shadowYearStart.textContent = `Vuoden alku ${formatEur(yStart)} · ${daysInYear} pv`;
+    const liveYearEur = liveYear.pnlEur;
+    const daysInYear = shadowYear.daysInYear ?? liveYear.daysInYear ?? 0;
+    if (liveYearEur != null) {
+      const sign = liveYearEur >= 0 ? "+" : "";
+      els.shadowYearStart.textContent = `Live vuosi ${sign}${liveYearEur.toFixed(2)} € · ${daysInYear} pv`;
+    } else if (daysInYear) {
+      els.shadowYearStart.textContent = `Live vuosi — · ${daysInYear} pv`;
     } else {
-      els.shadowYearStart.textContent = daysInYear ? `${daysInYear} pv seurattu` : "Ei vuosidataa";
+      els.shadowYearStart.textContent = "Live vuosi —";
     }
   }
 
@@ -587,31 +600,35 @@ function renderShadowPolicy() {
 
   const summary = shadow.summary || {};
   const hints = shadow.hints || [];
-  const net = summary.netCounterfactualEur;
   const trades = summary.tradesLogged ?? 0;
   const days = summary.daysTracked ?? 0;
+  const mirrored = comparison.tradesMirrored ?? 0;
+  const skipped = comparison.tradesSkipped ?? 0;
+  const advantage = comparison.advantageEur;
+  const reliable = comparison.reliable;
 
-  if (trades < 3) {
+  if (!reliable && mirrored + skipped < 3) {
     setShadowMetricValue(els.shadowCounterfactual, "Kerätään…");
     if (els.shadowCounterfactualDetail) {
-      els.shadowCounterfactualDetail.textContent = `${trades} kauppaa tallennettu`;
+      els.shadowCounterfactualDetail.textContent = `${mirrored + skipped} peilattua/ohitettua kauppaa`;
     }
-  } else if (net != null) {
-    const sign = net >= 0 ? "+" : "";
-    const tone = net > 0.05 ? "positive" : net < -0.05 ? "negative" : null;
-    setShadowMetricValue(els.shadowCounterfactual, `${sign}${net.toFixed(2)} €`, tone);
+  } else if (advantage != null) {
+    const sign = advantage >= 0 ? "+" : "";
+    const tone = advantage > 0.05 ? "positive" : advantage < -0.05 ? "negative" : null;
+    setShadowMetricValue(els.shadowCounterfactual, `${sign}${Number(advantage).toFixed(2)} €`, tone);
     if (els.shadowCounterfactualDetail) {
-      const ptSig = summary.profitTakeShadowSignals ?? 0;
-      if (ptSig > 0 && Math.abs(net - (summary.profitTakeShadowEurEst ?? 0)) < 0.02) {
-        els.shadowCounterfactualDetail.textContent = `${ptSig} voitto-ottosignaalia (arvio, ei toteutunut voitto)`;
+      const liveVal = comparison.liveTotalValue;
+      const shadowVal = comparison.shadowTotalValue;
+      if (liveVal != null && shadowVal != null) {
+        els.shadowCounterfactualDetail.textContent = `Varjo ${Number(shadowVal).toFixed(2)} € · live ${Number(liveVal).toFixed(2)} €`;
       } else {
-        els.shadowCounterfactualDetail.textContent = `Counterfactual-yhteenveto (${trades} kauppaa)`;
+        els.shadowCounterfactualDetail.textContent = `Peilattu ${mirrored} · ohitettu ${skipped}`;
       }
       els.shadowCounterfactualDetail.title = hints[0] || els.shadowCounterfactualDetail.textContent;
     }
   } else {
     setShadowMetricValue(els.shadowCounterfactual, "—");
-    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Ei vertailua";
+    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Rinnakkaisvarjosalkku";
   }
 
   const buysBlock = summary.buysWouldBlock ?? 0;
@@ -651,15 +668,16 @@ function renderShadowPolicy() {
     trades >= 8 ? "accent" : null
   );
   if (els.shadowProfitTake) {
-    if (ptSignals > 0) {
+    if (mirrored || skipped) {
+      els.shadowProfitTake.textContent = `Peilattu ${mirrored} · ohitettu ${skipped}`;
+    } else if (ptSignals > 0) {
       els.shadowProfitTake.textContent = `Aikaisempi voitto-otto: ${ptSignals}× (~${Number(ptEst || 0).toFixed(2)} €)`;
     } else {
-      els.shadowProfitTake.textContent = "Voitto-otto-signaalit: 0";
+      els.shadowProfitTake.textContent = "Peilatut / ohitetut kaupat —";
     }
   }
 
-  if (hints.length && els.shadowCounterfactualDetail && trades >= 3) {
-    els.shadowCounterfactualDetail.textContent = hints[0];
+  if (hints.length && els.shadowCounterfactualDetail && reliable) {
     els.shadowCounterfactualDetail.title = hints[0];
   }
 }

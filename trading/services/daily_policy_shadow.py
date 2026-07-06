@@ -40,7 +40,7 @@ def day_key_utc(dt: datetime | None = None) -> str:
 
 def default_shadow_state() -> dict[str, Any]:
     return {
-        "version": 2,
+        "version": 3,
         "dayKey": None,
         "dayStartValue": None,
         "dayStartAt": None,
@@ -82,6 +82,12 @@ def _get_shadow(state: dict[str, Any]) -> dict[str, Any]:
         shadow["_prevShadowSell"] = {}
         shadow["version"] = 2
         _recompute_net(summary)
+        state["dailyPolicyShadow"] = shadow
+        version = 2
+    if version < 3:
+        shadow["version"] = 3
+        shadow.pop("shadowPortfolio", None)
+        shadow.pop("portfolioComparison", None)
         state["dailyPolicyShadow"] = shadow
     return shadow
 
@@ -213,13 +219,118 @@ def _recompute_net(summary: dict[str, Any]) -> None:
     )
 
 
-def _roll_day_if_needed(shadow: dict[str, Any], total_value: float) -> None:
+def fork_shadow_portfolio(state: dict[str, Any]) -> None:
+    """Kopioi live-salkku varjopolitiikan lähtökohdaksi (päivän alussa tai ensimmäisellä kierroksella)."""
+    shadow = _get_shadow(state)
+    live = state.get("portfolio") or {}
+    shadow["shadowPortfolio"] = deepcopy(live)
+    tickers = state.get("tickers") or {}
+    sp = Portfolio(shadow["shadowPortfolio"])
+    start_value = sp.get_total_value(tickers) if tickers else float(live.get("cash") or 0)
+    shadow["shadowDayStartValue"] = round(start_value, 2)
+    shadow["portfolioMetrics"] = {"tradesMirrored": 0, "tradesSkipped": 0}
+
+
+def should_mirror_trade(
+    trade_type: str,
+    reason: str,
+    flags: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Päätä peilataanko live-kauppa varjosalkkuun (päivästop / profit lock)."""
+    if trade_type == "buy":
+        blocked, block_reason = would_block_buy(flags)
+        return (not blocked, block_reason)
+    if trade_type == "sell":
+        if not is_discretionary_sell(reason):
+            return True, None
+        blocked, block_reason = would_block_discretionary_sell(flags)
+        return (not blocked, block_reason)
+    return True, None
+
+
+def mirror_live_trade(
+    state: dict[str, Any],
+    *,
+    trade_type: str,
+    symbol: str,
+    eur_amount: float,
+    reason: str,
+    flags: dict[str, Any],
+    price: float,
+    amount: float,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    """Peilaa live-kaupan varjosalkkuun jos säännöt sallivat."""
+    shadow = _get_shadow(state)
+    if not shadow.get("shadowPortfolio"):
+        fork_shadow_portfolio(state)
+
+    mirror, _skip = should_mirror_trade(trade_type, reason, flags)
+    metrics = shadow.setdefault("portfolioMetrics", {"tradesMirrored": 0, "tradesSkipped": 0})
+    today = shadow.setdefault("today", {})
+
+    if not mirror:
+        metrics["tradesSkipped"] = int(metrics.get("tradesSkipped") or 0) + 1
+        today["tradesSkippedToday"] = int(today.get("tradesSkippedToday") or 0) + 1
+        return False
+
+    sp = Portfolio(shadow["shadowPortfolio"])
+    if trade_type == "buy":
+        ok = sp.buy(symbol, eur_amount, price, reason, meta=meta)
+    else:
+        ok = sp.sell(symbol, amount, price, reason, meta=meta)
+
+    if ok:
+        shadow["shadowPortfolio"] = sp.to_dict()
+        metrics["tradesMirrored"] = int(metrics.get("tradesMirrored") or 0) + 1
+        today["tradesMirroredToday"] = int(today.get("tradesMirroredToday") or 0) + 1
+    return ok
+
+
+def sync_shadow_valuation(state: dict[str, Any], live_total_value: float) -> None:
+    """Päivitä varjo vs. live -vertailu markkinahintojen mukaan."""
+    shadow = _get_shadow(state)
+    if not shadow.get("shadowPortfolio"):
+        fork_shadow_portfolio(state)
+
+    tickers = state.get("tickers") or {}
+    sp = Portfolio(shadow.get("shadowPortfolio") or {})
+    shadow_value = (
+        sp.get_total_value(tickers)
+        if tickers
+        else float(shadow.get("shadowDayStartValue") or live_total_value)
+    )
+
+    day_start_live = float(shadow.get("dayStartValue") or live_total_value)
+    day_start_shadow = float(shadow.get("shadowDayStartValue") or shadow_value)
+    shadow_today_pnl = round(shadow_value - day_start_shadow, 2)
+    shadow_today_pct = (
+        round((shadow_today_pnl / day_start_shadow) * 100, 3) if day_start_shadow > 0 else 0.0
+    )
+
+    mirrored = int(shadow.get("portfolioMetrics", {}).get("tradesMirrored") or 0)
+    skipped = int(shadow.get("portfolioMetrics", {}).get("tradesSkipped") or 0)
+    shadow["portfolioComparison"] = {
+        "liveTotalValue": round(live_total_value, 2),
+        "shadowTotalValue": round(shadow_value, 2),
+        "advantageEur": round(shadow_value - live_total_value, 2),
+        "shadowTodayPnlEur": shadow_today_pnl,
+        "shadowTodayPnlPct": shadow_today_pct,
+        "liveTodayPnlEur": round(live_total_value - day_start_live, 2),
+        "tradesMirrored": mirrored,
+        "tradesSkipped": skipped,
+        "reliable": mirrored + skipped >= 3,
+    }
+
+
+def _roll_day_if_needed(shadow: dict[str, Any], state: dict[str, Any], total_value: float) -> None:
     key = day_key_utc()
     if shadow.get("dayKey") == key:
         return
 
     prev_today = shadow.get("today") or {}
     if shadow.get("dayKey") and prev_today:
+        pc = shadow.get("portfolioComparison") or {}
         days = shadow.setdefault("days", [])
         days.insert(
             0,
@@ -227,6 +338,9 @@ def _roll_day_if_needed(shadow: dict[str, Any], total_value: float) -> None:
                 "dayKey": shadow["dayKey"],
                 "startValue": shadow.get("dayStartValue"),
                 "endValue": round(total_value, 2),
+                "shadowEndValue": pc.get("shadowTotalValue"),
+                "shadowDayPnlEur": pc.get("shadowTodayPnlEur"),
+                "advantageEur": pc.get("advantageEur"),
                 **prev_today,
             },
         )
@@ -247,7 +361,10 @@ def _roll_day_if_needed(shadow: dict[str, Any], total_value: float) -> None:
         "cyclesAggressive": 0,
         "buysWouldBlockToday": 0,
         "sellsWouldBlockToday": 0,
+        "tradesMirroredToday": 0,
+        "tradesSkippedToday": 0,
     }
+    fork_shadow_portfolio(state)
 
 
 def record_cycle(
@@ -259,7 +376,7 @@ def record_cycle(
 ) -> dict[str, Any]:
     """Päivitä päivämittarit ja avoimien estettyjen ostojen counterfactual."""
     shadow = _get_shadow(state)
-    _roll_day_if_needed(shadow, total_value)
+    _roll_day_if_needed(shadow, state, total_value)
 
     day_start = float(shadow.get("dayStartValue") or total_value)
     pnl_eur, pnl_pct = _day_pnl(total_value, day_start)
@@ -283,6 +400,7 @@ def record_cycle(
         today["cyclesAggressive"] = int(today.get("cyclesAggressive") or 0) + 1
 
     _update_blocked_buy_mtm(shadow, state, total_value)
+    sync_shadow_valuation(state, total_value)
     return flags
 
 
@@ -494,6 +612,51 @@ def _compute_year_pnl(shadow: dict[str, Any], year: int | None = None) -> dict[s
     }
 
 
+def _compute_shadow_year_pnl(shadow: dict[str, Any], year: int | None = None) -> dict[str, Any]:
+    """Kumulatiivinen varjosalkun päivä-P/L valitulle vuodelle."""
+    year = year or datetime.now(timezone.utc).year
+    prefix = f"{year}-"
+
+    pnl_eur = 0.0
+    year_start: float | None = None
+    days_count = 0
+    earliest_key: str | None = None
+
+    for day in shadow.get("days") or []:
+        key = day.get("dayKey") or ""
+        if not key.startswith(prefix):
+            continue
+        shadow_day = day.get("shadowDayPnlEur")
+        if shadow_day is not None:
+            pnl_eur += float(shadow_day)
+        days_count += 1
+        if earliest_key is None or key < earliest_key:
+            earliest_key = key
+            start = day.get("shadowEndValue") or day.get("startValue")
+            if start is not None and year_start is None:
+                year_start = float(day.get("startValue") or start)
+
+    pc = shadow.get("portfolioComparison") or {}
+    current_key = shadow.get("dayKey") or ""
+    if current_key.startswith(prefix):
+        if pc.get("shadowTodayPnlEur") is not None:
+            pnl_eur += float(pc["shadowTodayPnlEur"])
+        days_count += 1
+        if year_start is None:
+            year_start = float(shadow.get("shadowDayStartValue") or shadow.get("dayStartValue") or 0) or None
+
+    pnl_eur = round(pnl_eur, 2)
+    pnl_pct = round((pnl_eur / year_start) * 100, 3) if year_start and year_start > 0 else None
+
+    return {
+        "year": year,
+        "pnlEur": pnl_eur,
+        "pnlPct": pnl_pct,
+        "yearStartValue": round(year_start, 2) if year_start else None,
+        "daysInYear": days_count,
+    }
+
+
 def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
     """API/UI-yhteenveto."""
     shadow = state.get("dailyPolicyShadow") or default_shadow_state()
@@ -525,14 +688,30 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
         hints.append("Ostojen rajoitus olisi säästänyt tappioita")
 
     year_pnl = _compute_year_pnl(shadow)
+    shadow_year_pnl = _compute_shadow_year_pnl(shadow)
+    comparison = dict(shadow.get("portfolioComparison") or {})
+    portfolio_metrics = shadow.get("portfolioMetrics") or {}
+
+    if comparison.get("reliable"):
+        adv = float(comparison.get("advantageEur") or 0)
+        hints.insert(
+            0,
+            f"Varjosalkku vs. live: {adv:+.2f} € (peilattu {comparison.get('tradesMirrored', 0)} kauppaa, "
+            f"ohitettu {comparison.get('tradesSkipped', 0)})",
+        )
 
     return {
         "enabled": True,
         "dayKey": shadow.get("dayKey"),
         "dayStartValue": shadow.get("dayStartValue"),
+        "liveTodayPnlEur": today.get("realPnlEur"),
+        "liveTodayPnlPct": today.get("realPnlPct"),
         "todayPnlEur": today.get("realPnlEur"),
         "todayPnlPct": today.get("realPnlPct"),
         "yearPnl": year_pnl,
+        "shadowYearPnl": shadow_year_pnl,
+        "portfolioComparison": comparison,
+        "portfolioMetrics": portfolio_metrics,
         "policy": policy,
         "summary": summary,
         "recentEvents": (shadow.get("events") or [])[:8],
@@ -573,6 +752,8 @@ def build_gemini_context(state: dict[str, Any]) -> dict[str, Any]:
         "todayPnlPct": api.get("todayPnlPct"),
         "todayPnlEur": api.get("todayPnlEur"),
         "policy": api.get("policy"),
+        "portfolioComparison": api.get("portfolioComparison"),
+        "shadowYearPnl": api.get("shadowYearPnl"),
         "summary": {
             "tradesLogged": summary.get("tradesLogged"),
             "netCounterfactualEur": summary.get("netCounterfactualEur"),
@@ -595,8 +776,15 @@ def build_gemini_context(state: dict[str, Any]) -> dict[str, Any]:
 def learning_report_lines(state: dict[str, Any]) -> list[str]:
     api = build_api_summary(state)
     summary = api.get("summary") or {}
+    comparison = api.get("portfolioComparison") or {}
     lines: list[str] = []
-    if int(summary.get("tradesLogged") or 0) < 3:
+    if comparison.get("shadowTotalValue") is not None:
+        adv = float(comparison.get("advantageEur") or 0)
+        lines.append(
+            f"Varjosalkku {comparison.get('shadowTotalValue')} € vs. live "
+            f"{comparison.get('liveTotalValue')} € (ero {adv:+.2f} €)"
+        )
+    if int(summary.get("tradesLogged") or 0) < 3 and not comparison.get("reliable"):
         lines.append("Varjopolitiikka kerää dataa — liian vähän kauppoja vertailuun")
         return lines
     net = float(summary.get("netCounterfactualEur") or 0)
