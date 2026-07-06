@@ -152,9 +152,12 @@ def api_state(request):
     state = load_state()
     try:
         from .services.bot_worker import bot_is_stale, bot_stale_seconds, maybe_wake_bot
-        from .services.learning_report import kick_narrative_refresh_if_due
+        from .services.learning_report import ensure_narrative_error_state, kick_narrative_refresh_if_due
+        from .services.state_store import save_state
 
         maybe_wake_bot(state)
+        if ensure_narrative_error_state(state):
+            save_state(state)
         kick_narrative_refresh_if_due()
         state = load_state()
         bot_stale = bot_is_stale(state)

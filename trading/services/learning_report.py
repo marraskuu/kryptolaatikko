@@ -735,14 +735,20 @@ def _last_narrative_error_ms(state: dict[str, Any]) -> int:
     return 0
 
 
-def _repair_missing_narrative_error_at(state: dict[str, Any]) -> bool:
-    """Täytä puuttuva virheen aikaleima — estää legacy-tilan jatkuvan uudelleenyrityksen."""
+def ensure_narrative_error_state(state: dict[str, Any]) -> bool:
+    """Synkronoi virheilmoitus ja aikaleima — estää jumittuneen countdownin ja uudelleenyrityksen."""
+    report = state.get("learningReport") or {}
+    err = state.get("learningNarrativeError") or report.get("narrativeError")
+    if not err:
+        return False
+    changed = False
     if not state.get("learningNarrativeError"):
-        return False
-    if _last_narrative_error_ms(state):
-        return False
-    state["learningNarrativeErrorAt"] = _now_iso()
-    return True
+        state["learningNarrativeError"] = str(err)
+        changed = True
+    if not _last_narrative_error_ms(state):
+        state["learningNarrativeErrorAt"] = _now_iso()
+        changed = True
+    return changed
 
 
 def _next_narrative_error_retry_sec(state: dict[str, Any], now_ms: int | None = None) -> int:
@@ -792,7 +798,7 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     last_at = state.get("lastLearningNarrativeAt")
     if last_at:
         report["lastNarrativeAt"] = last_at
-    err = state.get("learningNarrativeError")
+    err = state.get("learningNarrativeError") or report.get("narrativeError")
     if err:
         report["narrativeError"] = err
         report["nextNarrativeInSec"] = _next_narrative_error_retry_sec(state, now_ms)
@@ -831,15 +837,19 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     if not cached:
         return False
     report = _merge_cached_learning_report(state, cached)
-    if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
-        return _narrative_pending_stale(state, report)
-    if state.get("learningNarrativeError") or report.get("narrativeError"):
-        if _repair_missing_narrative_error_at(state):
+    narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
+    if narrative_error:
+        if ensure_narrative_error_state(state):
             from .state_store import save_state
 
             save_state(state)
             return False
-        return _narrative_error_retry_due(state, report)
+        if _narrative_error_retry_due(state, report):
+            return True
+    if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
+        return _narrative_pending_stale(state, report)
+    if narrative_error:
+        return False
     last_ms = _last_narrative_ms(state)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     if last_ms and (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000:
@@ -870,8 +880,12 @@ def kick_narrative_refresh_if_due(min_interval_sec: int = 90) -> None:
     if not needs_narrative_refresh(state):
         return
 
+    cached = state.get("learningReport") or {}
+    report = _merge_cached_learning_report(state, cached)
+    retry_due = _narrative_error_retry_due(state, report)
+
     pending_since = _parse_time(state.get("learningNarrativePendingSince"))
-    if pending_since:
+    if pending_since and not retry_due:
         age = (datetime.now(timezone.utc) - pending_since).total_seconds()
         if age < NARRATIVE_STALE_SEC:
             return
@@ -1095,7 +1109,7 @@ def maybe_refresh_narrative(
         report["lastNarrativeAt"] = state.get("lastLearningNarrativeAt")
         return report
 
-    _repair_missing_narrative_error_at(state)
+    ensure_narrative_error_state(state)
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     last_ms = 0

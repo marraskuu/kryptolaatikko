@@ -1239,8 +1239,10 @@ function formatDurationSec(sec) {
   if (sec == null || sec < 0) return "—";
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
   if (h > 0) return `${h} t ${m} min`;
-  return `${m} min`;
+  if (m > 0) return s > 0 ? `${m} min ${s} s` : `${m} min`;
+  return `${s} s`;
 }
 
 function formatHoldingDuration(symbol) {
@@ -1663,7 +1665,7 @@ function renderLearningReport() {
   const narrative = report.narrative;
   const retryMinBucket =
     report.narrativeError && report.nextNarrativeInSec > 0
-      ? Math.floor(report.nextNarrativeInSec / 60)
+      ? Math.floor(report.nextNarrativeInSec / 30)
       : "";
   const bodyKey = [
     report.timestamp,
