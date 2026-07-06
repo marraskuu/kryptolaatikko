@@ -6,7 +6,7 @@ import hashlib
 import ipaddress
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
@@ -398,6 +398,50 @@ def record_visit_duration(visit_id: int, duration_sec: int) -> bool:
     return updated > 0
 
 
+COUNTRY_DETAIL_DAYS = 10
+
+
+def _country_day_breakdown(
+    country_code: str,
+    visits_by_country_day: dict[str, dict[str, list[dict[str, Any]]]],
+    *,
+    days: int = COUNTRY_DETAIL_DAYS,
+) -> list[dict[str, Any]]:
+    """Viimeiset N kalenteripäivää yhdelle maalle (uusin ensin)."""
+    today = timezone.now().date()
+    day_map = visits_by_country_day.get(country_code) or {}
+    max_visits = 1
+    day_keys: list[str] = []
+    for offset in range(days):
+        day_keys.append((today - timedelta(days=offset)).isoformat())
+    for day_key in day_keys:
+        max_visits = max(max_visits, len(day_map.get(day_key, [])))
+
+    rows: list[dict[str, Any]] = []
+    for day_key in day_keys:
+        visit_log = day_map.get(day_key, [])
+        visits = len(visit_log)
+        unique = len(
+            {
+                (v.get("client_ip") or v.get("ip_hash") or "")
+                for v in visit_log
+                if (v.get("client_ip") or v.get("ip_hash"))
+            }
+        )
+        day_obj = date.fromisoformat(day_key)
+        rows.append(
+            {
+                "day": day_key,
+                "day_label": day_obj.strftime("%d.%m.%Y"),
+                "visits": visits,
+                "unique_visitors": unique,
+                "bar_pct": int(round(100 * visits / max_visits)) if visits else 0,
+                "visit_log": visit_log,
+            }
+        )
+    return rows
+
+
 def get_visitor_stats(*, days: int = 30) -> dict[str, Any]:
     """Yhteenveto admin/API:lle."""
     days = max(1, min(int(days), 365))
@@ -462,9 +506,16 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
         )
     )
     visits_by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    visits_by_country_day: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for row in visit_rows:
         day_key = row["visited_at"].date().isoformat()
-        visits_by_day[day_key].append(_enrich_visit_row(row))
+        enriched = _enrich_visit_row(row)
+        visits_by_day[day_key].append(enriched)
+        country_code = row.get("country_code") or ""
+        if country_code:
+            visits_by_country_day[country_code][day_key].append(enriched)
 
     by_day_raw = base["byDay"]
     max_day_visits = max((int(row["visits"]) for row in by_day_raw), default=1) or 1
@@ -499,6 +550,7 @@ def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
             "name": country_name(row["country_code"]),
             "visits": int(row["visits"]),
             "unique_ips": int(row["unique_ips"]),
+            "byDay": _country_day_breakdown(row["country_code"], visits_by_country_day),
         }
         for row in by_country_raw
     ]

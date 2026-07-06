@@ -148,6 +148,7 @@
     <div class="stats-two-col">
       <section class="panel stats-panel">
         <h2 class="panel-title">Maittain</h2>
+        <p class="stats-hint">Paina maata nähdäksesi käynnit viimeisen 10 päivän ajalta.</p>
         {% if byCountry %}
         <div class="stats-day-table-wrap">
           <table class="stats-table">
@@ -161,11 +162,84 @@
             </thead>
             <tbody>
               {% for row in byCountry %}
-              <tr>
-                <td>{{ row.name }}</td>
+              <tr
+                class="stats-day-row stats-country-row"
+                data-country="{{ row.code }}"
+                tabindex="0"
+                role="button"
+                aria-expanded="false"
+                aria-controls="stats-country-detail-{{ row.code }}"
+              >
+                <td>
+                  <span class="stats-day-chevron" aria-hidden="true">▸</span>
+                  {{ row.name }}
+                </td>
                 <td><code>{{ row.code }}</code></td>
-                <td>{{ row.visits }}</td>
-                <td>{{ row.unique_ips }}</td>
+                <td class="stats-num">{{ row.visits }}</td>
+                <td class="stats-num">{{ row.unique_ips }}</td>
+              </tr>
+              <tr
+                class="stats-day-detail stats-country-detail is-collapsed"
+                id="stats-country-detail-{{ row.code }}"
+                data-country-detail="{{ row.code }}"
+                hidden
+              >
+                <td colspan="4">
+                  <div class="stats-day-detail-inner stats-country-detail-inner">
+                    <table class="stats-table stats-day-summary stats-country-day-summary">
+                      <thead>
+                        <tr>
+                          <th>Päivä</th>
+                          <th>Käynnit</th>
+                          <th>Uniikit</th>
+                          <th class="stats-bar-col"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for day in row.byDay %}
+                        <tr
+                          class="stats-day-row stats-country-day-row"
+                          data-country-day="{{ row.code }}|{{ day.day }}"
+                          tabindex="0"
+                          role="button"
+                          aria-expanded="false"
+                          aria-controls="stats-country-day-detail-{{ row.code }}-{{ day.day }}"
+                        >
+                          <td>
+                            <span class="stats-day-chevron" aria-hidden="true">▸</span>
+                            {{ day.day_label }}
+                          </td>
+                          <td class="stats-num">{{ day.visits }}</td>
+                          <td class="stats-num">{{ day.unique_visitors }}</td>
+                          <td class="stats-bar-col">
+                            {% if day.visits %}
+                            <div class="stats-bar-track" title="{{ day.visits }} käyntiä">
+                              <div class="stats-bar-fill" style="width: {% localize off %}{{ day.bar_pct }}{% endlocalize %}%"></div>
+                            </div>
+                            {% endif %}
+                          </td>
+                        </tr>
+                        <tr
+                          class="stats-day-detail stats-country-day-detail is-collapsed"
+                          id="stats-country-day-detail-{{ row.code }}-{{ day.day }}"
+                          data-country-day-detail="{{ row.code }}|{{ day.day }}"
+                          hidden
+                        >
+                          <td colspan="4">
+                            <div class="stats-day-detail-inner">
+                              {% if day.visit_log %}
+                              {% include "trading/_visit_log_table.html" with visits=day.visit_log %}
+                              {% else %}
+                              <p class="stats-empty">Ei käyntejä tänä päivänä.</p>
+                              {% endif %}
+                            </div>
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -231,9 +305,16 @@
   </div>
   <script>
     (function () {
-      function toggleDayRow(row) {
-        var day = row.getAttribute("data-day");
-        var detail = document.querySelector('[data-day-detail="' + day + '"]');
+      function toggleDetailRow(row, detailAttr) {
+        var key = row.getAttribute(detailAttr);
+        if (!key) return;
+        var selector =
+          detailAttr === "data-day"
+            ? '[data-day-detail="' + key + '"]'
+            : detailAttr === "data-country"
+              ? '[data-country-detail="' + key + '"]'
+              : '[data-country-day-detail="' + key + '"]';
+        var detail = document.querySelector(selector);
         if (!detail) return;
         var open = detail.hasAttribute("hidden");
         if (open) {
@@ -247,17 +328,23 @@
         }
       }
 
-      document.querySelectorAll(".stats-day-row").forEach(function (row) {
-        row.addEventListener("click", function () {
-          toggleDayRow(row);
+      function bindExpandRows(selector, detailAttr) {
+        document.querySelectorAll(selector).forEach(function (row) {
+          row.addEventListener("click", function () {
+            toggleDetailRow(row, detailAttr);
+          });
+          row.addEventListener("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              toggleDetailRow(row, detailAttr);
+            }
+          });
         });
-        row.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            toggleDayRow(row);
-          }
-        });
-      });
+      }
+
+      bindExpandRows(".stats-day-row[data-day]", "data-day");
+      bindExpandRows(".stats-country-row[data-country]", "data-country");
+      bindExpandRows(".stats-country-day-row[data-country-day]", "data-country-day");
     })();
   </script>
 </body>

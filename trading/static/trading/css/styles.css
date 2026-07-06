@@ -2101,6 +2101,18 @@ body.modal-open {
   margin: -4px 0 12px;
 }
 
+.stats-country-detail-inner {
+  padding-left: 20px;
+}
+
+.stats-country-day-summary {
+  margin-top: 4px;
+}
+
+.stats-country-day-summary .stats-day-detail-inner {
+  padding-left: 20px;
+}
+
 .stats-day-row {
   cursor: pointer;
   user-select: none;
