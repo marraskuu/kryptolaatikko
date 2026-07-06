@@ -44,6 +44,7 @@ def _run_trading_cycle_async() -> None:
 def _refresh_learning_report_state() -> None:
     from .learning_report import (
         clear_stale_narrative_error,
+        narrative_refresh_in_progress,
         needs_learning_report_refresh,
         needs_narrative_refresh,
         refresh_learning_report_if_due,
@@ -55,10 +56,14 @@ def _refresh_learning_report_state() -> None:
     changed = clear_stale_narrative_error(state)
     if needs_learning_report_refresh(state):
         refresh_learning_report_if_due(state)
-        save_state(state)
+        if not narrative_refresh_in_progress():
+            save_state(state)
+        elif changed:
+            save_state(state)
     elif needs_narrative_refresh(state) or changed:
         refresh_narrative_if_due(state)
-        save_state(state)
+        if not narrative_refresh_in_progress():
+            save_state(state)
 
 
 def _refresh_learning_report_async() -> None:

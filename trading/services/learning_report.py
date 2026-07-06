@@ -735,9 +735,24 @@ def _last_narrative_error_ms(state: dict[str, Any]) -> int:
     return 0
 
 
+def _infer_narrative_error_at(state: dict[str, Any], report: dict[str, Any]) -> str:
+    """Arvioi virheen aika — älä nollaa cooldownia nykyhetkeen jos raportissa on vanhempi aikaleima."""
+    for raw in (
+        state.get("learningNarrativePendingSince"),
+        report.get("timestamp"),
+        state.get("lastLearningReportAt"),
+    ):
+        parsed = _parse_time(raw)
+        if parsed:
+            return parsed.isoformat()
+    return _now_iso()
+
+
 def ensure_narrative_error_state(state: dict[str, Any]) -> bool:
     """Synkronoi virheilmoitus ja aikaleima — estää jumittuneen countdownin ja uudelleenyrityksen."""
     report = state.get("learningReport") or {}
+    if _has_narrative_story(state, report):
+        return _clear_orphan_narrative_errors(state, report)
     err = state.get("learningNarrativeError") or report.get("narrativeError")
     if not err:
         return False
@@ -746,9 +761,46 @@ def ensure_narrative_error_state(state: dict[str, Any]) -> bool:
         state["learningNarrativeError"] = str(err)
         changed = True
     if not _last_narrative_error_ms(state):
-        state["learningNarrativeErrorAt"] = _now_iso()
+        state["learningNarrativeErrorAt"] = _infer_narrative_error_at(state, report)
         changed = True
     return changed
+
+
+def _clear_orphan_narrative_errors(state: dict[str, Any], report: dict[str, Any]) -> bool:
+    """Poista virheilmoitus kun kertomus on jo olemassa."""
+    changed = False
+    from .state_store import mark_state_keys_deleted
+
+    if state.get("learningNarrativeError") or state.get("learningNarrativeErrorAt"):
+        mark_state_keys_deleted(state, "learningNarrativeError", "learningNarrativeErrorAt")
+        changed = True
+    if report.get("narrativeError"):
+        cleaned = dict(report)
+        cleaned.pop("narrativeError", None)
+        state["learningReport"] = cleaned
+        changed = True
+    return changed
+
+
+def narrative_refresh_in_progress() -> bool:
+    return _narrative_refresh_running
+
+
+def _persist_narrative_schedule(state: dict[str, Any]) -> None:
+    """Tallenna vain aikataulutus-/raporttiavaimet — Gemini-säie tallentaa narratiivin itse."""
+    from .state_store import patch_state_keys
+
+    fragment: dict[str, Any] = {}
+    for key in (
+        "learningNarrativePendingSince",
+        "lastLearningReportAt",
+        "learningReport",
+        "learningReportSnapshot",
+    ):
+        if key in state:
+            fragment[key] = state[key]
+    if fragment:
+        patch_state_keys(fragment)
 
 
 def _next_narrative_error_retry_sec(state: dict[str, Any], now_ms: int | None = None) -> int:
@@ -798,6 +850,10 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     last_at = state.get("lastLearningNarrativeAt")
     if last_at:
         report["lastNarrativeAt"] = last_at
+    if _has_narrative_story(state, report):
+        report.pop("narrativeError", None)
+        report["nextNarrativeInSec"] = _next_narrative_sec(_last_narrative_ms(state), now_ms)
+        return report
     err = state.get("learningNarrativeError") or report.get("narrativeError")
     if err:
         report["narrativeError"] = err
@@ -898,11 +954,10 @@ def kick_narrative_refresh_if_due(min_interval_sec: int = 90) -> None:
 
     def _run() -> None:
         try:
-            from .state_store import load_state, save_state
+            from .state_store import load_state
 
             s = load_state()
             refresh_narrative_if_due(s)
-            save_state(s)
         except Exception:
             logger.exception("Gemini-kertomuksen taustakick epäonnistui")
 
@@ -917,6 +972,8 @@ def refresh_narrative_if_due(state: dict[str, Any]) -> dict[str, Any]:
     report = _merge_cached_learning_report(state, cached)
     report = maybe_refresh_narrative(state, report)
     state["learningReport"] = report
+    if _narrative_refresh_running:
+        _persist_narrative_schedule(state)
     return report
 
 
@@ -955,6 +1012,8 @@ def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:
 
     report = maybe_refresh_narrative(state, report)
     state["learningReport"] = report
+    if _narrative_refresh_running:
+        _persist_narrative_schedule(state)
     return report
 
 

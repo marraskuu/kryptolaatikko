@@ -30,7 +30,35 @@ class LearningReportRetryTests(SimpleTestCase):
         }
         self.assertTrue(ensure_narrative_error_state(state))
         self.assertEqual(state["learningNarrativeError"], "Gemini overload")
-        self.assertTrue(state.get("learningNarrativeErrorAt"))
+        at_ms = int(
+            datetime.fromisoformat(state["learningNarrativeErrorAt"].replace("Z", "+00:00")).timestamp()
+        )
+        self.assertLess(at_ms, int(datetime.now(timezone.utc).timestamp()) - 3000)
+
+    def test_ensure_inferred_timestamp_allows_immediate_retry(self):
+        state = {
+            "learningReport": {
+                "narrativeError": "Gemini overload",
+                "sections": [],
+                "timestamp": _iso_ago(NARRATIVE_ERROR_RETRY_SEC + 60),
+            }
+        }
+        ensure_narrative_error_state(state)
+        self.assertTrue(_narrative_error_retry_due(state, state["learningReport"]))
+
+    def test_merge_clears_error_when_story_present(self):
+        state = {
+            "learningNarrative": {"story": "Tarina valmis"},
+            "learningNarrativeError": "old fail",
+            "learningReport": {
+                "narrativeError": "old fail",
+                "sections": [],
+                "timestamp": _iso_ago(120),
+            },
+        }
+        report = _merge_cached_learning_report(state, dict(state["learningReport"]))
+        self.assertNotIn("narrativeError", report)
+        self.assertGreater(report["nextNarrativeInSec"], 0)
 
     def test_retry_due_after_cooldown(self):
         state = {

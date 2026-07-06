@@ -179,3 +179,21 @@ def save_state(state: dict[str, Any]) -> None:
         merged.pop(STATE_DELETED_KEYS, None)
         obj.data = merged
         obj.save(update_fields=["data", "updated_at"])
+
+
+def patch_state_keys(fragment: dict[str, Any]) -> None:
+    """Päivitä vain valitut ylätason avaimet — ei ylikirjoita koko tilaa vanhalla snapshotilla."""
+    if not fragment:
+        return
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        merged = deepcopy(obj.data or {})
+        for key, value in fragment.items():
+            if key == STATE_DELETED_KEYS:
+                continue
+            if key == "portfolio" and isinstance(value, dict):
+                merged[key] = _merge_portfolio(merged.get("portfolio") or {}, value)
+            else:
+                merged[key] = deepcopy(value)
+        obj.data = merged
+        obj.save(update_fields=["data", "updated_at"])
