@@ -763,7 +763,9 @@ def clear_stale_narrative_error(state: dict[str, Any]) -> bool:
     )
     if not err or "_model_candidates" not in str(err):
         return False
-    state.pop("learningNarrativeError", None)
+    from .state_store import mark_state_keys_deleted
+
+    mark_state_keys_deleted(state, "learningNarrativeError")
     cached = state.get("learningReport")
     if isinstance(cached, dict):
         report = dict(cached)
@@ -899,7 +901,9 @@ def _apply_narrative_to_state(
     state["lastLearningNarrativeAt"] = _now_iso()
     state["learningNarrative"] = narrative
     state["learningReportSnapshot"] = report.get("snapshot")
-    state.pop("learningNarrativeError", None)
+    from .state_store import mark_state_keys_deleted
+
+    mark_state_keys_deleted(state, "learningNarrativeError")
     history = list(state.get("learningReportHistory") or [])
     history.insert(
         0,
@@ -960,7 +964,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
     """Gemini-narratiivi taustalla — ei blokkaa kaupankäyntikierrosta."""
     global _narrative_refresh_running
     from .gemini import generate_learning_narrative
-    from .state_store import load_state, save_state
+    from .state_store import load_state, mark_state_keys_deleted, save_state
 
     try:
         new_narrative, status = generate_learning_narrative(
@@ -971,7 +975,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
             logger.warning("Oppimisraportin Gemini epäonnistui: %s", status.get("message"))
             state = load_state()
             state["learningNarrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
-            state.pop("learningNarrativePendingSince", None)
+            mark_state_keys_deleted(state, "learningNarrativePendingSince")
             merged = _merge_cached_learning_report(
                 state,
                 dict(state.get("learningReport") or report),
@@ -991,7 +995,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
         merged["lastNarrativeAt"] = state["lastLearningNarrativeAt"]
         merged["nextNarrativeInSec"] = LEARNING_REPORT_INTERVAL_SEC
         merged.pop("narrativeError", None)
-        state.pop("learningNarrativePendingSince", None)
+        mark_state_keys_deleted(state, "learningNarrativePendingSince")
         state["learningReport"] = merged
         save_state(state)
     except Exception as exc:
@@ -999,7 +1003,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
         try:
             state = load_state()
             state["learningNarrativeError"] = str(exc) or "Oppimisraportin taustapäivitys epäonnistui"
-            state.pop("learningNarrativePendingSince", None)
+            mark_state_keys_deleted(state, "learningNarrativePendingSince")
             merged = dict(state.get("learningReport") or report)
             merged["narrativePending"] = False
             merged["narrativeError"] = state["learningNarrativeError"]

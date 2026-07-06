@@ -34,6 +34,7 @@ from .trade_meta import meta_from_analysis
 from . import exit_learning
 from . import market_learning
 from . import market_microstructure
+from .market_microstructure import carry_micro_fields
 from .portfolio import Portfolio
 from .sell_strategy import update_profit_sell
 from .session_state import (
@@ -94,7 +95,9 @@ def _enrich_holdings(state: dict[str, Any]) -> None:
             continue
         try:
             candles = fetch_candles(symbol, "1h", CANDLE_DEEP_LIMIT)
+            prev = state["analyses"].get(symbol) or {}
             deep = build_deep_analysis(ticker, candles)
+            carry_micro_fields(prev, deep)
             state["analyses"][symbol] = deep
         except Exception:
             logger.warning("Holding enrich failed for %s", symbol, exc_info=True)
@@ -284,6 +287,25 @@ def _check_profit_sells(
     return executed
 
 
+def _try_clear_price_error(state: dict[str, Any]) -> bool:
+    """Yritä nollata Bitfinex-virhe ennen kaupankäyntikierrosta."""
+    if not state.get("error"):
+        return True
+    try:
+        tickers, _meta = fetch_all_markets()
+        if not tickers:
+            return False
+        state["tickers"] = ensure_portfolio_tickers(
+            state.get("portfolio", {}).get("holdings") or {},
+            tickers,
+        )
+        state["error"] = None
+        return True
+    except Exception:
+        logger.warning("Hintavirheen palautus epäonnistui", exc_info=True)
+        return False
+
+
 def refresh_prices() -> dict[str, Any]:
     state = load_state()
     try:
@@ -381,7 +403,7 @@ def execute_trading_cycle() -> dict[str, Any]:
 
     try:
         state = load_state()
-        if state.get("error"):
+        if state.get("error") and not _try_clear_price_error(state):
             return build_api_payload(state)
 
         _refresh_analyses(state)
