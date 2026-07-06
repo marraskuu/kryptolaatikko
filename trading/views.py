@@ -433,4 +433,4 @@ def stats_page(request):
     }
     response = render(request, "trading/stats.html", context)
     response["Cache-Control"] = "no-store"
-    return mark_stats_tracking_pause(response)
+    return response

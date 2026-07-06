@@ -205,14 +205,7 @@ def _is_stats_referrer(request) -> bool:
     return ref_path.startswith(_STATS_PATH_PREFIX)
 
 
-def _is_staff_session(request) -> bool:
-    user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False):
-        return False
-    return bool(getattr(user, "is_superuser", False) or getattr(user, "is_staff", False))
-
-
-def _stats_tracking_paused(request) -> bool:
+def _is_stats_referrer(request) -> bool:
     """Älä laske etusivua kun käyttäjä on juuri /stats-polulla (prefetch suojaksi)."""
     return request.COOKIES.get(STATS_TRACKING_PAUSE_COOKIE) == "1"
 
@@ -235,8 +228,6 @@ def should_record_page_visit(request, path: str | None = None) -> bool:
         return False
     path = _request_path(request, path)
     if path.startswith(_STATS_PATH_PREFIX):
-        return False
-    if _is_staff_session(request):
         return False
     if _stats_tracking_paused(request):
         return False
