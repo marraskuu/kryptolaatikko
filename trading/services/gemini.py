@@ -1228,8 +1228,8 @@ TÄRKEÄÄ:
 - "ideas" = erillinen lyhyt kappale: 1–2 ehdotusta ihmiselle — EI vielä käytössä bottiin.
 - "shadow_learned" = vapaamuotoinen 1–2 kappaletta: mitä Varjopolitiikka-testidata kertoo (counterfactual, päivästop, profit lock). Jos dataa < 5 kauppaa, kerro rehellisesti että keruu jatkuu.
 - "shadow_ideas" = 1 kappale: konkreettiset ehdotukset miten varjopolitiikan dataa voisi hyödyntää kun näytteitä kertyy — EI vielä käytössä live-botissa.
-- "micro_learned" = 1–2 kappaletta: miten Bitfinex order book (ostopaine/myyntipaine, spread) ja long/short crowd -dataa on hyödynnetty — missä signaalit johtivat onnistuneisiin tai epäonnistuneisiin kauppoihin. Jos closedTradesWithMicro on 0, kerro että keruu alkaa uusista ostoista.
-- "micro_ideas" = 1 kappale: konkreettiset ehdotukset microstructure-datan tarkempaan hyödyntämiseen — EI vielä käytössä bottiin.
+- "micro_learned" = 1–2 kappaletta: miten Bitfinex order book (ostopaine/myyntipaine, spread), trade flow (osto-/myyntialoitteiset kaupat, isot kaupat) ja long/short crowd -dataa on hyödynnetty — missä signaalit johtivat onnistuneisiin tai epäonnistuneisiin kauppoihin. Hyödynnä currentFlowSnapshots ja outcomesByFlowBucket. Jos closedTradesWithMicro on 0, kerro että keruu alkaa uusista ostoista.
+- "micro_ideas" = 1 kappale: konkreettiset ehdotukset microstructure- ja trade flow -datan tarkempaan hyödyntämiseen — EI vielä käytössä bottiin.
 - "exit_learned" = 1–2 kappaletta: miten huippumyynti toimii (RSI/MTF/book-trailing, giveback ennen myyntiä, exit-setup-oppiminen). Kerro mitä data sanoo: myytiinkö liian myöhään (korkea giveback) vai liian aikaisin (paljon jäi pöydälle). Jos closedExitsWithMeta on 0, kerro että dynaaminen trailing on käytössä ja oppiminen alkaa seuraavista voitto-otoista.
 - "exit_ideas" = 1 kappale: konkreettiset ehdotukset huippumyynnin tarkempaan oppimiseen — EI vielä käytössä bottiin (vain exit_learned kuvaa jo käytössä olevaa).
 - "sell_learned" = 1–2 kappaletta: mitä on opittu VOITOLLA myydyistä vs. TAPPiOLLA myydyistä (byCategory, topWinExamples, topLossExamples). Kerro selkeästi mikä myyntityyppi (rotaatio, voitto-otto, Gemini, aikastoppi, stop-loss) tuottaa ja mikä syö tuottoa.
@@ -1245,7 +1245,7 @@ Sisällytä kertomukseen (story):
 3) Mitä odotetaan seuraavaksi (roadmap)
 4) Rehellinen arvio: missä dataa on vielä vähän
 5) Lyhyt maininta varjopolitiikasta jos dataa on — viittaa shadow_learned-kenttään
-6) Lyhyt maininta order book & crowd -signaaleista jos dataa on — viittaa micro_learned-kenttään
+6) Lyhyt maininta order book, trade flow & crowd -signaaleista jos dataa on — viittaa micro_learned-kenttään
 7) Lyhyt maininta huippumyynnistä jos dataa on — viittaa exit_learned-kenttään
 8) Lyhyt maininta voitto- vs tappiomyynneistä — viittaa sell_learned-kenttään
 9) Lyhyt maininta regiimin ennakoinnista jos aktiivinen tai dataa on — viittaa anticipation_learned-kenttään
@@ -1257,7 +1257,7 @@ Oppimisdata:
 Varjopolitiikka (testidata — rinnalla pyörivä simulaatio, EI live):
 {shadow_text}
 
-Order book & crowd (Bitfinex microstructure — käytössä live-botissa):
+Order book, trade flow & crowd (Bitfinex microstructure — käytössä live-botissa):
 {micro_text}
 
 Huippumyynti (voitto-otto lähellä huippua — käytössä live-botissa):
@@ -1290,8 +1290,8 @@ Vastaa VAIN validilla JSON:lla:
   "next_steps": "Mitä aktivoituu kun dataa kertyy (1–2 lausetta)",
   "shadow_learned": "Varjopolitiikka: mitä testidata opettaa (1–2 kappaletta, vapaamuoto)",
   "shadow_ideas": "Varjopolitiikka: hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
-  "micro_learned": "Order book & crowd: miten signaaleja hyödynnetään ja miten ne on onnistuneet/epäonnistuneet (1–2 kappaletta)",
-  "micro_ideas": "Order book & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "micro_learned": "Order book, trade flow & crowd: miten signaaleja hyödynnetään ja miten ne on onnistuneet/epäonnistuneet (1–2 kappaletta)",
+  "micro_ideas": "Order book, trade flow & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "exit_learned": "Huippumyynti: miten voitto-otto lähellä huippua toimii ja mitä exit-setup-data opettaa (1–2 kappaletta)",
   "exit_ideas": "Huippumyynti: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
   "sell_learned": "Voitto- vs tappiomyynnit: mitä eri myyntityypeistä on opittu (1–2 kappaletta)",

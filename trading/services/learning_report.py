@@ -381,7 +381,7 @@ def build_learning_report(
                 {
                     "id": "microstructure",
                     "icon": "📖",
-                    "title": "Order book & crowd",
+                    "title": "Order book, flow & crowd",
                     "lines": micro_report_lines,
                 }
             )

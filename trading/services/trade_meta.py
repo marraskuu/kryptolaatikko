@@ -71,13 +71,15 @@ def meta_from_analysis(
         for key in ("change1hPct", "change4hPct", "changePct"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 2)
-        for key in ("bookImbalance", "bookSpreadPct", "longShortRatio"):
+        for key in ("bookImbalance", "bookSpreadPct", "longShortRatio", "flowImbalance"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 4)
         if analysis.get("bookBucket"):
             meta["bookBucket"] = analysis["bookBucket"]
         if analysis.get("crowdBucket"):
             meta["crowdBucket"] = analysis["crowdBucket"]
+        if analysis.get("flowBucket"):
+            meta["flowBucket"] = analysis["flowBucket"]
         meta["setup"] = setup_key_for_analysis(analysis, regime)
         sig = analysis.get("geminiSignal") or {}
         if sig.get("confidence") is not None and sig.get("action") == "buy":
@@ -107,7 +109,7 @@ def meta_from_analysis(
                 meta["rsi"] = round(float(analysis["rsi"]), 1)
             if analysis.get("mtfAlign") is not None:
                 meta["mtfAlign"] = int(analysis["mtfAlign"])
-            for key in ("bookBucket", "crowdBucket"):
+            for key in ("bookBucket", "crowdBucket", "flowBucket"):
                 if analysis.get(key):
                     meta[key] = analysis[key]
             if profit_pct is not None:
@@ -140,8 +142,10 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "bookImbalance",
         "bookSpreadPct",
         "longShortRatio",
+        "flowImbalance",
         "bookBucket",
         "crowdBucket",
+        "flowBucket",
         "geminiConfidence",
         "geminiPick",
     )

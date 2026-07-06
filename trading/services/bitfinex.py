@@ -517,3 +517,129 @@ def fetch_position_sizes(symbol: str) -> dict[str, Any] | None:
         "longShortRatio": round(long_ratio, 4) if long_ratio is not None else None,
     }
 
+
+TRADES_DEFAULT_LIMIT = 120
+TRADES_MAX_LIMIT = 10_000
+
+
+def fetch_trades_hist(
+    symbol: str,
+    *,
+    limit: int = TRADES_DEFAULT_LIMIT,
+) -> list[list[float]] | None:
+    """Hae viimeisimmät public trades (aggressor flow / CVD-lite)."""
+    symbol = normalize_symbol(symbol)
+    if not is_valid_trading_symbol(symbol):
+        return None
+    trade_limit = max(1, min(TRADES_MAX_LIMIT, int(limit)))
+    path = f"/trades/{symbol}/hist?limit={trade_limit}"
+    try:
+        data = _bitfinex_fetch(path)
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code in (404, 429, 500):
+            return None
+        raise
+    except requests.RequestException as exc:
+        logger.warning("Trades fetch failed for %s: %s", symbol, exc)
+        return None
+    if not isinstance(data, list):
+        return None
+    return [row for row in data if isinstance(row, list) and len(row) >= 4]
+
+
+def parse_trade_flow(
+    rows: list[list[float]] | None,
+    *,
+    window_1m_sec: int = 60,
+    window_5m_sec: int = 300,
+    now_ms: int | None = None,
+) -> dict[str, Any] | None:
+    """Laske aggressor flow -metriikat viimeisistä kaupoista."""
+    if not rows:
+        return None
+
+    now_ms = now_ms or int(time.time() * 1000)
+    buy_vol_1m = 0.0
+    sell_vol_1m = 0.0
+    buy_vol_5m = 0.0
+    sell_vol_5m = 0.0
+    count_1m = 0
+    notionals_5m: list[float] = []
+    large_buy_5m = 0.0
+    large_sell_5m = 0.0
+
+    for row in rows:
+        mts = int(row[1] or 0)
+        amount = float(row[2] or 0)
+        price = float(row[3] or 0)
+        if amount == 0 or price <= 0 or mts <= 0:
+            continue
+
+        age_sec = (now_ms - mts) / 1000.0
+        if age_sec < 0 or age_sec > window_5m_sec:
+            continue
+
+        notional = abs(amount) * price
+        notionals_5m.append(notional)
+        if amount > 0:
+            buy_vol_5m += notional
+        else:
+            sell_vol_5m += notional
+
+        if age_sec <= window_1m_sec:
+            count_1m += 1
+            if amount > 0:
+                buy_vol_1m += notional
+            else:
+                sell_vol_1m += notional
+
+    total_1m = buy_vol_1m + sell_vol_1m
+    total_5m = buy_vol_5m + sell_vol_5m
+    if total_1m <= 0 and total_5m <= 0:
+        return None
+
+    imbalance_1m = (buy_vol_1m - sell_vol_1m) / total_1m if total_1m > 0 else 0.0
+    imbalance_5m = (buy_vol_5m - sell_vol_5m) / total_5m if total_5m > 0 else 0.0
+    if total_1m > 0:
+        flow_imbalance = 0.6 * imbalance_1m + 0.4 * imbalance_5m
+    else:
+        flow_imbalance = imbalance_5m
+
+    large_trade_ratio: float | None = None
+    large_buy_bias: float | None = None
+    if notionals_5m and total_5m > 0:
+        sorted_n = sorted(notionals_5m)
+        median = sorted_n[len(sorted_n) // 2]
+        large_thresh = max(median * 2.5, sorted_n[-1] * 0.15 if sorted_n else 0.0)
+        for row in rows:
+            mts = int(row[1] or 0)
+            amount = float(row[2] or 0)
+            price = float(row[3] or 0)
+            if amount == 0 or price <= 0 or mts <= 0:
+                continue
+            age_sec = (now_ms - mts) / 1000.0
+            if age_sec < 0 or age_sec > window_5m_sec:
+                continue
+            notional = abs(amount) * price
+            if notional < large_thresh:
+                continue
+            if amount > 0:
+                large_buy_5m += notional
+            else:
+                large_sell_5m += notional
+        large_total = large_buy_5m + large_sell_5m
+        if large_total > 0:
+            large_trade_ratio = large_total / total_5m
+            large_buy_bias = large_buy_5m / large_total
+
+    return {
+        "flowImbalance": round(max(-1.0, min(1.0, flow_imbalance)), 4),
+        "flowImbalance1m": round(imbalance_1m, 4),
+        "flowImbalance5m": round(imbalance_5m, 4),
+        "flowBuyVol1m": round(buy_vol_1m, 2),
+        "flowSellVol1m": round(sell_vol_1m, 2),
+        "flowTradeCount1m": count_1m,
+        "flowLargeTradeRatio": round(large_trade_ratio, 4) if large_trade_ratio is not None else None,
+        "flowLargeBuyBias": round(large_buy_bias, 4) if large_buy_bias is not None else None,
+    }
+
