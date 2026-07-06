@@ -15,7 +15,11 @@ from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
-from .services.visitor_analytics import record_page_visit, record_visit_duration
+from .services.visitor_analytics import (
+    mark_stats_tracking_pause,
+    record_page_visit,
+    record_visit_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,7 @@ def _llms_txt_body(base_url: str) -> str:
 def index(request):
     visit_id = None
     try:
-        visit_id = record_page_visit(request)
+        visit_id = record_page_visit(request, request.path)
     except Exception:
         logger.exception("Käyntitallennus epäonnistui")
     canonical_url = f"{_public_site_url(request)}/"
@@ -212,7 +216,7 @@ def _require_stats_superuser(request) -> HttpResponse | None:
     if not request.user.is_authenticated:
         query = request.GET.urlencode()
         next_path = request.path + (f"?{query}" if query else "")
-        return redirect(_stats_login_url(next_path))
+        return mark_stats_tracking_pause(redirect(_stats_login_url(next_path)))
     if not request.user.is_superuser:
         return HttpResponse(
             "Vain superuser-käyttäjällä on pääsy tilastoihin.",
@@ -384,13 +388,15 @@ def stats_login(request):
         user = authenticate(request, username=username, password=password)
         if user is not None and user.is_superuser:
             login(request, user)
-            return redirect(next_url)
+            return mark_stats_tracking_pause(redirect(next_url))
         error = "Virheellinen tunnus tai salasana — tarvitaan superuser-oikeudet."
 
-    return render(
-        request,
-        "trading/stats_login.html",
-        {"error": error, "next": next_url},
+    return mark_stats_tracking_pause(
+        render(
+            request,
+            "trading/stats_login.html",
+            {"error": error, "next": next_url},
+        )
     )
 
 
@@ -427,4 +433,4 @@ def stats_page(request):
     }
     response = render(request, "trading/stats.html", context)
     response["Cache-Control"] = "no-store"
-    return response
+    return mark_stats_tracking_pause(response)

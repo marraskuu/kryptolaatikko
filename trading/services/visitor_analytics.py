@@ -75,6 +75,8 @@ _geo_cache: dict[str, dict[str, str]] = {}
 
 # Admin-kävijätilastot — ei julkisia tilastoja
 _STATS_PATH_PREFIX = "/stats"
+STATS_TRACKING_PAUSE_COOKIE = "stats_tracking_pause"
+STATS_TRACKING_PAUSE_SEC = 180
 
 
 def _public_visits_qs():
@@ -173,6 +175,77 @@ def _isp_for_request(request, client_ip: str) -> str:
 def is_bot_user_agent(user_agent: str) -> bool:
     ua = user_agent.lower()
     return any(marker in ua for marker in BOT_UA_MARKERS)
+
+
+def _request_path(request, path: str | None = None) -> str:
+    return (path or getattr(request, "path", None) or "/")[:200]
+
+
+def _is_prefetch_request(request) -> bool:
+    for header in (
+        "HTTP_PURPOSE",
+        "HTTP_SEC_PURPOSE",
+        "HTTP_X_PURPOSE",
+        "HTTP_X_MOZ",
+    ):
+        val = (request.META.get(header) or "").lower()
+        if "prefetch" in val or "prerender" in val:
+            return True
+    return False
+
+
+def _is_stats_referrer(request) -> bool:
+    referer = request.META.get("HTTP_REFERER") or ""
+    if not referer:
+        return False
+    try:
+        ref_path = urlparse(referer).path or ""
+    except ValueError:
+        ref_path = referer
+    return ref_path.startswith(_STATS_PATH_PREFIX)
+
+
+def _is_staff_session(request) -> bool:
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    return bool(getattr(user, "is_superuser", False) or getattr(user, "is_staff", False))
+
+
+def _stats_tracking_paused(request) -> bool:
+    """Älä laske etusivua kun käyttäjä on juuri /stats-polulla (prefetch suojaksi)."""
+    return request.COOKIES.get(STATS_TRACKING_PAUSE_COOKIE) == "1"
+
+
+def mark_stats_tracking_pause(response):
+    """Aseta lyhyt eväste — estää vääriä /-käyntejä /stats-selailun yhteydessä."""
+    response.set_cookie(
+        STATS_TRACKING_PAUSE_COOKIE,
+        "1",
+        max_age=STATS_TRACKING_PAUSE_SEC,
+        httponly=True,
+        samesite="Lax",
+        secure=not getattr(settings, "DEBUG", False),
+    )
+    return response
+
+
+def should_record_page_visit(request, path: str | None = None) -> bool:
+    if request.method != "GET":
+        return False
+    path = _request_path(request, path)
+    if path.startswith(_STATS_PATH_PREFIX):
+        return False
+    if _is_staff_session(request):
+        return False
+    if _stats_tracking_paused(request):
+        return False
+    if _is_prefetch_request(request):
+        return False
+    if _is_stats_referrer(request):
+        return False
+    user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:256]
+    return not is_bot_user_agent(user_agent)
 
 
 def parse_referrer(referer: str) -> tuple[str, str]:
@@ -276,19 +349,13 @@ def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
     }
 
 
-def record_page_visit(request, path: str = "/") -> int | None:
-    """Tallenna yksi etusivun käynti. Palauttaa rivin id:n keston raportointia varten."""
-    if request.method != "GET":
-        return None
-
-    path = (path or "/")[:200]
-    if path.startswith(_STATS_PATH_PREFIX):
+def record_page_visit(request, path: str | None = None) -> int | None:
+    """Tallenna yksi julkisen sivun käynti. Palauttaa rivin id:n keston raportointia varten."""
+    path = _request_path(request, path)
+    if not should_record_page_visit(request, path):
         return None
 
     user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:256]
-    if is_bot_user_agent(user_agent):
-        return None
-
     referer = (request.META.get("HTTP_REFERER") or "")[:512]
     source, source_host = parse_referrer(referer)
     client_ip = _client_ip(request) or None

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250705t"
+APP_BUILD = "20250706b"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")
@@ -174,7 +174,7 @@ else:
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SESSION_COOKIE_AGE = 60 * 60 * 24 * 7
+SESSION_COOKIE_AGE = 60 * 60 * 24  # 24 h
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
