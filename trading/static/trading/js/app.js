@@ -1631,7 +1631,11 @@ function renderLearningReportMeta(report) {
   if (report.narrativePending) {
     // countdown hidden while writing
   } else if (report.narrativeError) {
-    parts.push("uusi kertomus epäonnistui — yritetään uudelleen");
+    if (next != null && next > 0) {
+      parts.push(`uudelleenyritys ${formatDurationSec(next)} kuluttua`);
+    } else {
+      parts.push("uusi kertomus epäonnistui — yritetään uudelleen");
+    }
   } else if (next != null && next > 0) {
     parts.push(`seuraava kertomus ${formatDurationSec(next)} kuluttua`);
   } else if (next === 0 && last) {
@@ -1674,7 +1678,11 @@ function renderLearningReport() {
     narrativeHtml =
       '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa kertomusta… (päivittyy automaattisesti)</p></div>';
   } else if (report.narrativeError) {
-    narrativeHtml = `<div class="learning-narrative learning-narrative-error"><p>${escapeHtml(report.narrativeError)}</p></div>`;
+    const retryNote =
+      report.nextNarrativeInSec > 0
+        ? `<p class="learning-narrative-retry">Uudelleenyritys ${formatDurationSec(report.nextNarrativeInSec)} kuluttua.</p>`
+        : "";
+    narrativeHtml = `<div class="learning-narrative learning-narrative-error"><p>${escapeHtml(report.narrativeError)}</p>${retryNote}</div>`;
   } else if (!report.lastNarrativeAt && report.nextNarrativeInSec > 0) {
     narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>Seuraava Gemini-kertomus ${formatDurationSec(report.nextNarrativeInSec)} kuluttua (6 h välein).</p></div>`;
   } else if (!report.lastNarrativeAt) {

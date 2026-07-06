@@ -44,6 +44,7 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
 from .bitfinex import get_crypto_label, normalize_symbol
 
 LEARNING_REPORT_INTERVAL_SEC = int(os.environ.get("LEARNING_REPORT_INTERVAL_SEC", "21600"))
+NARRATIVE_ERROR_RETRY_SEC = int(os.environ.get("NARRATIVE_ERROR_RETRY_SEC", "600"))
 GEMINI_NARRATIVE_HISTORY = int(os.environ.get("GEMINI_NARRATIVE_HISTORY", "40"))
 NARRATIVE_STALE_SEC = int(os.environ.get("NARRATIVE_STALE_SEC", "300"))
 
@@ -726,6 +727,41 @@ def _last_narrative_ms(state: dict[str, Any]) -> int:
     return 0
 
 
+def _last_narrative_error_ms(state: dict[str, Any]) -> int:
+    """Milloin Gemini-kertomus viimeksi epäonnistui."""
+    parsed = _parse_time(state.get("learningNarrativeErrorAt"))
+    if parsed:
+        return int(parsed.timestamp() * 1000)
+    return 0
+
+
+def _next_narrative_error_retry_sec(state: dict[str, Any], now_ms: int | None = None) -> int:
+    """Sekunteja seuraavaan uudelleenyritykseen virheen jälkeen."""
+    now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
+    err_ms = _last_narrative_error_ms(state)
+    if not err_ms:
+        return 0
+    elapsed_sec = (now_ms - err_ms) // 1000
+    return max(0, NARRATIVE_ERROR_RETRY_SEC - elapsed_sec)
+
+
+def _narrative_error_retry_due(
+    state: dict[str, Any],
+    report: dict[str, Any] | None = None,
+) -> bool:
+    """Onko virheen jälkeen kulunut tarpeeksi aikaa uudelleenyritykseen."""
+    report = report if report is not None else (state.get("learningReport") or {})
+    if not (state.get("learningNarrativeError") or report.get("narrativeError")):
+        return False
+    if _has_narrative_story(state, report):
+        return False
+    err_ms = _last_narrative_error_ms(state)
+    if not err_ms:
+        return True
+    age_sec = (datetime.now(timezone.utc).timestamp() * 1000 - err_ms) / 1000
+    return age_sec >= NARRATIVE_ERROR_RETRY_SEC
+
+
 def _next_narrative_sec(last_narrative_ms: int, now_ms: int | None = None) -> int:
     now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
     if not last_narrative_ms:
@@ -749,6 +785,7 @@ def _merge_cached_learning_report(state: dict[str, Any], cached: dict[str, Any])
     err = state.get("learningNarrativeError")
     if err:
         report["narrativeError"] = err
+        report["nextNarrativeInSec"] = _next_narrative_error_retry_sec(state, now_ms)
     elif report.get("narrativePending"):
         report.pop("narrativeError", None)
     return report
@@ -765,7 +802,7 @@ def clear_stale_narrative_error(state: dict[str, Any]) -> bool:
         return False
     from .state_store import mark_state_keys_deleted
 
-    mark_state_keys_deleted(state, "learningNarrativeError")
+    mark_state_keys_deleted(state, "learningNarrativeError", "learningNarrativeErrorAt")
     cached = state.get("learningReport")
     if isinstance(cached, dict):
         report = dict(cached)
@@ -787,7 +824,7 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
         return _narrative_pending_stale(state, report)
     if state.get("learningNarrativeError") or report.get("narrativeError"):
-        return True
+        return _narrative_error_retry_due(state, report)
     last_ms = _last_narrative_ms(state)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     if last_ms and (now_ms - last_ms) >= LEARNING_REPORT_INTERVAL_SEC * 1000:
@@ -903,7 +940,7 @@ def _apply_narrative_to_state(
     state["learningReportSnapshot"] = report.get("snapshot")
     from .state_store import mark_state_keys_deleted
 
-    mark_state_keys_deleted(state, "learningNarrativeError")
+    mark_state_keys_deleted(state, "learningNarrativeError", "learningNarrativeErrorAt")
     history = list(state.get("learningReportHistory") or [])
     history.insert(
         0,
@@ -975,6 +1012,7 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
             logger.warning("Oppimisraportin Gemini epäonnistui: %s", status.get("message"))
             state = load_state()
             state["learningNarrativeError"] = status.get("message", "Gemini-kertomus epäonnistui")
+            state["learningNarrativeErrorAt"] = _now_iso()
             mark_state_keys_deleted(state, "learningNarrativePendingSince")
             merged = _merge_cached_learning_report(
                 state,
@@ -1003,8 +1041,12 @@ def _run_narrative_refresh(state_data: dict[str, Any], report: dict[str, Any]) -
         try:
             state = load_state()
             state["learningNarrativeError"] = str(exc) or "Oppimisraportin taustapäivitys epäonnistui"
+            state["learningNarrativeErrorAt"] = _now_iso()
             mark_state_keys_deleted(state, "learningNarrativePendingSince")
-            merged = dict(state.get("learningReport") or report)
+            merged = _merge_cached_learning_report(
+                state,
+                dict(state.get("learningReport") or report),
+            )
             merged["narrativePending"] = False
             merged["narrativeError"] = state["learningNarrativeError"]
             state["learningReport"] = merged
@@ -1050,13 +1092,16 @@ def maybe_refresh_narrative(
     narrative = sanitize_learning_narrative(state.get("learningNarrative"))
     pending_stale = _narrative_pending_stale(state, report)
     narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
-    retry_after_error = bool(narrative_error) and not _has_narrative_story(state, report)
+    retry_after_error = _narrative_error_retry_due(state, report)
 
     if not due and not pending_stale and not retry_after_error:
         report["narrative"] = narrative
         report["lastNarrativeAt"] = last_at
         report["narrativeError"] = state.get("learningNarrativeError")
-        report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
+        if narrative_error:
+            report["nextNarrativeInSec"] = _next_narrative_error_retry_sec(state, now_ms)
+        else:
+            report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
         return report
 
     with _narrative_refresh_lock:
@@ -1093,7 +1138,10 @@ def maybe_refresh_narrative(
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
-    report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
+    if narrative_error and not report.get("narrativePending"):
+        report["nextNarrativeInSec"] = _next_narrative_error_retry_sec(state, now_ms)
+    else:
+        report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
     if state.get("learningNarrativeError"):
         report["narrativeError"] = state["learningNarrativeError"]
     elif report.get("narrativePending"):
