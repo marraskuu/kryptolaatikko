@@ -1661,12 +1661,17 @@ function renderLearningReport() {
   renderLearningReportMeta(report);
 
   const narrative = report.narrative;
+  const retryMinBucket =
+    report.narrativeError && report.nextNarrativeInSec > 0
+      ? Math.floor(report.nextNarrativeInSec / 60)
+      : "";
   const bodyKey = [
     report.timestamp,
     report.narrativePending,
     narrative?.story || "",
     narrative?.intro || "",
     report.narrativeError || "",
+    retryMinBucket,
     (report.sections || []).length,
   ].join("|");
   if (bodyKey === lastLearningReportBodyKey) return;

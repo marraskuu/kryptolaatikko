@@ -735,12 +735,22 @@ def _last_narrative_error_ms(state: dict[str, Any]) -> int:
     return 0
 
 
+def _repair_missing_narrative_error_at(state: dict[str, Any]) -> bool:
+    """Täytä puuttuva virheen aikaleima — estää legacy-tilan jatkuvan uudelleenyrityksen."""
+    if not state.get("learningNarrativeError"):
+        return False
+    if _last_narrative_error_ms(state):
+        return False
+    state["learningNarrativeErrorAt"] = _now_iso()
+    return True
+
+
 def _next_narrative_error_retry_sec(state: dict[str, Any], now_ms: int | None = None) -> int:
     """Sekunteja seuraavaan uudelleenyritykseen virheen jälkeen."""
     now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
     err_ms = _last_narrative_error_ms(state)
     if not err_ms:
-        return 0
+        return NARRATIVE_ERROR_RETRY_SEC
     elapsed_sec = (now_ms - err_ms) // 1000
     return max(0, NARRATIVE_ERROR_RETRY_SEC - elapsed_sec)
 
@@ -757,7 +767,7 @@ def _narrative_error_retry_due(
         return False
     err_ms = _last_narrative_error_ms(state)
     if not err_ms:
-        return True
+        return False
     age_sec = (datetime.now(timezone.utc).timestamp() * 1000 - err_ms) / 1000
     return age_sec >= NARRATIVE_ERROR_RETRY_SEC
 
@@ -824,6 +834,11 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     if report.get("narrativePending") or state.get("learningNarrativePendingSince"):
         return _narrative_pending_stale(state, report)
     if state.get("learningNarrativeError") or report.get("narrativeError"):
+        if _repair_missing_narrative_error_at(state):
+            from .state_store import save_state
+
+            save_state(state)
+            return False
         return _narrative_error_retry_due(state, report)
     last_ms = _last_narrative_ms(state)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -1080,6 +1095,8 @@ def maybe_refresh_narrative(
         report["lastNarrativeAt"] = state.get("lastLearningNarrativeAt")
         return report
 
+    _repair_missing_narrative_error_at(state)
+
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     last_ms = 0
     last_at = state.get("lastLearningNarrativeAt")
@@ -1110,7 +1127,7 @@ def maybe_refresh_narrative(
             logger.warning("Gemini-kertomus: jumittunut lukko — nollataan")
             _narrative_refresh_running = False
             already_running = False
-        if (pending_stale or retry_after_error) and already_running:
+        if pending_stale and already_running:
             logger.warning("Gemini-kertomus näyttää jumittuneen — yritetään uudelleen")
             _narrative_refresh_running = False
             already_running = False
@@ -1138,7 +1155,7 @@ def maybe_refresh_narrative(
 
     report["narrative"] = narrative
     report["lastNarrativeAt"] = last_at
-    if narrative_error and not report.get("narrativePending"):
+    if narrative_error:
         report["nextNarrativeInSec"] = _next_narrative_error_retry_sec(state, now_ms)
     else:
         report["nextNarrativeInSec"] = _next_narrative_sec(last_ms, now_ms)
