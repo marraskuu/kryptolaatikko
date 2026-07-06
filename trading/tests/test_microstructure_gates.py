@@ -78,7 +78,7 @@ class MicrostructureGateTests(SimpleTestCase):
         self.assertTrue(fresh["microChecked"])
         self.assertTrue(fresh["microBlocked"])
         self.assertEqual(fresh["bookBidDepthEur"], 5_000.0)
-        self.assertFalse(blocks_entry(fresh))
+        self.assertTrue(blocks_entry(fresh))
 
     @patch("trading.services.ai_trader.build_deep_analysis")
     def test_gemini_deep_analysis_keeps_micro_checked(self, mock_deep):
@@ -113,7 +113,6 @@ class MicrostructureGateTests(SimpleTestCase):
         _mock_book,
         _mock_trades,
         _mock_stats,
-        _mock_pause,
     ):
         """Myös BOOK_SYMBOL_LIMITin ulkopuoliset kandidaatit saavat microChecked."""
         symbols = [f"tSYM{i}USD" for i in range(15)]

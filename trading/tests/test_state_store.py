@@ -2,7 +2,7 @@
 
 import threading
 
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from trading.models import BotState
 from trading.services.portfolio import default_portfolio
@@ -14,7 +14,7 @@ from trading.services.state_store import (
 )
 
 
-class StateStoreConcurrencyTests(TestCase):
+class StateStoreConcurrencyTests(TransactionTestCase):
     def setUp(self):
         BotState.objects.update_or_create(pk=1, defaults={"data": default_state()})
 
