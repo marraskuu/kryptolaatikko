@@ -1,4 +1,6 @@
 import os
+import threading
+from copy import deepcopy
 from typing import Any
 
 from trading.models import BotState
@@ -7,6 +9,16 @@ from .bitfinex import normalize_symbol
 from .session_state import default_state
 
 logger = __import__("logging").getLogger(__name__)
+
+_state_lock = threading.RLock()
+
+
+def _merge_concurrent_state(latest: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Yhdistä DB:n tuorein tila ja tallentajan snapshot — säilytä avaimet joita snapshot ei koske."""
+    merged = deepcopy(latest)
+    for key, value in snapshot.items():
+        merged[key] = deepcopy(value)
+    return merged
 
 
 def _ensure_bot_started_at(state: dict[str, Any]) -> bool:
@@ -116,4 +128,7 @@ def repair_persisted_state(state: dict[str, Any]) -> bool:
 
 
 def save_state(state: dict[str, Any]) -> None:
-    BotState.objects.update_or_create(pk=1, defaults={"data": state})
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        obj.data = _merge_concurrent_state(obj.data or {}, state)
+        obj.save(update_fields=["data", "updated_at"])

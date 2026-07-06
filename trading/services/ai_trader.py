@@ -1456,12 +1456,17 @@ def enrich_analyses_for_gemini(
         ticker = tickers.get(symbol)
         if not ticker:
             continue
+        prev = analyses.get(symbol) or {}
         try:
             candles = fetch_candles_fn(symbol, "1h", CANDLE_DEEP_LIMIT)
-            analyses[symbol] = build_deep_analysis(ticker, candles)
+            fresh = build_deep_analysis(ticker, candles)
         except Exception:
             logger.warning("Deep analysis failed for %s", symbol, exc_info=True)
-            analyses[symbol] = analyze_ticker_quick(ticker)
+            fresh = analyze_ticker_quick(ticker)
+        from .market_microstructure import carry_micro_fields
+
+        carry_micro_fields(prev, fresh)
+        analyses[symbol] = fresh
 
 
 def _parse_trade_time(iso: str) -> datetime:
@@ -2386,7 +2391,8 @@ def make_trading_decisions(
     ranked_liquid = [
         r
         for r in ranked
-        if entry_eligible(r["analysis"])
+        if _entry_ok(r["analysis"], entry_regime)
+        and entry_eligible(r["analysis"])
         and normalize_symbol(r["symbol"]) not in blocked_buys
         and not buy_blocked(r["symbol"], r["analysis"])
     ]

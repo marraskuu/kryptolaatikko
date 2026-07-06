@@ -211,6 +211,31 @@ def _apply_micro_fields(analysis: dict[str, Any], fields: dict[str, Any]) -> Non
     analysis["flowBucket"] = flow_bucket(analysis.get("flowImbalance"))
 
 
+MICRO_PRESERVE_KEYS = (
+    "microChecked",
+    "microBlocked",
+    "microAdjust",
+    "bookImbalance",
+    "bookSpreadPct",
+    "bookBidDepthEur",
+    "bookAskDepthEur",
+    "bookBucket",
+    "longShortRatio",
+    "crowdBucket",
+    "flowImbalance",
+    "flowLargeTradeRatio",
+    "flowLargeBuyBias",
+    "flowBucket",
+)
+
+
+def carry_micro_fields(prev: dict[str, Any], target: dict[str, Any]) -> None:
+    """Säilytä microstructure-kentät kun analyysi korvataan (esim. Gemini deep)."""
+    for key in MICRO_PRESERVE_KEYS:
+        if key in prev:
+            target[key] = prev[key]
+
+
 _MICRO_REASON_PREFIXES = (
     "Order book:",
     "Spread ",
@@ -312,6 +337,7 @@ def _score_and_block(analysis: dict[str, Any], regime: str) -> None:
 
     analysis["microAdjust"] = round(adjust, 2)
     analysis["microBlocked"] = blocked
+    analysis["microChecked"] = True
     analysis["reasons"] = reasons
 
 
@@ -385,13 +411,11 @@ def enrich_analyses(
         analysis = analyses.setdefault(sym, {})
         _apply_micro_fields(analysis, stats)
 
-    for sym in set(book_targets + stats_pool):
+    for sym in candidates:
         analysis = analyses.get(sym)
-        if analysis and (
-            analysis.get("bookImbalance") is not None
-            or analysis.get("longShortRatio") is not None
-            or analysis.get("flowImbalance") is not None
-        ):
+        if not analysis:
+            continue
+        if not analysis.get("microChecked"):
             _score_and_block(analysis, regime)
 
     return summary
@@ -454,7 +478,12 @@ def enrich_holdings_for_exits(
 
 
 def blocks_entry(analysis: dict[str, Any]) -> bool:
-    return bool(analysis.get("microBlocked"))
+    if not ENABLED:
+        return False
+    if analysis.get("microBlocked"):
+        return True
+    # Fail-closed: ostoa ei sallita ilman microstructure-tarkistusta (esim. enrich kaatui).
+    return not analysis.get("microChecked")
 
 
 def holding_illiquid_trap(analysis: dict[str, Any], holding_value_eur: float) -> tuple[bool, str | None]:
