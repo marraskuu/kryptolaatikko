@@ -71,7 +71,7 @@ def meta_from_analysis(
         for key in ("change1hPct", "change4hPct", "changePct"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 2)
-        for key in ("bookImbalance", "bookSpreadPct", "longShortRatio", "flowImbalance"):
+        for key in ("bookImbalance", "bookSpreadPct", "bookBidDepthEur", "bookAskDepthEur", "longShortRatio", "flowImbalance"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 4)
         if analysis.get("bookBucket"):
@@ -141,6 +141,8 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "change4hPct",
         "bookImbalance",
         "bookSpreadPct",
+        "bookBidDepthEur",
+        "bookAskDepthEur",
         "longShortRatio",
         "flowImbalance",
         "bookBucket",

@@ -113,7 +113,7 @@ CORR_MIN_SAMPLES = 8
 CLUSTER_WEIGHT_CAP = 0.6
 
 # Likviditeetti — uudet ostot vain riittävän volyymin pariin (24 h Bitfinex).
-MIN_ENTRY_VOLUME_EUR = 100_000
+MIN_ENTRY_VOLUME_EUR = 200_000
 MIN_ENTRY_VOLUME_PREFERRED_EUR = 250_000
 # Nimellishinta — vältä selvästi alle euron kolikoita (DOGE tms.) uusissa ostoissa.
 MIN_ENTRY_PRICE_EUR = 1.0
@@ -2594,6 +2594,37 @@ def make_trading_decisions(
                             f"Matala volyymi ({_volume_k_label(analysis)}) — "
                             f"vapautetaan likvidimpiin kohteisiin"
                         ),
+                        analysis,
+                    )
+                    continue
+
+        from .market_microstructure import holding_illiquid_trap
+
+        trapped, trap_reason = holding_illiquid_trap(analysis, holding_value)
+        if trapped and trap_reason:
+            if profit_pct <= -0.3:
+                decisions.append(
+                    {
+                        "type": "sell",
+                        "symbol": symbol,
+                        "amount": holding["amount"],
+                        "eurAmount": holding_value,
+                        "reason": f"{trap_reason} — myydään tappiolla",
+                        "analysis": analysis,
+                    }
+                )
+                continue
+            if _low_volume_holding_release_ok(profit_pct, analysis) or profit_pct <= 1.0:
+                sell_amount = _rotation_sell_amount(
+                    holding["amount"], profit_pct, rotation_trim
+                )
+                if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
+                    _append_sell_decision(
+                        decisions,
+                        symbol,
+                        sell_amount,
+                        analysis["currentPrice"],
+                        f"{trap_reason} — vapautetaan pääomaa",
                         analysis,
                     )
                     continue

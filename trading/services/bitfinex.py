@@ -444,6 +444,8 @@ def parse_order_book(rows: list[list[float]] | None) -> dict[str, Any] | None:
 
     bid_vol = 0.0
     ask_vol = 0.0
+    bid_depth_eur = 0.0
+    ask_depth_eur = 0.0
     best_bid = 0.0
     best_ask = 0.0
     for row in rows:
@@ -451,9 +453,12 @@ def parse_order_book(rows: list[list[float]] | None) -> dict[str, Any] | None:
         amount = float(row[2] or 0)
         if amount > 0:
             bid_vol += amount
+            bid_depth_eur += amount * price
             best_bid = max(best_bid, price)
         elif amount < 0:
-            ask_vol += abs(amount)
+            ask_amt = abs(amount)
+            ask_vol += ask_amt
+            ask_depth_eur += ask_amt * price
             if best_ask <= 0 or price < best_ask:
                 best_ask = price
 
@@ -467,6 +472,9 @@ def parse_order_book(rows: list[list[float]] | None) -> dict[str, Any] | None:
     return {
         "bidVol": round(bid_vol, 6),
         "askVol": round(ask_vol, 6),
+        "bookBidDepthEur": round(bid_depth_eur, 2),
+        "bookAskDepthEur": round(ask_depth_eur, 2),
+        "bookDepthEur": round(bid_depth_eur + ask_depth_eur, 2),
         "bookImbalance": round(max(-1.0, min(1.0, imbalance)), 4),
         "bookSpreadPct": round(spread_pct, 4),
         "bestBid": best_bid,

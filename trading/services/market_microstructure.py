@@ -56,6 +56,10 @@ BOOK_BONUS_SCORE = 1.0
 BOOK_PENALTY_SCORE = -2.0
 SPREAD_WARN_PCT = 0.15
 SPREAD_BLOCK_PCT = 0.35
+MIN_BID_DEPTH_ENTRY_EUR = float(os.environ.get("MIN_BID_DEPTH_ENTRY_EUR", "40000"))
+MIN_ASK_DEPTH_ENTRY_EUR = float(os.environ.get("MIN_ASK_DEPTH_ENTRY_EUR", "40000"))
+MIN_BID_DEPTH_HOLDING_EUR = float(os.environ.get("MIN_BID_DEPTH_HOLDING_EUR", "15000"))
+HOLDING_DEPTH_POSITION_RATIO = float(os.environ.get("HOLDING_DEPTH_POSITION_RATIO", "2.5"))
 CROWD_LONG_RATIO = 0.85
 CROWD_SHORT_RATIO = 0.35
 CROWD_EXTREME_LONG = 0.92
@@ -211,6 +215,8 @@ _MICRO_REASON_PREFIXES = (
     "Order book:",
     "Spread ",
     "Leveä spread",
+    "Ohut ostovelkainen",
+    "Ohut myyntitarjonta",
     "Crowd ",
     "Bear + crowd",
     "Trade flow:",
@@ -248,6 +254,21 @@ def _score_and_block(analysis: dict[str, Any], regime: str) -> None:
         elif spread >= SPREAD_WARN_PCT:
             adjust -= 1.0
             reasons.append(f"Spread {spread:.2f} % — varovainen")
+
+    bid_depth = analysis.get("bookBidDepthEur")
+    ask_depth = analysis.get("bookAskDepthEur")
+    if ask_depth is not None and ask_depth < MIN_ASK_DEPTH_ENTRY_EUR:
+        blocked = True
+        reasons.append(f"Ohut myyntitarjonta {ask_depth / 1000:.0f} k€ — osto estetty")
+    elif ask_depth is not None and ask_depth < MIN_ASK_DEPTH_ENTRY_EUR * 1.5:
+        adjust -= 0.75
+        reasons.append(f"Myyntitarjonta {ask_depth / 1000:.0f} k€ — varovainen")
+    if bid_depth is not None and bid_depth < MIN_BID_DEPTH_ENTRY_EUR:
+        blocked = True
+        reasons.append(f"Ohut ostovelkainen {bid_depth / 1000:.0f} k€ — jumi-riski")
+    elif bid_depth is not None and bid_depth < MIN_BID_DEPTH_ENTRY_EUR * 1.5:
+        adjust -= 0.75
+        reasons.append(f"Ostovelkainen {bid_depth / 1000:.0f} k€ — varovainen poistuminen")
 
     long_ratio = analysis.get("longShortRatio")
     if long_ratio is not None:
@@ -434,6 +455,24 @@ def enrich_holdings_for_exits(
 
 def blocks_entry(analysis: dict[str, Any]) -> bool:
     return bool(analysis.get("microBlocked"))
+
+
+def holding_illiquid_trap(analysis: dict[str, Any], holding_value_eur: float) -> tuple[bool, str | None]:
+    """Onko positio jumissa — liian ohut ostovelkainen suhteessa positioon."""
+    bid_depth = analysis.get("bookBidDepthEur")
+    if bid_depth is None or holding_value_eur <= 0:
+        return False, None
+    needed = max(MIN_BID_DEPTH_HOLDING_EUR, holding_value_eur * HOLDING_DEPTH_POSITION_RATIO)
+    if bid_depth >= needed:
+        return False, None
+    return True, (
+        f"Ohut order book ({bid_depth / 1000:.0f} k€ ostovelk.) — "
+        f"positio {holding_value_eur:.0f} € jumi-riski"
+    )
+
+
+def required_bid_depth_eur(holding_value_eur: float) -> float:
+    return max(MIN_BID_DEPTH_HOLDING_EUR, holding_value_eur * HOLDING_DEPTH_POSITION_RATIO)
 
 
 def score_adjust(analysis: dict[str, Any]) -> float:
