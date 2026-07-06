@@ -205,8 +205,8 @@ def _is_stats_referrer(request) -> bool:
     return ref_path.startswith(_STATS_PATH_PREFIX)
 
 
-def _is_stats_referrer(request) -> bool:
-    """Älä laske etusivua kun käyttäjä on juuri /stats-polulla (prefetch suojaksi)."""
+def _stats_tracking_paused(request) -> bool:
+    """Älä laske etusivua heti stats-kirjautumisen jälkeen (prefetch-suojaksi)."""
     return request.COOKIES.get(STATS_TRACKING_PAUSE_COOKIE) == "1"
 
 
