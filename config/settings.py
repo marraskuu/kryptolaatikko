@@ -7,23 +7,38 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250707p"
+APP_BUILD = "20250707q"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-in-production")
-
 DEBUG = os.environ.get("DEBUG", "false").lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.environ.get("ALLOWED_HOSTS", "*").split(",")
-    if h.strip()
-]
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-in-production")
+if not DEBUG and SECRET_KEY == "dev-only-change-in-production":
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured("SECRET_KEY must be set in production (Railway Variables).")
+
+
+def _default_allowed_hosts() -> list[str]:
+    hosts = ["localhost", "127.0.0.1", ".localhost"]
+    railway = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if railway:
+        hosts.append(railway)
+    custom = os.environ.get("CUSTOM_DOMAIN", "").strip()
+    if custom:
+        for host in (custom, f"www.{custom}"):
+            if host not in hosts:
+                hosts.append(host)
+    return hosts
+
+
+_hosts_env = os.environ.get("ALLOWED_HOSTS", "").strip()
+ALLOWED_HOSTS = [h.strip() for h in _hosts_env.split(",") if h.strip()] if _hosts_env else _default_allowed_hosts()
 
 RAILWAY_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-if RAILWAY_DOMAIN:
+if RAILWAY_DOMAIN and RAILWAY_DOMAIN not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(RAILWAY_DOMAIN)
 
 CUSTOM_DOMAIN = os.environ.get("CUSTOM_DOMAIN", "").strip()

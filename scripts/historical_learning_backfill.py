@@ -7,7 +7,8 @@ Käyttö (paikallinen):
   python scripts/historical_learning_backfill.py --force
 
 Railway Console (jos python manage.py ei toimi — konsolissa ei aina Djangoa):
-  Avaa selaimessa (SECRET_KEY Railway Variables -kohdasta):
+  Avain: ADMIN_TASK_KEY (jos asetettu) tai SHA256("admin-task:" + SECRET_KEY).
+  Suositus: header X-Admin-Task-Key tai ?key=...
   https://hiekkalaatikko.pro/api/admin/historical-backfill/?key=SALAINEN&force=1
 
 Paikallinen / konsoli (kun Django asennettu):

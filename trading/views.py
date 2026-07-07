@@ -11,11 +11,13 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
+from .security_utils import admin_task_key, rate_limit_exceeded, read_admin_key_from_request, safe_next_path
 from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
 from .services.visitor_analytics import (
+    _client_ip,
     mark_stats_tracking_pause,
     record_page_visit,
     record_visit_duration,
@@ -143,7 +145,13 @@ def api_health(request):
 
 
 def _db_diagnostics() -> dict:
-    return db_diagnostics()
+    if settings.DEBUG:
+        return db_diagnostics()
+    from django.db import connection
+
+    engine = connection.settings_dict.get("ENGINE", "")
+    short = engine.rsplit(".", 1)[-1]
+    return {"engine": short, "persistent": short != "sqlite3"}
 
 
 @csrf_exempt
@@ -181,6 +189,10 @@ def api_state(request):
 @csrf_exempt
 @require_GET
 def api_export(request):
+    client_ip = _client_ip(request) or "unknown"
+    if rate_limit_exceeded("api-export", client_ip, limit=20, window_sec=60):
+        return HttpResponse(status=429)
+
     state = load_state()
     try:
         buffer, filename = build_tax_excel(state["portfolio"])
@@ -195,14 +207,16 @@ def api_export(request):
     return response
 
 
-def _admin_task_key() -> str:
-    return os.environ.get("ADMIN_TASK_KEY") or settings.SECRET_KEY
+def _admin_task_key() -> str | None:
+    return admin_task_key()
 
 
 def _check_admin_key(request) -> bool:
-    supplied = request.GET.get("key", "")
     expected = _admin_task_key()
-    if not supplied or not expected:
+    if not expected:
+        return False
+    supplied = read_admin_key_from_request(request)
+    if not supplied:
         return False
     return secrets.compare_digest(supplied, expected)
 
@@ -233,7 +247,8 @@ def api_historical_backfill(request):
     """
     Historiallinen backfill ilman Railway-konsolia.
 
-    GET /api/admin/historical-backfill/?key=SECRET_KEY&force=1
+    GET /api/admin/historical-backfill/?key=...&force=1
+    Avain: X-Admin-Task-Key-header (suositus) tai ?key= — tuotannossa johdettu SECRET_KEY:stä jos ADMIN_TASK_KEY puuttuu.
     Oletus: taustasäie (async=1). Tila: /api/state/ marketLearning.
     """
     if not _check_admin_key(request):
@@ -284,7 +299,7 @@ def api_visitor_stats(request):
     """
     Kävijätilastot (Django PageVisit).
 
-    GET /api/admin/visitor-stats/?key=SECRET_KEY&days=30
+    GET /api/admin/visitor-stats/?key=...&days=30
     """
     if not _check_admin_key(request):
         return JsonResponse({"error": "unauthorized"}, status=403)
@@ -364,6 +379,10 @@ def api_visit_duration(request):
     GET/POST /api/visit-duration/?id=123&sec=45
     (sendBeacon lähettää POSTin — query string säilyy.)
     """
+    client_ip = _client_ip(request) or "unknown"
+    if rate_limit_exceeded("visit-duration", client_ip, limit=120, window_sec=60):
+        return HttpResponse(status=429)
+
     try:
         visit_id = int(request.GET.get("id") or request.POST.get("id") or 0)
         duration_sec = int(request.GET.get("sec") or request.POST.get("sec") or 0)
@@ -378,19 +397,23 @@ def api_visit_duration(request):
 def stats_login(request):
     """Kirjautuminen /stats-sivulle (Django superuser)."""
     if request.user.is_authenticated and request.user.is_superuser:
-        return redirect(request.GET.get("next") or "/stats/")
+        return redirect(safe_next_path(request.GET.get("next")))
 
     error = None
-    next_url = request.POST.get("next") or request.GET.get("next") or "/stats/"
+    next_url = safe_next_path(request.POST.get("next") or request.GET.get("next"))
 
     if request.method == "POST":
-        username = (request.POST.get("username") or "").strip()
-        password = request.POST.get("password") or ""
-        user = authenticate(request, username=username, password=password)
-        if user is not None and user.is_superuser:
-            login(request, user)
-            return mark_stats_tracking_pause(redirect(next_url))
-        error = "Virheellinen tunnus tai salasana — tarvitaan superuser-oikeudet."
+        client_ip = _client_ip(request) or "unknown"
+        if rate_limit_exceeded("stats-login", client_ip, limit=8, window_sec=300):
+            error = "Liian monta yritystä — odota hetki ja yritä uudelleen."
+        else:
+            username = (request.POST.get("username") or "").strip()
+            password = request.POST.get("password") or ""
+            user = authenticate(request, username=username, password=password)
+            if user is not None and user.is_superuser:
+                login(request, user)
+                return mark_stats_tracking_pause(redirect(next_url))
+            error = "Virheellinen tunnus tai salasana — tarvitaan superuser-oikeudet."
 
     return mark_stats_tracking_pause(
         render(
