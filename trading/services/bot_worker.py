@@ -47,23 +47,28 @@ def _refresh_learning_report_state() -> None:
         narrative_refresh_in_progress,
         needs_learning_report_refresh,
         needs_narrative_refresh,
+        persist_ensure_narrative_error_state,
         refresh_learning_report_if_due,
         refresh_narrative_if_due,
     )
-    from .state_store import load_state, save_state
+    from .state_store import load_state, patch_narrative_error_state, save_state
 
     state = load_state()
     changed = clear_stale_narrative_error(state)
+    if changed and narrative_refresh_in_progress():
+        patch_narrative_error_state(state)
+        changed = False
     if needs_learning_report_refresh(state):
         refresh_learning_report_if_due(state)
         if not narrative_refresh_in_progress():
             save_state(state)
-        elif changed:
-            save_state(state)
     elif needs_narrative_refresh(state) or changed:
         refresh_narrative_if_due(state)
         if not narrative_refresh_in_progress():
-            save_state(state)
+            if changed:
+                persist_ensure_narrative_error_state(state)
+            else:
+                save_state(state)
 
 
 def _refresh_learning_report_async() -> None:

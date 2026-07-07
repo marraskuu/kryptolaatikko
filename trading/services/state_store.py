@@ -186,14 +186,81 @@ def patch_state_keys(fragment: dict[str, Any]) -> None:
     if not fragment:
         return
     with _state_lock:
+        snapshot = deepcopy(fragment)
+        deleted = list(snapshot.pop(STATE_DELETED_KEYS, None) or [])
         obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
         merged = deepcopy(obj.data or {})
-        for key, value in fragment.items():
-            if key == STATE_DELETED_KEYS:
-                continue
+        for key, value in snapshot.items():
             if key == "portfolio" and isinstance(value, dict):
                 merged[key] = _merge_portfolio(merged.get("portfolio") or {}, value)
             else:
                 merged[key] = deepcopy(value)
+        for key in deleted:
+            merged.pop(key, None)
+        merged.pop(STATE_DELETED_KEYS, None)
+        obj.data = merged
+        obj.save(update_fields=["data", "updated_at"])
+
+
+def patch_narrative_error_state(state: dict[str, Any]) -> None:
+    """Tallenna virhe-/siivousavaimet ilman narratiivin ylikirjoitusta."""
+    fragment: dict[str, Any] = {}
+    for key in ("learningNarrativeError", "learningNarrativeErrorAt"):
+        if key in state:
+            fragment[key] = state[key]
+    deleted = list(state.get(STATE_DELETED_KEYS) or [])
+    if deleted:
+        fragment[STATE_DELETED_KEYS] = deleted
+    if fragment:
+        patch_state_keys(fragment)
+    report = state.get("learningReport")
+    if isinstance(report, dict) and "narrativeError" not in report:
+        patch_learning_report_pop_fields("narrativeError")
+
+
+def patch_learning_report_pop_fields(*fields: str) -> None:
+    """Poista kenttiä tallennetusta learningReportista."""
+    if not fields:
+        return
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        merged = deepcopy(obj.data or {})
+        report = dict(merged.get("learningReport") or {})
+        changed = False
+        for field in fields:
+            if field in report:
+                report.pop(field, None)
+                changed = True
+        if not changed:
+            return
+        merged["learningReport"] = report
+        obj.data = merged
+        obj.save(update_fields=["data", "updated_at"])
+
+
+def patch_learning_report_rule_cards(
+    *,
+    last_learning_report_at: str | None = None,
+    snapshot: Any = None,
+    sections: Any = None,
+    timestamp: Any = None,
+    changes: Any = None,
+) -> None:
+    """Päivitä rule-kortit — säilytä narratiivi- ja virhekentät DB:stä."""
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        merged = deepcopy(obj.data or {})
+        if last_learning_report_at:
+            merged["lastLearningReportAt"] = last_learning_report_at
+        if snapshot is not None:
+            merged["learningReportSnapshot"] = deepcopy(snapshot)
+        report = dict(merged.get("learningReport") or {})
+        if sections is not None:
+            report["sections"] = deepcopy(sections)
+        if timestamp is not None:
+            report["timestamp"] = timestamp
+        if changes is not None:
+            report["changes"] = deepcopy(changes)
+        merged["learningReport"] = report
         obj.data = merged
         obj.save(update_fields=["data", "updated_at"])

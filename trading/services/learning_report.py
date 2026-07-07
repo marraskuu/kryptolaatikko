@@ -736,9 +736,8 @@ def _last_narrative_error_ms(state: dict[str, Any]) -> int:
 
 
 def _infer_narrative_error_at(state: dict[str, Any], report: dict[str, Any]) -> str:
-    """Arvioi virheen aika — älä nollaa cooldownia nykyhetkeen jos raportissa on vanhempi aikaleima."""
+    """Arvioi virheen aika — älä käytä uutta pendingSince-arvoa cooldownin nollaukseen."""
     for raw in (
-        state.get("learningNarrativePendingSince"),
         report.get("timestamp"),
         state.get("lastLearningReportAt"),
     ):
@@ -782,25 +781,45 @@ def _clear_orphan_narrative_errors(state: dict[str, Any], report: dict[str, Any]
     return changed
 
 
+def persist_ensure_narrative_error_state(state: dict[str, Any]) -> bool:
+    """Tallenna ensure-muutokset — älä ylikirjoita käynnissä olevaa Gemini-säiettä."""
+    if not ensure_narrative_error_state(state):
+        return False
+    from .state_store import STATE_DELETED_KEYS, patch_narrative_error_state, save_state
+
+    if narrative_refresh_in_progress():
+        patch_narrative_error_state(state)
+        return True
+    save_state(state)
+    return True
+
+
 def narrative_refresh_in_progress() -> bool:
     return _narrative_refresh_running
 
 
-def _persist_narrative_schedule(state: dict[str, Any]) -> None:
-    """Tallenna vain aikataulutus-/raporttiavaimet — Gemini-säie tallentaa narratiivin itse."""
+def _persist_narrative_pending_since(state: dict[str, Any]) -> None:
+    """Tallenna vain pending-lippu — ei koske learningReport/Gemini-tuloksia."""
+    since = state.get("learningNarrativePendingSince")
+    if not since:
+        return
     from .state_store import patch_state_keys
 
-    fragment: dict[str, Any] = {}
-    for key in (
-        "learningNarrativePendingSince",
-        "lastLearningReportAt",
-        "learningReport",
-        "learningReportSnapshot",
-    ):
-        if key in state:
-            fragment[key] = state[key]
-    if fragment:
-        patch_state_keys(fragment)
+    patch_state_keys({"learningNarrativePendingSince": since})
+
+
+def _persist_learning_report_rule_cards(state: dict[str, Any]) -> None:
+    """Tallenna rule-kortit ilman narratiivi-/virhekenttien ylikirjoitusta."""
+    from .state_store import patch_learning_report_rule_cards
+
+    report = state.get("learningReport") or {}
+    patch_learning_report_rule_cards(
+        last_learning_report_at=state.get("lastLearningReportAt"),
+        snapshot=state.get("learningReportSnapshot"),
+        sections=report.get("sections"),
+        timestamp=report.get("timestamp"),
+        changes=report.get("changes"),
+    )
 
 
 def _next_narrative_error_retry_sec(state: dict[str, Any], now_ms: int | None = None) -> int:
@@ -895,10 +914,7 @@ def needs_narrative_refresh(state: dict[str, Any]) -> bool:
     report = _merge_cached_learning_report(state, cached)
     narrative_error = state.get("learningNarrativeError") or report.get("narrativeError")
     if narrative_error:
-        if ensure_narrative_error_state(state):
-            from .state_store import save_state
-
-            save_state(state)
+        if persist_ensure_narrative_error_state(state):
             return False
         if _narrative_error_retry_due(state, report):
             return True
@@ -973,7 +989,7 @@ def refresh_narrative_if_due(state: dict[str, Any]) -> dict[str, Any]:
     report = maybe_refresh_narrative(state, report)
     state["learningReport"] = report
     if _narrative_refresh_running:
-        _persist_narrative_schedule(state)
+        _persist_narrative_pending_since(state)
     return report
 
 
@@ -1013,7 +1029,9 @@ def refresh_learning_report_if_due(state: dict[str, Any]) -> dict[str, Any]:
     report = maybe_refresh_narrative(state, report)
     state["learningReport"] = report
     if _narrative_refresh_running:
-        _persist_narrative_schedule(state)
+        _persist_narrative_pending_since(state)
+        if due:
+            _persist_learning_report_rule_cards(state)
     return report
 
 
@@ -1201,10 +1219,8 @@ def maybe_refresh_narrative(
             _narrative_refresh_running = False
             already_running = False
         if pending_stale and already_running:
-            logger.warning("Gemini-kertomus näyttää jumittuneen — yritetään uudelleen")
-            _narrative_refresh_running = False
-            already_running = False
-        if not already_running:
+            logger.warning("Gemini-kertomus näyttää jumittuneen — odotetaan käynnissä olevaa säiettä")
+        elif not already_running:
             _narrative_refresh_running = True
             state["learningNarrativePendingSince"] = _now_iso()
 

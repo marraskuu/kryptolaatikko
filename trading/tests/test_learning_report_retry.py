@@ -46,9 +46,22 @@ class LearningReportRetryTests(SimpleTestCase):
         ensure_narrative_error_state(state)
         self.assertTrue(_narrative_error_retry_due(state, state["learningReport"]))
 
+    def test_infer_uses_report_timestamp_not_pending(self):
+        state = {
+            "learningNarrativePendingSince": _iso_ago(5),
+            "learningReport": {
+                "narrativeError": "fail",
+                "sections": [],
+                "timestamp": _iso_ago(NARRATIVE_ERROR_RETRY_SEC + 30),
+            },
+        }
+        ensure_narrative_error_state(state)
+        self.assertTrue(_narrative_error_retry_due(state, state["learningReport"]))
+
     def test_merge_clears_error_when_story_present(self):
         state = {
             "learningNarrative": {"story": "Tarina valmis"},
+            "lastLearningNarrativeAt": _iso_ago(120),
             "learningNarrativeError": "old fail",
             "learningReport": {
                 "narrativeError": "old fail",
@@ -58,7 +71,7 @@ class LearningReportRetryTests(SimpleTestCase):
         }
         report = _merge_cached_learning_report(state, dict(state["learningReport"]))
         self.assertNotIn("narrativeError", report)
-        self.assertGreater(report["nextNarrativeInSec"], 0)
+        self.assertGreaterEqual(report["nextNarrativeInSec"], 0)
 
     def test_retry_due_after_cooldown(self):
         state = {

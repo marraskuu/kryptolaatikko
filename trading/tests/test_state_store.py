@@ -8,8 +8,10 @@ from trading.models import BotState
 from trading.services.portfolio import default_portfolio
 from trading.services.session_state import default_state
 from trading.services.state_store import (
+    STATE_DELETED_KEYS,
     load_state,
     mark_state_keys_deleted,
+    patch_state_keys,
     save_state,
 )
 
@@ -61,6 +63,18 @@ class StateStoreConcurrencyTests(TransactionTestCase):
         save_state(state)
 
         final = BotState.objects.get(pk=1).data
+        self.assertNotIn("learningNarrativeError", final)
+
+    def test_patch_state_keys_applies_deletions(self):
+        state = load_state()
+        state["learningNarrativeError"] = "test error"
+        save_state(state)
+
+        state = load_state()
+        mark_state_keys_deleted(state, "learningNarrativeError")
+        patch_state_keys({STATE_DELETED_KEYS: list(state.get(STATE_DELETED_KEYS) or [])})
+
+        final = load_state()
         self.assertNotIn("learningNarrativeError", final)
 
     def test_stale_portfolio_not_overwritten(self):
