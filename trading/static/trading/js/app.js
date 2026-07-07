@@ -1940,12 +1940,6 @@ document.querySelectorAll("[data-trade-filter]").forEach((btn) => {
   });
 });
 
-const botUrlEl = document.getElementById("bot-url");
-if (botUrlEl) {
-  botUrlEl.href = location.origin;
-  botUrlEl.textContent = location.origin;
-}
-
 poll();
 startCountdown();
 pollTimer = setInterval(poll, POLL_INTERVAL);

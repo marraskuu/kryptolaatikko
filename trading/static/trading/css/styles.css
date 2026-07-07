@@ -129,19 +129,27 @@ h1 {
   margin-top: 2px;
 }
 
-.bot-url {
+.contact-email {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 0.8rem;
   margin-top: 4px;
 }
 
-.bot-url a {
+.contact-email-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.contact-email a {
   color: var(--accent);
   text-decoration: none;
   font-weight: 500;
 }
 
-.bot-url a:hover {
+.contact-email a:hover {
   text-decoration: underline;
 }
 
