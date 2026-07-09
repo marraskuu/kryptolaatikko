@@ -298,14 +298,28 @@
   <script src="{% static 'trading/js/app.js' %}?v=21"></script>
   <script>
     (function () {
-      var meta = document.querySelector('meta[name="visit-id"]');
-      if (!meta) return;
-      var visitId = meta.getAttribute("content");
-      if (!visitId) return;
       var started = Date.now();
       var lastSentSec = 0;
+      var visitId = null;
+
+      function readVisitId() {
+        var meta = document.querySelector('meta[name="visit-id"]');
+        return meta ? meta.getAttribute("content") : null;
+      }
+
+      function setVisitId(id) {
+        visitId = String(id);
+        var meta = document.querySelector('meta[name="visit-id"]');
+        if (!meta) {
+          meta = document.createElement("meta");
+          meta.setAttribute("name", "visit-id");
+          document.head.appendChild(meta);
+        }
+        meta.setAttribute("content", visitId);
+      }
 
       function sendDuration(sec, final) {
+        if (!visitId) return;
         sec = Math.max(1, Math.round(sec));
         if (!final && sec <= lastSentSec) return;
         lastSentSec = sec;
@@ -330,9 +344,36 @@
       }
 
       function reportDuration(final) {
+        if (!visitId) return;
         var sec = (Date.now() - started) / 1000;
         if (sec < 1) return;
         sendDuration(sec, !!final);
+      }
+
+      function ensureVisitRecorded() {
+        if (visitId || window.__visitRecordPending) return;
+        if (document.prerendering || document.visibilityState === "hidden") return;
+        window.__visitRecordPending = true;
+        fetch("/api/visit-record/", { method: "POST", credentials: "same-origin" })
+          .then(function (response) {
+            if (!response.ok) return null;
+            return response.json();
+          })
+          .then(function (data) {
+            if (data && data.visit_id) setVisitId(data.visit_id);
+          })
+          .catch(function () {})
+          .finally(function () {
+            window.__visitRecordPending = false;
+          });
+      }
+
+      visitId = readVisitId();
+      if (!visitId) {
+        document.addEventListener("prerenderingchange", ensureVisitRecorded);
+        document.addEventListener("visibilitychange", ensureVisitRecorded);
+        if (document.readyState === "complete") ensureVisitRecorded();
+        else window.addEventListener("load", ensureVisitRecorded);
       }
 
       document.addEventListener("visibilitychange", function () {
@@ -342,7 +383,6 @@
         reportDuration(true);
       });
 
-      // Varmuus: päivitys 30 s välein — kesto näkyy vaikka poistumisbeacon epäonnistuisi
       setInterval(function () {
         if (document.visibilityState === "visible") reportDuration(false);
       }, 30000);

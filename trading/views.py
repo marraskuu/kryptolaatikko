@@ -231,7 +231,7 @@ def _require_stats_superuser(request) -> HttpResponse | None:
     if not request.user.is_authenticated:
         query = request.GET.urlencode()
         next_path = request.path + (f"?{query}" if query else "")
-        return mark_stats_tracking_pause(redirect(_stats_login_url(next_path)))
+        return redirect(_stats_login_url(next_path))
     if not request.user.is_superuser:
         return HttpResponse(
             "Vain superuser-käyttäjällä on pääsy tilastoihin.",
@@ -371,6 +371,22 @@ def google_site_verification(request):
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def api_visit_record(request):
+    """
+    Varmuuskäynti kun palvelin ei antanut visit-id:tä (esim. Chrome-prerender).
+    """
+    client_ip = _client_ip(request) or "unknown"
+    if rate_limit_exceeded("visit-record", client_ip, limit=30, window_sec=60):
+        return JsonResponse({"error": "rate limit"}, status=429)
+
+    visit_id = record_page_visit(request, "/", client_fallback=True)
+    if not visit_id:
+        return JsonResponse({"recorded": False}, status=204)
+    return JsonResponse({"visit_id": visit_id, "recorded": True})
+
+
+@csrf_exempt
 @require_http_methods(["GET", "POST"])
 def api_visit_duration(request):
     """
@@ -415,12 +431,10 @@ def stats_login(request):
                 return mark_stats_tracking_pause(redirect(next_url))
             error = "Virheellinen tunnus tai salasana — tarvitaan superuser-oikeudet."
 
-    return mark_stats_tracking_pause(
-        render(
-            request,
-            "trading/stats_login.html",
-            {"error": error, "next": next_url},
-        )
+    return render(
+        request,
+        "trading/stats_login.html",
+        {"error": error, "next": next_url},
     )
 
 
@@ -457,4 +471,4 @@ def stats_page(request):
     }
     response = render(request, "trading/stats.html", context)
     response["Cache-Control"] = "no-store"
-    return response
+    return mark_stats_tracking_pause(response)

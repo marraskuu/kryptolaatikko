@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import logging
+import re
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
@@ -19,14 +20,29 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 BOT_UA_MARKERS = (
-    "bot",
+    "googlebot",
+    "bingbot",
+    "yandexbot",
+    "duckduckbot",
+    "baiduspider",
+    "facebookexternalhit",
+    "twitterbot",
+    "linkedinbot",
+    "slackbot",
+    "telegrambot",
+    "whatsapp",
+    "discordbot",
+    "applebot",
+    "semrushbot",
+    "ahrefsbot",
+    "petalbot",
+    "bytespider",
     "spider",
     "crawler",
     "slurp",
-    "facebookexternalhit",
-    "preview",
     "headless",
 )
+_BOT_UA_RE = re.compile(r"(?:^|[\s(/;])bot(?:[^a-z]|$)")
 
 COUNTRY_NAMES: dict[str, str] = {
     "FI": "Suomi",
@@ -138,6 +154,28 @@ def _client_ip(request) -> str:
     return (request.META.get("REMOTE_ADDR") or "").strip()
 
 
+def _normalize_client_ip(raw: str) -> str | None:
+    """Validoi IP ennen tietokantaa — virheellinen IP ei saa kaataa käyntitallennusta."""
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if value.startswith("[") and "]" in value:
+        value = value[1 : value.index("]")]
+    if value.count(":") == 1:
+        host, _, maybe_port = value.rpartition(":")
+        if host.count(".") == 3 and maybe_port.isdigit():
+            value = host
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        logger.warning("Invalid client IP ignored: %r", value[:64])
+        return None
+
+
+def _client_ip_normalized(request) -> str | None:
+    return _normalize_client_ip(_client_ip(request))
+
+
 def ip_hash_for_request(request) -> str:
     raw = f"{_client_ip(request)}:{settings.SECRET_KEY}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
@@ -174,7 +212,9 @@ def _isp_for_request(request, client_ip: str) -> str:
 
 def is_bot_user_agent(user_agent: str) -> bool:
     ua = user_agent.lower()
-    return any(marker in ua for marker in BOT_UA_MARKERS)
+    if any(marker in ua for marker in BOT_UA_MARKERS):
+        return True
+    return bool(_BOT_UA_RE.search(ua))
 
 
 def _request_path(request, path: str | None = None) -> str:
@@ -182,6 +222,7 @@ def _request_path(request, path: str | None = None) -> str:
 
 
 def _is_prefetch_request(request) -> bool:
+    """Estä vain matalan varmuuden prefetch — prerender lasketaan (Chrome osoiterivi)."""
     for header in (
         "HTTP_PURPOSE",
         "HTTP_SEC_PURPOSE",
@@ -189,7 +230,7 @@ def _is_prefetch_request(request) -> bool:
         "HTTP_X_MOZ",
     ):
         val = (request.META.get(header) or "").lower()
-        if "prefetch" in val or "prerender" in val:
+        if "prefetch" in val:
             return True
     return False
 
@@ -206,8 +247,10 @@ def _is_stats_referrer(request) -> bool:
 
 
 def _stats_tracking_paused(request) -> bool:
-    """Älä laske etusivua heti stats-kirjautumisen jälkeen (prefetch-suojaksi)."""
-    return request.COOKIES.get(STATS_TRACKING_PAUSE_COOKIE) == "1"
+    """Eväste estää vain prefetch-osumat — suora osoiterivin käynti lasketaan aina."""
+    if request.COOKIES.get(STATS_TRACKING_PAUSE_COOKIE) != "1":
+        return False
+    return _is_prefetch_request(request)
 
 
 def mark_stats_tracking_pause(response):
@@ -223,15 +266,22 @@ def mark_stats_tracking_pause(response):
     return response
 
 
-def should_record_page_visit(request, path: str | None = None) -> bool:
-    if request.method != "GET":
+def should_record_page_visit(
+    request,
+    path: str | None = None,
+    *,
+    client_fallback: bool = False,
+) -> bool:
+    if not client_fallback and request.method != "GET":
+        return False
+    if client_fallback and request.method not in ("GET", "POST"):
         return False
     path = _request_path(request, path)
     if path.startswith(_STATS_PATH_PREFIX):
         return False
-    if _stats_tracking_paused(request):
+    if not client_fallback and _stats_tracking_paused(request):
         return False
-    if _is_prefetch_request(request):
+    if not client_fallback and _is_prefetch_request(request):
         return False
     if _is_stats_referrer(request):
         return False
@@ -340,33 +390,52 @@ def get_avg_duration_cards() -> dict[str, dict[str, Any]]:
     }
 
 
-def record_page_visit(request, path: str | None = None) -> int | None:
+def record_page_visit(
+    request,
+    path: str | None = None,
+    *,
+    client_fallback: bool = False,
+) -> int | None:
     """Tallenna yksi julkisen sivun käynti. Palauttaa rivin id:n keston raportointia varten."""
     path = _request_path(request, path)
-    if not should_record_page_visit(request, path):
+    if not should_record_page_visit(request, path, client_fallback=client_fallback):
         return None
 
     user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:256]
     referer = (request.META.get("HTTP_REFERER") or "")[:512]
     source, source_host = parse_referrer(referer)
-    client_ip = _client_ip(request) or None
-    country_code = _country_code_for_request(request, client_ip or "")
-    client_isp = _isp_for_request(request, client_ip or "")
+    client_ip = _client_ip_normalized(request)
 
     from trading.models import PageVisit
 
-    visit = PageVisit.objects.create(
-        path=path[:200],
-        referer=referer,
-        referer_source=source[:64],
-        referer_host=source_host[:128],
-        user_agent=user_agent,
-        ip_hash=ip_hash_for_request(request),
-        client_ip=client_ip,
-        client_isp=client_isp[:128],
-        country_code=country_code,
-        is_bot=False,
-    )
+    try:
+        visit = PageVisit.objects.create(
+            path=path[:200],
+            referer=referer,
+            referer_source=source[:64],
+            referer_host=source_host[:128],
+            user_agent=user_agent,
+            ip_hash=ip_hash_for_request(request),
+            client_ip=client_ip,
+            client_isp="",
+            country_code="",
+            is_bot=False,
+        )
+    except Exception:
+        logger.exception("PageVisit create failed")
+        return None
+
+    try:
+        country_code = _country_code_for_request(request, client_ip or "")
+        client_isp = _isp_for_request(request, client_ip or "") if client_ip else ""
+        if country_code or client_isp:
+            PageVisit.objects.filter(pk=visit.pk).update(
+                country_code=country_code[:2],
+                client_isp=client_isp[:128],
+            )
+    except Exception:
+        logger.debug("Geo enrich failed for visit %s", visit.pk, exc_info=True)
+
     return visit.pk
 
 

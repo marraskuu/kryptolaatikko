@@ -18,6 +18,7 @@ urlpatterns = [
     path("stats/", views.stats_page, name="stats_slash"),
     path("api/health/", views.api_health, name="api_health"),
     path("api/state/", views.api_state, name="api_state"),
+    path("api/visit-record/", views.api_visit_record, name="api_visit_record"),
     path("api/visit-duration/", views.api_visit_duration, name="api_visit_duration"),
     path("api/export/", views.api_export, name="api_export"),
     path(
