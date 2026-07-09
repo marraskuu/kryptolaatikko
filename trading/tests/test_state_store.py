@@ -95,3 +95,54 @@ class StateStoreConcurrencyTests(TransactionTestCase):
         self.assertEqual(final["portfolio"]["tradeId"], 10)
         self.assertEqual(final["portfolio"]["cash"], 42.0)
         self.assertEqual(final.get("_testMarker"), 1)
+
+    def test_stale_snapshot_does_not_clear_concurrent_price_error(self):
+        """Vanha snapshot ei saa kuitata tuoretta Bitfinex-virhetta pois."""
+        state = load_state()
+        state["lastPriceTick"] = 1_000
+        state["tickers"] = {"tBTCUSD": {"last": 100.0}}
+        state["analyses"] = {"tBTCUSD": {"quick": True, "price": 100.0}}
+        state["error"] = None
+        save_state(state)
+
+        stale = load_state()
+        failed_refresh = load_state()
+        failed_refresh["error"] = "Bitfinex timeout"
+        save_state(failed_refresh)
+
+        stale["error"] = None
+        stale["_testMarker"] = "stale-worker-finished"
+        save_state(stale)
+
+        final = BotState.objects.get(pk=1).data
+        self.assertEqual(final.get("error"), "Bitfinex timeout")
+        self.assertEqual(final.get("_testMarker"), "stale-worker-finished")
+
+    def test_older_price_snapshot_does_not_restore_stale_market_data(self):
+        """Uudemmat kurssit ja analyysit sailyvat vanhan workerin tallennuksen yli."""
+        state = load_state()
+        state["lastPriceTick"] = 1_000
+        state["tickers"] = {"tBTCUSD": {"last": 100.0}}
+        state["analyses"] = {"tBTCUSD": {"quick": True, "price": 100.0}}
+        state["error"] = None
+        save_state(state)
+
+        stale = load_state()
+        fresh = load_state()
+        fresh["lastPriceTick"] = 2_000
+        fresh["tickers"] = {"tBTCUSD": {"last": 125.0}}
+        fresh["analyses"] = {"tBTCUSD": {"quick": True, "price": 125.0}}
+        fresh["error"] = None
+        save_state(fresh)
+
+        stale["tickers"] = {"tBTCUSD": {"last": 95.0}}
+        stale["analyses"] = {"tBTCUSD": {"quick": True, "price": 95.0}}
+        stale["_testMarker"] = "stale-worker-finished"
+        save_state(stale)
+
+        final = BotState.objects.get(pk=1).data
+        self.assertEqual(final.get("lastPriceTick"), 2_000)
+        self.assertEqual(final.get("tickers"), {"tBTCUSD": {"last": 125.0}})
+        self.assertEqual(final.get("analyses"), {"tBTCUSD": {"quick": True, "price": 125.0}})
+        self.assertIsNone(final.get("error"))
+        self.assertEqual(final.get("_testMarker"), "stale-worker-finished")
