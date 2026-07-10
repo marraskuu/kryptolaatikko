@@ -31,21 +31,22 @@ class TradingStateLockTests(SimpleTestCase):
             finally:
                 finished.set()
 
-        engine._trading_state_lock.acquire()
-        try:
-            with (
-                patch.object(engine, "load_state", side_effect=fake_load_state),
-                patch.object(engine, "fetch_all_markets", return_value=({}, {})),
-                patch.object(engine, "save_state"),
-            ):
+        with (
+            patch.object(engine, "load_state", side_effect=fake_load_state),
+            patch.object(engine, "fetch_all_markets", return_value=({}, {})),
+            patch.object(engine, "save_state"),
+        ):
+            engine._trading_state_lock.acquire()
+            try:
                 thread = threading.Thread(target=run_refresh, name="test-refresh-lock")
                 thread.start()
                 self.assertFalse(load_called.wait(0.05))
                 self.assertFalse(finished.is_set())
-        finally:
-            engine._trading_state_lock.release()
 
-        thread.join(timeout=2)
+            finally:
+                engine._trading_state_lock.release()
+
+            thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
         self.assertTrue(load_called.is_set())
         self.assertTrue(finished.is_set())
@@ -66,20 +67,21 @@ class TradingStateLockTests(SimpleTestCase):
             finally:
                 finished.set()
 
-        engine._trading_state_lock.acquire()
-        try:
-            with (
-                patch.object(engine, "load_state", side_effect=fake_load_state),
-                patch.object(engine, "_try_clear_price_error", return_value=False),
-            ):
+        with (
+            patch.object(engine, "load_state", side_effect=fake_load_state),
+            patch.object(engine, "_try_clear_price_error", return_value=False),
+        ):
+            engine._trading_state_lock.acquire()
+            try:
                 thread = threading.Thread(target=run_cycle, name="test-cycle-lock")
                 thread.start()
                 self.assertFalse(load_called.wait(0.05))
                 self.assertFalse(finished.is_set())
-        finally:
-            engine._trading_state_lock.release()
 
-        thread.join(timeout=2)
+            finally:
+                engine._trading_state_lock.release()
+
+            thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
         self.assertTrue(load_called.is_set())
         self.assertTrue(finished.is_set())
