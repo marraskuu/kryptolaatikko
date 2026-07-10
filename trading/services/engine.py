@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 _cycle_running = False
 _cycle_started_at = 0.0
 _cycle_running_lock = threading.Lock()
+_trading_state_lock = threading.RLock()
 CYCLE_LOCK_STALE_SEC = int(os.environ.get("CYCLE_LOCK_STALE_SEC", "180"))
 
 # Gemini-kutsuväli sekunteina — kytketty irti 60 s kaupankäyntikierroksesta
@@ -307,81 +308,82 @@ def _try_clear_price_error(state: dict[str, Any]) -> bool:
 
 
 def refresh_prices() -> dict[str, Any]:
-    state = load_state()
-    try:
-        tickers, _meta = fetch_all_markets()
-        if not tickers:
-            raise RuntimeError("Bitfinex ei palauttanut kursseja.")
+    with _trading_state_lock:
+        state = load_state()
+        try:
+            tickers, _meta = fetch_all_markets()
+            if not tickers:
+                raise RuntimeError("Bitfinex ei palauttanut kursseja.")
 
-        state["tickers"] = ensure_portfolio_tickers(
-            state.get("portfolio", {}).get("holdings") or {},
-            tickers,
-        )
-        for symbol, ticker in tickers.items():
-            existing = state["analyses"].get(symbol)
-            if not existing or existing.get("quick"):
-                state["analyses"][symbol] = analyze_ticker_quick(ticker)
-
-        state["lastPriceTick"] = int(time.time() * 1000)
-        state["error"] = None
-
-        if state.get("running", True):
-            portfolio = Portfolio(state["portfolio"])
-            total_value = portfolio.get_total_value(state["tickers"])
-            regime_info = state.get("regime") or {}
-            regime = regime_info.get("regime", "neutral")
-            learning = state.get("learning") or {}
-            try:
-                micro_exit = market_microstructure.enrich_holdings_for_exits(
-                    state["tickers"],
-                    state["analyses"],
-                    state["portfolio"],
-                    regime,
-                )
-                state["microstructureExit"] = micro_exit
-            except Exception:
-                logger.warning("Microstructure exit enrich failed", exc_info=True)
-            shadow_flags = record_cycle(
-                state,
-                total_value=total_value,
-                regime=regime,
-                learning=learning,
+            state["tickers"] = ensure_portfolio_tickers(
+                state.get("portfolio", {}).get("holdings") or {},
+                tickers,
             )
-            _check_profit_sells(state, portfolio, shadow_flags=shadow_flags)
-            try:
-                exit_summary = exit_learning.step(state["tickers"])
-                state["exitLearning"] = exit_summary
-            except Exception:
-                logger.warning("Exit learning step failed", exc_info=True)
+            for symbol, ticker in tickers.items():
+                existing = state["analyses"].get(symbol)
+                if not existing or existing.get("quick"):
+                    state["analyses"][symbol] = analyze_ticker_quick(ticker)
 
-            report = state.get("lastAIReport")
-            if report:
-                watches = []
-                for symbol in portfolio.holdings:
-                    watch = state["profitWatch"].get(symbol)
-                    if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
-                        watches.append(
-                            {
-                                "symbol": symbol,
-                                "label": get_crypto_label(symbol),
-                                "reason": watch["statusText"],
-                                "profitPct": watch.get("profitPct"),
-                            }
-                        )
-                        log_watch_event(state, symbol, watch)
-                if watches:
-                    report = {**report, "watches": watches, "timestamp": _now_iso()}
-                    state["lastAIReport"] = report
+            state["lastPriceTick"] = int(time.time() * 1000)
+            state["error"] = None
 
-    except Exception as exc:
-        logger.exception("Price refresh failed")
-        state["error"] = str(exc)
+            if state.get("running", True):
+                portfolio = Portfolio(state["portfolio"])
+                total_value = portfolio.get_total_value(state["tickers"])
+                regime_info = state.get("regime") or {}
+                regime = regime_info.get("regime", "neutral")
+                learning = state.get("learning") or {}
+                try:
+                    micro_exit = market_microstructure.enrich_holdings_for_exits(
+                        state["tickers"],
+                        state["analyses"],
+                        state["portfolio"],
+                        regime,
+                    )
+                    state["microstructureExit"] = micro_exit
+                except Exception:
+                    logger.warning("Microstructure exit enrich failed", exc_info=True)
+                shadow_flags = record_cycle(
+                    state,
+                    total_value=total_value,
+                    regime=regime,
+                    learning=learning,
+                )
+                _check_profit_sells(state, portfolio, shadow_flags=shadow_flags)
+                try:
+                    exit_summary = exit_learning.step(state["tickers"])
+                    state["exitLearning"] = exit_summary
+                except Exception:
+                    logger.warning("Exit learning step failed", exc_info=True)
 
-    save_state(state)
-    payload = build_api_payload(state)
-    payload["error"] = state.get("error")
-    payload["lastUpdate"] = _now_iso()
-    return payload
+                report = state.get("lastAIReport")
+                if report:
+                    watches = []
+                    for symbol in portfolio.holdings:
+                        watch = state["profitWatch"].get(symbol)
+                        if watch and watch.get("status") in ("waiting", "armed", "uptrend"):
+                            watches.append(
+                                {
+                                    "symbol": symbol,
+                                    "label": get_crypto_label(symbol),
+                                    "reason": watch["statusText"],
+                                    "profitPct": watch.get("profitPct"),
+                                }
+                            )
+                            log_watch_event(state, symbol, watch)
+                    if watches:
+                        report = {**report, "watches": watches, "timestamp": _now_iso()}
+                        state["lastAIReport"] = report
+
+        except Exception as exc:
+            logger.exception("Price refresh failed")
+            state["error"] = str(exc)
+
+        save_state(state)
+        payload = build_api_payload(state)
+        payload["error"] = state.get("error")
+        payload["lastUpdate"] = _now_iso()
+        return payload
 
 
 def execute_trading_cycle() -> dict[str, Any]:
@@ -401,6 +403,7 @@ def execute_trading_cycle() -> dict[str, Any]:
         _cycle_running = True
         _cycle_started_at = time.time()
 
+    _trading_state_lock.acquire()
     try:
         state = load_state()
         if state.get("error") and not _try_clear_price_error(state):
@@ -775,5 +778,6 @@ def execute_trading_cycle() -> dict[str, Any]:
         payload["lastUpdate"] = _now_iso()
         return payload
     finally:
+        _trading_state_lock.release()
         with _cycle_running_lock:
             _cycle_running = False
