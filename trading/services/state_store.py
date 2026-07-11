@@ -218,6 +218,68 @@ def patch_narrative_error_state(state: dict[str, Any]) -> None:
         patch_learning_report_pop_fields("narrativeError")
 
 
+def patch_learning_narrative_success(
+    *,
+    narrative: dict[str, Any],
+    narrative_at: str,
+    history_entry: dict[str, Any],
+    history_limit: int,
+    fallback_report: dict[str, Any] | None = None,
+    next_narrative_in_sec: int | None = None,
+) -> None:
+    """Tallenna Gemini-narratiivi koskematta tuoreisiin trading-/kurssikenttiin."""
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        merged = deepcopy(obj.data or {})
+        merged["lastLearningNarrativeAt"] = narrative_at
+        merged["learningNarrative"] = deepcopy(narrative)
+        merged.pop("learningNarrativeError", None)
+        merged.pop("learningNarrativeErrorAt", None)
+        merged.pop("learningNarrativePendingSince", None)
+
+        history = list(merged.get("learningReportHistory") or [])
+        history.insert(0, deepcopy(history_entry))
+        merged["learningReportHistory"] = history[:history_limit]
+
+        report = dict(merged.get("learningReport") or fallback_report or {})
+        report["narrative"] = deepcopy(narrative)
+        report["narrativePending"] = False
+        report["lastNarrativeAt"] = narrative_at
+        if next_narrative_in_sec is not None:
+            report["nextNarrativeInSec"] = next_narrative_in_sec
+        report.pop("narrativeError", None)
+        merged["learningReport"] = report
+
+        obj.data = merged
+        obj.save(update_fields=["data", "updated_at"])
+
+
+def patch_learning_narrative_error(
+    *,
+    message: str,
+    error_at: str,
+    fallback_report: dict[str, Any] | None = None,
+    next_narrative_in_sec: int | None = None,
+) -> None:
+    """Tallenna Gemini-virhe ja pending-siivous ilman koko BotState-snapshotia."""
+    with _state_lock:
+        obj, _ = BotState.objects.get_or_create(pk=1, defaults={"data": default_state()})
+        merged = deepcopy(obj.data or {})
+        merged["learningNarrativeError"] = message
+        merged["learningNarrativeErrorAt"] = error_at
+        merged.pop("learningNarrativePendingSince", None)
+
+        report = dict(merged.get("learningReport") or fallback_report or {})
+        report["narrativePending"] = False
+        report["narrativeError"] = message
+        if next_narrative_in_sec is not None:
+            report["nextNarrativeInSec"] = next_narrative_in_sec
+        merged["learningReport"] = report
+
+        obj.data = merged
+        obj.save(update_fields=["data", "updated_at"])
+
+
 def patch_learning_report_pop_fields(*fields: str) -> None:
     """Poista kenttiä tallennetusta learningReportista."""
     if not fields:
