@@ -214,6 +214,39 @@ def _micro_fields_for_gemini(analysis: dict[str, Any]) -> dict[str, Any]:
     return fields
 
 
+def _pick_micro_bucket_fields(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Tiiviit micro-bucketit pick-snapshoteihin (book/crowd/flow)."""
+    if not analysis.get("microChecked"):
+        return {}
+    fields: dict[str, Any] = {}
+    for src, dst in (
+        ("bookBucket", "book_bucket"),
+        ("crowdBucket", "crowd_bucket"),
+        ("flowBucket", "flow_bucket"),
+    ):
+        if analysis.get(src):
+            fields[dst] = analysis[src]
+    return fields
+
+
+def _scorecard_micro_from_pick(p: dict[str, Any]) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    for src, dst in (
+        ("book_bucket", "entry_book_bucket"),
+        ("crowd_bucket", "entry_crowd_bucket"),
+        ("flow_bucket", "entry_flow_bucket"),
+    ):
+        if p.get(src):
+            fields[dst] = p[src]
+    return fields
+
+
+def _regime_label(regime: dict[str, Any] | str | None) -> str:
+    if isinstance(regime, str):
+        return regime
+    return (regime or {}).get("regime", "neutral")
+
+
 def _analysis_for_symbol(
     sym: str,
     analyses: dict[str, dict[str, Any]],
@@ -233,10 +266,16 @@ def _entry_eligible_for_picks(
     sym: str,
     analyses: dict[str, dict[str, Any]],
     tickers: dict[str, dict[str, Any]],
+    blocked_setups: set[str] | None = None,
+    regime: dict[str, Any] | str | None = None,
 ) -> bool:
     analysis = _analysis_for_symbol(sym, analyses, tickers)
     if analysis.get("condBlocked") or analysis.get("microBlocked"):
         return False
+    if blocked_setups:
+        setup = setup_key_for_analysis(analysis, _regime_label(regime))
+        if setup in blocked_setups:
+            return False
     return entry_volume_ok(analysis) and entry_price_ok(analysis)
 
 
@@ -244,6 +283,8 @@ def _filter_gemini_picks(
     picks: list[str],
     analyses: dict[str, dict[str, Any]],
     tickers: dict[str, dict[str, Any]],
+    blocked_setups: set[str] | None = None,
+    regime: dict[str, Any] | str | None = None,
 ) -> list[str]:
     """Poista alle min-volyymin/hinnan pickit — LLM voi ehdottaa mitä tahansa."""
     filtered: list[str] = []
@@ -253,7 +294,9 @@ def _filter_gemini_picks(
         norm = normalize_symbol(raw)
         if norm in filtered:
             continue
-        if _entry_eligible_for_picks(norm, analyses, tickers):
+        if _entry_eligible_for_picks(
+            norm, analyses, tickers, blocked_setups=blocked_setups, regime=regime
+        ):
             filtered.append(norm)
     return filtered
 
@@ -312,7 +355,10 @@ def _build_scan_leaders(
 def _technical_top_picks(
     analyses: dict[str, dict[str, Any]],
     limit: int = 4,
+    blocked_setups: set[str] | None = None,
+    regime: dict[str, Any] | str | None = None,
 ) -> list[str]:
+    regime_label = _regime_label(regime)
     ranked = sorted(
         [
             (sym, a)
@@ -323,6 +369,10 @@ def _technical_top_picks(
             and not a.get("microBlocked")
             and entry_volume_ok(a)
             and entry_price_ok(a)
+            and (
+                not blocked_setups
+                or setup_key_for_analysis(a, regime_label) not in blocked_setups
+            )
         ],
         key=lambda x: (
             -_effective_technical_score(x[1]),
@@ -647,6 +697,7 @@ def _pick_entry_row(
         "mtf_align": merged.get("mtfAlign"),
         "technical_score": merged.get("score"),
         "deep_analysis": not merged.get("quick", True),
+        **_pick_micro_bucket_fields(merged),
     }
 
 
@@ -750,6 +801,7 @@ def _build_gemini_pick_scorecard(
                 "entry_rsi": p.get("rsi"),
                 "entry_mtf_align": p.get("mtf_align"),
                 "entry_score": p.get("technical_score"),
+                **_scorecard_micro_from_pick(p),
             }
         )
 
@@ -768,6 +820,7 @@ def _build_gemini_pick_scorecard(
                 "symbol": sym,
                 "return_since_pct": ret,
                 "entry_setup": s.get("setup"),
+                **_scorecard_micro_from_pick(s),
             }
         )
 
@@ -979,11 +1032,52 @@ def log_startup_status() -> None:
     )
 
 
+def _compact_setup_summary(
+    setup_memory: dict[str, dict[str, Any]],
+    *,
+    blocked_keys: list[str] | None = None,
+    positive: bool | None = None,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    rows: list[tuple[float, str, dict[str, Any]]] = []
+    blocked_set = set(blocked_keys or [])
+    for setup, meta in setup_memory.items():
+        exp = float(meta.get("expectancy_eur") or 0)
+        if blocked_keys is not None:
+            if setup not in blocked_set:
+                continue
+        elif positive is True and exp <= 0:
+            continue
+        elif positive is False and exp >= 0:
+            continue
+        rows.append((exp, setup, meta))
+
+    if blocked_keys is not None:
+        order = {k: i for i, k in enumerate(blocked_keys)}
+        rows.sort(key=lambda x: order.get(x[1], 999))
+    elif positive is False:
+        rows.sort(key=lambda x: x[0])
+    else:
+        rows.sort(key=lambda x: -x[0])
+
+    return [
+        {
+            "setup": setup,
+            "expectancy_eur": meta.get("expectancy_eur"),
+            "trades": meta.get("trades"),
+            "win_rate": meta.get("win_rate"),
+        }
+        for _, setup, meta in rows[:limit]
+    ]
+
+
 def _compact_learning(learning: dict[str, Any] | None) -> dict[str, Any]:
     """Tiivis oppimisyhteenveto promptiin — ei raakatilastoja/koko symbolimuistia (tokenit)."""
     if not learning:
         return {}
     mem = learning.get("symbol_memory") or {}
+    setup_memory = learning.get("setup_memory") or {}
+    blocked_keys = list(learning.get("blocked_setups") or [])[:8]
     losers = sorted(
         (s for s, m in mem.items() if (m.get("score_adjust") or 0) < 0),
         key=lambda s: mem[s].get("net_eur", 0),
@@ -1000,6 +1094,11 @@ def _compact_learning(learning: dict[str, Any] | None) -> dict[str, Any]:
         "overall_expectancy_eur": learning.get("overall_expectancy_eur"),
         "stats": learning.get("stats"),
         "blocked_buys": learning.get("blocked_buys"),
+        "blocked_setups": _compact_setup_summary(
+            setup_memory, blocked_keys=blocked_keys, limit=8
+        ),
+        "setup_winners": _compact_setup_summary(setup_memory, positive=True, limit=4),
+        "setup_losers": _compact_setup_summary(setup_memory, positive=False, limit=4),
         "losers": losers,
         "winners": winners,
     }
@@ -1069,6 +1168,7 @@ def advise_portfolio(
         portfolio, label_fn, total_value, last_gemini_snapshot, tickers
     )
     costs = trade_history.get("costs_and_churn") or {}
+    blocked_setups = set((learning or {}).get("blocked_setups") or [])
     regime_json = json.dumps(regime or {}, ensure_ascii=False)
     learning_json = json.dumps(_compact_learning(learning), ensure_ascii=False)
     market_setups_json = json.dumps((learning or {}).get("market_setups") or {}, ensure_ascii=False)
@@ -1087,6 +1187,8 @@ Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 - Jos rotation-expectancy negatiivinen → ÄLÄ rotatoi pienistä syistä, pidä voittajia
 - Painota kauppatyyppejä joilla positiivinen expectancy
 - blocked_buys = älä osta näitä nyt (tuore tappio); losers = vältä, winners = suosi
+- blocked_setups = asetelmat joilla negatiivinen expectancy omista kaupoista — botti estää uudet ostot (setup-avain)
+- setup_winners / setup_losers = parhaiten/huonoiten menneet asetelmat historiasta — sovella ennen top_picks
 
 Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h/4h tuotto):
 {market_setups_json}
@@ -1125,6 +1227,7 @@ Historian käyttö:
 - pick_scorecard.return_hypothetical_pct: vertailu vain toteutuneille — näet eron oikean kaupan ja “olisiko ostanut snapshot-hinnalla” välillä
 - last_gemini_review: salkun kokonaismuutos edellisestä analyysistä
 - pick_scorecard.lessons: tiivistetyt opit — sovella ennen uusia top_picks-valintoja
+- pick_scorecard entry_book_bucket / entry_flow_bucket / entry_crowd_bucket = microstructure pick-hetkellä (book/flow/crowd)
 - costs_and_churn: kuluja ei ole — keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä
 - Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä (RSI<40, EMA bullish)
 - Voittavilla symboleilla pidä pidempään (katso avg_hold_hours_on_wins)
@@ -1145,6 +1248,7 @@ Kaupankäyntisäännöt (voitto edellä):
 13. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
 14. ÄLÄ valitse top_picks-kohteita joissa micro_blocked=true tai setup_shadow_blocked=true
 15. Suosi book_imbalance>0 ja flow_imbalance_5m>0 kun muu tekninen kuva vahva; vältä korkeaa book_spread_pct ja crowd_ls_ratio>0.85 bear-regiimissä
+16. ÄLÄ valitse top_picks-kohteita joiden setup vastaa blocked_setups-listaa (oma kauppahistoria)
 
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
@@ -1230,11 +1334,15 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 ],
                 analyses,
                 tickers,
+                blocked_setups=blocked_setups,
+                regime=regime,
             )[:4]
 
             top_picks_fallback = False
             if not top_picks:
-                top_picks = _technical_top_picks(analyses, 4)
+                top_picks = _technical_top_picks(
+                    analyses, 4, blocked_setups=blocked_setups, regime=regime
+                )
                 top_picks_fallback = True
 
             pick_set = set(top_picks)
@@ -1243,7 +1351,9 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 analysis = _analysis_for_symbol(norm, analyses, tickers)
                 if signal.get("action") == "buy" and (
                     norm not in pick_set
-                    or not _entry_eligible_for_picks(norm, analyses, tickers)
+                    or not _entry_eligible_for_picks(
+                        norm, analyses, tickers, blocked_setups=blocked_setups, regime=regime
+                    )
                 ):
                     signal = dict(signal)
                     signal["action"] = "hold"
@@ -1252,6 +1362,10 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                         reject = "varjo-esto"
                     elif analysis.get("microBlocked"):
                         reject = "micro-esto"
+                    elif blocked_setups and setup_key_for_analysis(
+                        analysis, _regime_label(regime)
+                    ) in blocked_setups:
+                        reject = "setup-esto"
                     signal["reason"] = (
                         (signal.get("reason") or "") + f" [hylätty: {reject}]"
                     ).strip()[:240]

@@ -205,6 +205,54 @@ def _append_executed_lessons(
     scorecard["lessons"] = lessons[:6]
 
 
+def _apply_trade_micro_buckets(pick: dict[str, Any], meta: dict[str, Any]) -> None:
+    if pick.get("entry_book_bucket"):
+        return
+    for src, dst in (
+        ("bookBucket", "entry_book_bucket"),
+        ("crowdBucket", "entry_crowd_bucket"),
+        ("flowBucket", "entry_flow_bucket"),
+    ):
+        if meta.get(src) and not pick.get(dst):
+            pick[dst] = meta[src]
+
+
+def _enrich_pick_micro_from_trades(
+    scorecard: dict[str, Any],
+    snapshot: dict[str, Any],
+    trades: list[dict[str, Any]],
+) -> None:
+    """Täydennä pick_scorecard micro-bucketit ostotapahtuman metasta jos snapshot puuttuu."""
+    snap_time = _parse_time(snapshot.get("timestamp"))
+    if not snap_time:
+        return
+
+    top_picks = {
+        normalize_symbol(str(s)) for s in (snapshot.get("top_picks") or []) if s
+    }
+    pick_meta: dict[str, dict[str, Any]] = {}
+    for trade in sorted(trades, key=lambda t: t.get("timestamp", "")):
+        if trade.get("type") != "buy":
+            continue
+        sym = normalize_symbol(str(trade.get("symbol") or ""))
+        if sym in pick_meta:
+            continue
+        trade_time = _parse_time(trade.get("timestamp"))
+        if trade_time is None or trade_time < snap_time:
+            continue
+        if not _is_gemini_pick_buy(trade, top_picks):
+            continue
+        meta = entry_meta_from_trade(trade)
+        if meta.get("bookBucket") or meta.get("crowdBucket") or meta.get("flowBucket"):
+            pick_meta[sym] = meta
+
+    for pick in scorecard.get("pick_outcomes") or []:
+        sym = normalize_symbol(str(pick.get("symbol") or ""))
+        meta = pick_meta.get(sym)
+        if meta:
+            _apply_trade_micro_buckets(pick, meta)
+
+
 def build_pick_scorecard(
     snapshot: dict[str, Any] | None,
     tickers: dict[str, dict[str, Any]],
@@ -214,7 +262,13 @@ def build_pick_scorecard(
 ) -> dict[str, Any] | None:
     """Scorecard snapshot-hinnasta; toteutuneet pick-ostot korvataan FIFO P/L:llä."""
     scorecard = _build_gemini_pick_scorecard(snapshot, tickers, total_value, label_fn)
-    if not scorecard or not snapshot or not trades:
+    if not scorecard or not snapshot:
+        return scorecard
+
+    if trades:
+        _enrich_pick_micro_from_trades(scorecard, snapshot, trades)
+
+    if not trades:
         return scorecard
 
     executed = _fifo_executed_pick_outcomes(snapshot, trades, tickers)
