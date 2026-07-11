@@ -478,6 +478,14 @@ def execute_trading_cycle() -> dict[str, Any]:
                 state["portfolio"],
                 fetch_candles,
             )
+
+        # Varjo-oppiminen analyysiin ennen Geminia ja päätöksiä (condAdjust / condBlocked)
+        try:
+            market_learning.apply(state["analyses"], regime, ml_stats)
+        except Exception:
+            logger.warning("Market learning apply failed", exc_info=True)
+
+        if gemini_configured() and due_for_gemini:
             gemini_insights, gemini_status = advise_portfolio(
                 state["tickers"],
                 state["analyses"],
@@ -555,12 +563,6 @@ def execute_trading_cycle() -> dict[str, Any]:
         else:
             gemini_status = gemini_status_snapshot()
         state["geminiStatus"] = gemini_status
-
-        # Liitä opittu olosuhdesäätö lopullisiin analyyseihin (myös Gemini-syväanalyysin jälkeen)
-        try:
-            market_learning.apply(state["analyses"], regime, ml_stats)
-        except Exception:
-            logger.warning("Market learning apply failed", exc_info=True)
 
         portfolio = Portfolio(state["portfolio"])
         total_value = portfolio.get_total_value(state["tickers"])

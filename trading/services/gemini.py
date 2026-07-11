@@ -17,7 +17,7 @@ from typing import Any
 import requests
 
 from .bitfinex import is_stablecoin, normalize_symbol
-from .ai_trader import MIN_ENTRY_PRICE_EUR, MIN_ENTRY_VOLUME_EUR, entry_volume_ok
+from .ai_trader import MIN_ENTRY_PRICE_EUR, MIN_ENTRY_VOLUME_EUR, entry_price_ok, entry_volume_ok
 from .market_learning import setup_key_for_analysis
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,52 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+def _effective_technical_score(analysis: dict[str, Any]) -> float:
+    return float(analysis.get("score") or 0) + float(analysis.get("condAdjust") or 0)
+
+
+def _analysis_for_symbol(
+    sym: str,
+    analyses: dict[str, dict[str, Any]],
+    tickers: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    norm = normalize_symbol(str(sym))
+    analysis = dict(analyses.get(norm) or analyses.get(sym) or {})
+    ticker = tickers.get(norm) or tickers.get(sym) or {}
+    if not analysis.get("volumeEur") and ticker.get("volumeEur"):
+        analysis["volumeEur"] = ticker["volumeEur"]
+    if not analysis.get("currentPrice") and ticker.get("last"):
+        analysis["currentPrice"] = ticker["last"]
+    return analysis
+
+
+def _entry_eligible_for_picks(
+    sym: str,
+    analyses: dict[str, dict[str, Any]],
+    tickers: dict[str, dict[str, Any]],
+) -> bool:
+    analysis = _analysis_for_symbol(sym, analyses, tickers)
+    return entry_volume_ok(analysis) and entry_price_ok(analysis)
+
+
+def _filter_gemini_picks(
+    picks: list[str],
+    analyses: dict[str, dict[str, Any]],
+    tickers: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Poista alle min-volyymin/hinnan pickit — LLM voi ehdottaa mitä tahansa."""
+    filtered: list[str] = []
+    for raw in picks:
+        if not isinstance(raw, str) or is_stablecoin(raw):
+            continue
+        norm = normalize_symbol(raw)
+        if norm in filtered:
+            continue
+        if _entry_eligible_for_picks(norm, analyses, tickers):
+            filtered.append(norm)
+    return filtered
+
+
 def _build_scan_leaders(
     tickers: dict[str, dict[str, Any]],
     analyses: dict[str, dict[str, Any]],
@@ -188,6 +234,8 @@ def _build_scan_leaders(
         if is_stablecoin(symbol):
             continue
         analysis = analyses.get(symbol, {})
+        if analysis.get("condBlocked"):
+            continue
         if analysis.get("currentPrice", 0) <= 0 or not entry_volume_ok(analysis):
             continue
         change_24h = analysis.get("changePct")
@@ -197,7 +245,8 @@ def _build_scan_leaders(
             {
                 "symbol": symbol,
                 "label": label_fn(symbol),
-                "technical_score": analysis.get("score", 0),
+                "technical_score": round(_effective_technical_score(analysis), 2),
+                "cond_adjust": analysis.get("condAdjust"),
                 "change_24h_pct": round(change_24h, 2),
                 "change_1h_pct": round(analysis["change1hPct"], 2)
                 if analysis.get("change1hPct") is not None
@@ -233,10 +282,12 @@ def _technical_top_picks(
             for sym, a in analyses.items()
             if not is_stablecoin(sym)
             and a.get("currentPrice", 0) > 0
+            and not a.get("condBlocked")
             and entry_volume_ok(a)
+            and entry_price_ok(a)
         ],
         key=lambda x: (
-            -x[1].get("score", 0),
+            -_effective_technical_score(x[1]),
             -(x[1].get("changePct") or x[1].get("momentum") or 0),
             -(x[1].get("volumeEur") or 0),
         ),
@@ -289,7 +340,9 @@ def _build_market_summary(
                 "ema_trend": ema_trend,
                 "momentum_pct": round(analysis.get("momentum", 0), 2),
                 "technical_action": analysis.get("action", "hold"),
-                "technical_score": analysis.get("score", 0),
+                "technical_score": round(_effective_technical_score(analysis), 2),
+                "cond_adjust": analysis.get("condAdjust"),
+                "setup_shadow_blocked": bool(analysis.get("condBlocked")),
                 "deep_analysis": not analysis.get("quick", True),
                 "held": bool(holding),
                 "avg_buy_eur": round(holding["avgPrice"], 4) if holding else None,
@@ -333,7 +386,9 @@ def _build_market_summary(
                 "ema_trend": ema_trend,
                 "momentum_pct": round(analysis.get("momentum", 0), 2),
                 "technical_action": analysis.get("action", "hold"),
-                "technical_score": analysis.get("score", 0),
+                "technical_score": round(_effective_technical_score(analysis), 2),
+                "cond_adjust": analysis.get("condAdjust"),
+                "setup_shadow_blocked": bool(analysis.get("condBlocked")),
                 "deep_analysis": not analysis.get("quick", True),
                 "held": True,
                 "avg_buy_eur": round(avg, 4),
@@ -993,10 +1048,12 @@ Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 - Painota kauppatyyppejä joilla positiivinen expectancy
 - blocked_buys = älä osta näitä nyt (tuore tappio); losers = vältä, winners = suosi
 
-Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h tuotto, setup = regiimi|24h|MTF|RSI|vol|deep):
+Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h/4h tuotto):
 {market_setups_json}
+- setup-avain = regiimi|24h|MTF|RSI|vol|deep|book|crowd|flow (esim. bull|u2|mtf+|rsi_md|vol_lg|deep|bk+|cr0|fl+)
 - best = historiallisesti tuottoisin asetelma, worst = häviävin → vältä worst-tyyppisiä ostoja
-- setup-avain on rikas (esim. bull|u2|mtf+|rsi_md|vol_lg|deep) — vertaa pick_scorecardin entry_setup-kenttiin
+- technical_score markkinadatassa sisältää cond_adjust (varjo-oppimisen score-säätö)
+- setup_shadow_blocked=true → varjo-oppiminen estäisi uuden oston — älä valitse top_picks-listaan
 
 Kustannukset:
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
@@ -1114,23 +1171,46 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                     signal["alloc_pct"] = max(0.0, min(100.0, float(item["alloc_pct"])))
                 signals_map[sym] = signal
 
-            top_picks = [
-                s
-                for s in (parsed.get("top_picks") or [])
-                if isinstance(s, str) and not is_stablecoin(s)
-            ][:4]
+            top_picks = _filter_gemini_picks(
+                [
+                    s
+                    for s in (parsed.get("top_picks") or [])
+                    if isinstance(s, str) and not is_stablecoin(s)
+                ],
+                analyses,
+                tickers,
+            )[:4]
 
             top_picks_fallback = False
             if not top_picks:
                 top_picks = _technical_top_picks(analyses, 4)
                 top_picks_fallback = True
 
+            pick_set = set(top_picks)
+            for sym, signal in list(signals_map.items()):
+                norm = normalize_symbol(str(sym))
+                analysis = _analysis_for_symbol(norm, analyses, tickers)
+                if signal.get("action") == "buy" and (
+                    norm not in pick_set
+                    or not _entry_eligible_for_picks(norm, analyses, tickers)
+                    or analysis.get("condBlocked")
+                ):
+                    signal = dict(signal)
+                    signal["action"] = "hold"
+                    signal["reason"] = (
+                        (signal.get("reason") or "") + " [hylätty: volyymi/hinta/varjo-esto]"
+                    ).strip()[:240]
+                    signals_map[sym] = signal
+
             allocations_map: dict[str, float] = {}
             for item in parsed.get("allocations") or []:
                 sym = item.get("symbol")
                 if not sym or item.get("alloc_pct") is None or is_stablecoin(str(sym)):
                     continue
-                allocations_map[normalize_symbol(str(sym))] = max(
+                norm = normalize_symbol(str(sym))
+                if norm not in pick_set:
+                    continue
+                allocations_map[norm] = max(
                     0.0, min(100.0, float(item["alloc_pct"]))
                 )
 
