@@ -180,6 +180,40 @@ def _effective_technical_score(analysis: dict[str, Any]) -> float:
     return float(analysis.get("score") or 0) + float(analysis.get("condAdjust") or 0)
 
 
+def _micro_fields_for_gemini(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Tiiviit order book / flow / crowd -kentät Geminin kaupankäyntipromptiin."""
+    if not analysis.get("microChecked"):
+        return {}
+    fields: dict[str, Any] = {}
+    book_imb = analysis.get("bookImbalance")
+    if book_imb is not None:
+        fields["book_imbalance"] = round(float(book_imb), 3)
+    spread = analysis.get("bookSpreadPct")
+    if spread is not None:
+        fields["book_spread_pct"] = round(float(spread), 3)
+    ls = analysis.get("longShortRatio")
+    if ls is not None:
+        fields["crowd_ls_ratio"] = round(float(ls), 3)
+    flow5 = analysis.get("flowImbalance5m")
+    if flow5 is not None:
+        fields["flow_imbalance_5m"] = round(float(flow5), 3)
+    elif analysis.get("flowImbalance") is not None:
+        fields["flow_imbalance_5m"] = round(float(analysis["flowImbalance"]), 3)
+    for src, dst in (
+        ("bookBucket", "book_bucket"),
+        ("crowdBucket", "crowd_bucket"),
+        ("flowBucket", "flow_bucket"),
+    ):
+        if analysis.get(src):
+            fields[dst] = analysis[src]
+    micro_adj = analysis.get("microAdjust")
+    if micro_adj is not None and float(micro_adj) != 0:
+        fields["micro_adjust"] = round(float(micro_adj), 2)
+    if analysis.get("microBlocked"):
+        fields["micro_blocked"] = True
+    return fields
+
+
 def _analysis_for_symbol(
     sym: str,
     analyses: dict[str, dict[str, Any]],
@@ -201,6 +235,8 @@ def _entry_eligible_for_picks(
     tickers: dict[str, dict[str, Any]],
 ) -> bool:
     analysis = _analysis_for_symbol(sym, analyses, tickers)
+    if analysis.get("condBlocked") or analysis.get("microBlocked"):
+        return False
     return entry_volume_ok(analysis) and entry_price_ok(analysis)
 
 
@@ -234,7 +270,7 @@ def _build_scan_leaders(
         if is_stablecoin(symbol):
             continue
         analysis = analyses.get(symbol, {})
-        if analysis.get("condBlocked"):
+        if analysis.get("condBlocked") or analysis.get("microBlocked"):
             continue
         if analysis.get("currentPrice", 0) <= 0 or not entry_volume_ok(analysis):
             continue
@@ -260,6 +296,7 @@ def _build_scan_leaders(
                     if analysis.get("ema9") is not None
                     else None
                 ),
+                **_micro_fields_for_gemini(analysis),
             }
         )
     rows.sort(
@@ -283,6 +320,7 @@ def _technical_top_picks(
             if not is_stablecoin(sym)
             and a.get("currentPrice", 0) > 0
             and not a.get("condBlocked")
+            and not a.get("microBlocked")
             and entry_volume_ok(a)
             and entry_price_ok(a)
         ],
@@ -354,6 +392,7 @@ def _build_market_summary(
                     if holding and holding.get("avgPrice")
                     else None
                 ),
+                **_micro_fields_for_gemini(analysis),
             }
         )
 
@@ -393,6 +432,7 @@ def _build_market_summary(
                 "held": True,
                 "avg_buy_eur": round(avg, 4),
                 "position_pnl_pct": round(((ticker.get("last", 0) - avg) / avg) * 100, 2) if avg else None,
+                **_micro_fields_for_gemini(analysis),
             }
         )
 
@@ -1055,6 +1095,15 @@ Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h/4h tuotto):
 - technical_score markkinadatassa sisältää cond_adjust (varjo-oppimisen score-säätö)
 - setup_shadow_blocked=true → varjo-oppiminen estäisi uuden oston — älä valitse top_picks-listaan
 
+Bitfinex microstructure (order book, trade flow, long/short crowd — live-botissa):
+- book_imbalance: ostopaine vs myyntipaine (−1…+1, + = ostopainetta)
+- book_spread_pct: spread % — korkea = illiquid, botti estää ostot
+- crowd_ls_ratio: long/short-suhde (1.0 = tasapaino, >1 = enemmän longeja)
+- flow_imbalance_5m: aggressiivinen osto-/myyntivirta 5 min (−1…+1)
+- book_bucket / crowd_bucket / flow_bucket: tiivistelmä setup-avaimessa (bk+/cr0/fl+)
+- micro_adjust: botti lisää/vähentää scorea microstructuren perusteella
+- micro_blocked=true → botti estäisi uuden oston (leveä spread, ohut book, bear+crowd long) — älä top_picks
+
 Kustannukset:
 - Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
 - Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista maksetaan ERIKSEEN (ei vähennetä salkusta) — ei estä rotaatiota. Anna silti selkeiden voittajien juosta.
@@ -1094,6 +1143,8 @@ Kaupankäyntisäännöt (voitto edellä):
 11. ÄLÄ valitse top_picks-kohteita joiden hinta < {MIN_ENTRY_PRICE_EUR:.0f} € (esim. DOGE) — alle euron kolikot eivät kelpaa uusille ostoille
 12. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
 13. Perustele hintaliike AINA datan muutos-%:llä (change_1h_pct, change_24h_pct) — älä keksi “massiivista nousua” jos 24h on alle +2 %
+14. ÄLÄ valitse top_picks-kohteita joissa micro_blocked=true tai setup_shadow_blocked=true
+15. Suosi book_imbalance>0 ja flow_imbalance_5m>0 kun muu tekninen kuva vahva; vältä korkeaa book_spread_pct ja crowd_ls_ratio>0.85 bear-regiimissä
 
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
@@ -1105,7 +1156,7 @@ TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stableco
 momentum_johtajat (tekninen esikarsinta KAIKISTA {market_count} parista):
 {json.dumps(scan_leaders, ensure_ascii=False)}
 
-Markkinadata — top 20 volyymillä + omistukset, stablecoinit pois (change_1h/4h/24h, RSI, EMA-trendi, momentum):
+Markkinadata — top 20 volyymillä + omistukset, stablecoinit pois (change_1h/4h/24h, RSI, EMA, momentum, microstructure):
 {json.dumps(market, ensure_ascii=False)}
 
 Vastaa VAIN validilla JSON:lla (ei markdownia):
@@ -1193,12 +1244,16 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 if signal.get("action") == "buy" and (
                     norm not in pick_set
                     or not _entry_eligible_for_picks(norm, analyses, tickers)
-                    or analysis.get("condBlocked")
                 ):
                     signal = dict(signal)
                     signal["action"] = "hold"
+                    reject = "volyymi/hinta"
+                    if analysis.get("condBlocked"):
+                        reject = "varjo-esto"
+                    elif analysis.get("microBlocked"):
+                        reject = "micro-esto"
                     signal["reason"] = (
-                        (signal.get("reason") or "") + " [hylätty: volyymi/hinta/varjo-esto]"
+                        (signal.get("reason") or "") + f" [hylätty: {reject}]"
                     ).strip()[:240]
                     signals_map[sym] = signal
 
