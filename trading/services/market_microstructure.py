@@ -228,12 +228,29 @@ MICRO_PRESERVE_KEYS = (
     "flowBucket",
 )
 
+_MICRO_OBSERVATION_KEYS = (
+    "bookImbalance",
+    "bookSpreadPct",
+    "bookBidDepthEur",
+    "bookAskDepthEur",
+    "longShortRatio",
+    "flowImbalance",
+    "flowImbalance1m",
+    "flowImbalance5m",
+    "flowLargeTradeRatio",
+    "flowLargeBuyBias",
+)
+
 
 def carry_micro_fields(prev: dict[str, Any], target: dict[str, Any]) -> None:
     """Säilytä microstructure-kentät kun analyysi korvataan (esim. Gemini deep)."""
     for key in MICRO_PRESERVE_KEYS:
         if key in prev:
             target[key] = prev[key]
+
+
+def _has_micro_observation(analysis: dict[str, Any]) -> bool:
+    return any(analysis.get(key) is not None for key in _MICRO_OBSERVATION_KEYS)
 
 
 _MICRO_REASON_PREFIXES = (
@@ -261,6 +278,13 @@ def _score_and_block(analysis: dict[str, Any], regime: str) -> None:
     adjust = 0.0
     blocked = False
     reasons: list[str] = _strip_micro_reasons(list(analysis.get("reasons") or []))
+
+    if not _has_micro_observation(analysis):
+        analysis["microAdjust"] = 0.0
+        analysis["microBlocked"] = False
+        analysis["microChecked"] = False
+        analysis["reasons"] = reasons
+        return
 
     imbalance = analysis.get("bookImbalance")
     if imbalance is not None:
@@ -415,7 +439,7 @@ def enrich_analyses(
         analysis = analyses.get(sym)
         if not analysis:
             continue
-        if not analysis.get("microChecked"):
+        if not analysis.get("microChecked") or not _has_micro_observation(analysis):
             _score_and_block(analysis, regime)
 
     return summary

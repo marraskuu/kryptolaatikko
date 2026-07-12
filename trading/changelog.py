@@ -21,6 +21,10 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-12",
         "entries": [
             {
+                "title": "Microstructure-oston portti kovennettu",
+                "body": "Tyhjä tai parseamaton order book / trade flow / crowd -vastaus ei enää merkitse kohdetta tarkistetuksi, vaan osto pysyy estettynä kunnes oikea micro-data saadaan.",
+            },
+            {
                 "title": "Gemini pick-suodatus: micro fail-closed",
                 "body": "Pickit ja scan leaders käyttävät samaa blocks_entry-logiikkaa kuin live-ostot — ilman microChecked-tarkistusta ehdotusta ei näytetä.",
             },
