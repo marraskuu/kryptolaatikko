@@ -2349,6 +2349,23 @@ body.modal-open {
   text-decoration: underline;
 }
 
+.site-footer-links {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.site-footer-links a {
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.site-footer-links a:hover {
+  text-decoration: underline;
+}
+
 /* Muutosloki /muutokset */
 .changelog-page .header-title-row {
   align-items: flex-start;

@@ -18,6 +18,10 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-12",
         "entries": [
             {
+                "title": "Muutosloki-linkki etusivun footeriin",
+                "body": "Selkeä linkki “Muutokset ja päivitykset” sivun alareunassa.",
+            },
+            {
                 "title": "Muutosloki-sivu (/muutokset)",
                 "body": "Uusi sivu kaikille julkaistuille muutoksille päivämäärittäin.",
             },
