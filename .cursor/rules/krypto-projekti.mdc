@@ -21,7 +21,7 @@ Bitfinex-kurssit, paper trading 1000 €, AI-kaupankäynti (tekninen analyysi + 
 - **Tila:** `trading/models.py` → `BotState` (pk=1 salkku, pk=2 markkina-oppiminen), `trading/services/state_store.py`
 - **Botti:** `bot_worker.py`, `engine.py`, `ai_trader.py`, `gemini.py`, `market_learning.py`
 - **UI:** `trading/templates/trading/index.html`, `trading/static/trading/js/app.js`
-- **Muutosloki:** `trading/changelog.py` → julkinen sivu `/muutokset/` — **lisää merkintä jokaisen käyttäjälle näkyvän deployn yhteydessä**
+- **Muutosloki:** `trading/changelog.py` → julkinen sivu `/muutokset/` — **lisää merkintä jokaisen käyttäjälle näkyvän deployn yhteydessä** (paitsi `/stats`-sivun muutokset — ne eivät kuulu lokiin)
 
 ## Keskeiset säännöt (käyttäjän toiveet)
 

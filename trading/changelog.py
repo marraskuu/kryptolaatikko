@@ -3,6 +3,9 @@ Julkinen muutosloki — /muutokset/
 
 Lisää uusi päivä tai uudet kohdat aina kun teet käyttäjälle näkyvän muutoksen
 (deploy, uusi ominaisuus, merkittävä korjaus). Uusin päivä ensin.
+
+Älä lisää /stats-sivun (kävijätilastot, keston seuranta, stats-kirjautuminen)
+muutoksia tähän lokiin — ne eivät kuulu julkiseen muutoslokiin.
 """
 
 from __future__ import annotations
@@ -53,20 +56,11 @@ CHANGELOG: list[Day] = [
         ],
     },
     {
-        "date": "2026-07-09",
-        "entries": [
-            {
-                "title": "Kävijäseurannan korjaus",
-                "body": "Oikeat käynnit tallentuvat myös prerender- ja IP-virhetilanteissa; asiakaspuolen varmuuskäynti.",
-            },
-        ],
-    },
-    {
         "date": "2026-07-07",
         "entries": [
             {
                 "title": "Turvallisuuskovennus",
-                "body": "ALLOWED_HOSTS, SECRET_KEY-tarkistus, rate limitit stats-kirjautumiseen ja export-endpointeihin.",
+                "body": "ALLOWED_HOSTS, SECRET_KEY-tarkistus ja rate limitit export-endpointeihin.",
             },
             {"title": "Yhteystiedot headeriin", "body": "Sähköpostilinkki botin URL:n tilalle."},
             {"title": "CI-korjaus", "body": "GitHub Actions Django-check toimii tuotanto-SECRET_KEY-asetuksella."},
@@ -108,14 +102,6 @@ CHANGELOG: list[Day] = [
     {
         "date": "2026-07-05",
         "entries": [
-            {
-                "title": "Kävijätilastot (/stats)",
-                "body": "Suojattu Django-kirjautuminen, päivittäiset käynnit, maat, IP/ISP, kesto ja viisipalkki.",
-            },
-            {
-                "title": "Sivun keston seuranta",
-                "body": "Selain lähettää keston poistuessa; keskimääräiset kestot tänään/kuukausi/vuosi.",
-            },
             {"title": "SEO ja löydettävyys", "body": "robots.txt, sitemap.xml, parannetut meta-tagit, llms.txt, Schema.org JSON-LD."},
             {
                 "title": "Karhu-puolustus",
