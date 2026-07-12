@@ -124,6 +124,20 @@ class BlockedSetupFilterTests(TestCase):
             )
         )
 
+    def test_filters_blocked_setup_after_deep_enrichment(self):
+        deep_ok = dict(self.analyses["tOKUSD"], quick=False)
+        analyses = dict(self.analyses, tOKUSD=deep_ok)
+
+        picks = _filter_gemini_picks(
+            ["tOKUSD", "tGOODUSD"],
+            analyses,
+            self.tickers,
+            blocked_setups=self.blocked,
+            regime={"regime": "bear"},
+        )
+
+        self.assertEqual(picks, ["tGOODUSD"])
+
 
 class PickScorecardMicroEnrichmentTests(TestCase):
     def test_enriches_from_trade_meta(self):

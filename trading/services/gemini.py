@@ -18,7 +18,7 @@ import requests
 
 from .bitfinex import is_stablecoin, normalize_symbol
 from .ai_trader import MIN_ENTRY_PRICE_EUR, MIN_ENTRY_VOLUME_EUR, entry_price_ok, entry_volume_ok
-from .market_learning import setup_key_for_analysis
+from .market_learning import setup_key_for_analysis, setup_matches_blocked
 
 logger = logging.getLogger(__name__)
 
@@ -273,8 +273,7 @@ def _entry_eligible_for_picks(
     if analysis.get("condBlocked") or analysis.get("microBlocked"):
         return False
     if blocked_setups:
-        setup = setup_key_for_analysis(analysis, _regime_label(regime))
-        if setup in blocked_setups:
+        if setup_matches_blocked(analysis, _regime_label(regime), blocked_setups):
             return False
     return entry_volume_ok(analysis) and entry_price_ok(analysis)
 
@@ -371,7 +370,7 @@ def _technical_top_picks(
             and entry_price_ok(a)
             and (
                 not blocked_setups
-                or setup_key_for_analysis(a, regime_label) not in blocked_setups
+                or not setup_matches_blocked(a, regime_label, blocked_setups)
             )
         ],
         key=lambda x: (
@@ -1362,9 +1361,9 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                         reject = "varjo-esto"
                     elif analysis.get("microBlocked"):
                         reject = "micro-esto"
-                    elif blocked_setups and setup_key_for_analysis(
-                        analysis, _regime_label(regime)
-                    ) in blocked_setups:
+                    elif blocked_setups and setup_matches_blocked(
+                        analysis, _regime_label(regime), blocked_setups
+                    ):
                         reject = "setup-esto"
                     signal["reason"] = (
                         (signal.get("reason") or "") + f" [hylätty: {reject}]"
