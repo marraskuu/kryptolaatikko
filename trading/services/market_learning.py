@@ -17,7 +17,7 @@ Kevyt toteutus:
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Iterable
 
 from .bitfinex import is_stablecoin
 from .market_microstructure import book_bucket, crowd_bucket, flow_bucket
@@ -157,6 +157,30 @@ def _bucket_keys_fallback(analysis: dict[str, Any], regime: Any) -> list[str]:
 def setup_key_for_analysis(analysis: dict[str, Any], regime: Any) -> str:
     """Julkinen asetelma-avain — rikkain muoto (sama kuin varjo-oppimisessa)."""
     return _bucket_keys_fallback(analysis, regime)[0]
+
+
+def _with_depth_variant(key: str) -> list[str]:
+    parts = key.split("|")
+    if len(parts) <= 5 or parts[5] not in ("quick", "deep"):
+        return [key]
+    alt = parts.copy()
+    alt[5] = "deep" if parts[5] == "quick" else "quick"
+    return [key, "|".join(alt)]
+
+
+def setup_matches_blocked(
+    analysis: dict[str, Any],
+    regime: Any,
+    blocked_setups: Iterable[str] | None,
+) -> bool:
+    """Tunnista sama opittu setup vaikka Gemini/deep-rikastus vaihtaisi vain quick/deep-tokenin."""
+    blocked = {str(key) for key in (blocked_setups or []) if key}
+    if not blocked:
+        return False
+    for key in _bucket_keys_fallback(analysis, regime):
+        if any(candidate in blocked for candidate in _with_depth_variant(key)):
+            return True
+    return False
 
 
 def _bucket_key(analysis: dict[str, Any], regime: str) -> str:

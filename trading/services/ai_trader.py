@@ -909,7 +909,7 @@ def _is_buy_blocked(
         return True
     if analysis.get("condBlocked"):
         return True
-    from .market_learning import setup_key_for_analysis
+    from .market_learning import setup_matches_blocked
     from .market_microstructure import blocks_entry
 
     if blocks_entry(analysis):
@@ -924,7 +924,7 @@ def _is_buy_blocked(
     ):
         return True
 
-    return setup_key_for_analysis(analysis, regime) in blocked_setups
+    return setup_matches_blocked(analysis, regime, blocked_setups)
 
 
 def _gemini_signal_for(

@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from trading.services.ai_trader import _is_buy_blocked, enrich_analyses_for_gemini
 from trading.services.engine import _refresh_analyses
+from trading.services.market_learning import setup_key_for_analysis
 from trading.services.market_microstructure import blocks_entry, carry_micro_fields, enrich_analyses
 from trading.services.session_state import default_state
 
@@ -36,6 +37,29 @@ class MicrostructureGateTests(SimpleTestCase):
     def test_blocks_entry_allows_checked_unblocked(self):
         analysis = _buy_analysis(microChecked=True, microBlocked=False)
         self.assertFalse(blocks_entry(analysis))
+
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_buy_blocked_matches_setup_after_deep_enrichment(self):
+        quick_analysis = _buy_analysis(
+            microChecked=True,
+            microBlocked=False,
+            quick=True,
+            bookBucket="bk0",
+            crowdBucket="cr0",
+            flowBucket="fl0",
+        )
+        blocked_setups = {setup_key_for_analysis(quick_analysis, "bear")}
+        deep_analysis = dict(quick_analysis, quick=False)
+
+        blocked = _is_buy_blocked(
+            "tBTCUSD",
+            deep_analysis,
+            blocked_buys=set(),
+            blocked_setups=blocked_setups,
+            regime="bear",
+        )
+
+        self.assertTrue(blocked)
 
     @patch("trading.services.market_microstructure.ENABLED", True)
     def test_refresh_analyses_leaves_buy_blocked_until_enrich(self):
