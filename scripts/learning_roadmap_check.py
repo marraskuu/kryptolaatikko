@@ -5,6 +5,8 @@ Oppimisroadmap — tarkista milloin seuraava oppimisvaihe kannattaa toteuttaa.
 Käyttö: python scripts/learning_roadmap_check.py
 Tuotanto-API: https://hiekkalaatikko.pro/api/state/
 Ajastus: Cursor-automaatio päivittäin (klo 9).
+
+Synkassa trading/services/learning_report.py ROADMAP_ITEMS -listan kanssa.
 """
 
 from __future__ import annotations
@@ -15,56 +17,81 @@ import urllib.request
 
 API_URL = "https://hiekkalaatikko.pro/api/state/"
 
-# Kynnykset (synkassa agentin suosituksen kanssa)
-THRESHOLDS = {
-    "setup_active": {
-        "label": "Setup-oppiminen (jo koodissa — odota aktivoitumista)",
-        "ready_if_any": [
-            ("setup_memory_keys", 1, "ge"),
-            ("regime_tagged_sells", 4, "ge"),
-        ],
-        "action": "Odota — ei uutta koodia. Chip: 📐 N setuppia / regiimi 4/4.",
+# mode=active → jo tuotannossa, ei uutta deploya odoteta
+# mode=collect → dataa kerätään, ei vielä koodattavaa
+# mode=implement → kynnys ylittynyt → seuraava koodityö
+ROADMAP_ITEMS = (
+    {
+        "key": "setup_learning",
+        "label": "Setup-oppiminen (omat sisäänostot + Gemini C)",
+        "metric": "regime_tagged_sells",
+        "target": 4,
+        "mode": "active",
+        "action": "Setup-muisti + blocked_setups Geminissa — käytössä",
     },
-    "gemini_confidence": {
-        "label": "Gemini-confidence oppiminen (koodissa — odota tagattuja myyntejä)",
-        "ready_if_all": [
-            ("gemini_sell_trades", 6, "ge"),
-            ("gemini_tagged_confidence", 6, "ge"),
-        ],
-        "action": "Aktiivinen kun ≥6 tagattua: estää tappiolliset conf-tasot learning.py + ai_trader.",
+    {
+        "key": "richer_buckets",
+        "label": "Richer markkina-ämpärit (book/crowd/flow)",
+        "metric": "buckets_learned",
+        "target": 18,
+        "mode": "active",
+        "action": "Regiimi×24h×MTF×RSI×vol×deep×book×crowd×flow — käytössä",
     },
-    "richer_buckets": {
-        "label": "Richer market-learning ämpärit (toteutettava)",
-        "ready_if_all": [
-            ("buckets_learned", 18, "ge"),
-            ("buckets_tracked", 20, "ge"),
-        ],
-        "action": "Toteuta: setup-avain +mtf (+ myöhemmin atr) market_learning.py.",
+    {
+        "key": "gemini_confidence",
+        "label": "Gemini-confidence oppiminen",
+        "metric": "gemini_confidence_tagged",
+        "target": 6,
+        "mode": "active",
+        "action": "Estää tappiolliset conf-tasot — käytössä kun ≥6 tagattua",
     },
-    "hold_time": {
-        "label": "Pitoajan optimointi (viimeiseksi)",
-        "ready_if_all": [
-            ("profit_take_trades", 15, "ge"),
-        ],
-        "ready_if_any": [],
-        "block_if": [("profit_take_trades", 10, "lt")],
-        "action": "Toteuta: ATR/regiimi-pohjaiset trailing + partial-take sell_strategy.py.",
+    {
+        "key": "profit_take_light",
+        "label": "Voitto-otto (kevyt viritys)",
+        "metric": "profit_take_trades",
+        "target": 6,
+        "mode": "collect",
+        "action": "Kevyt profit-take -viritys learning.py:ssä",
     },
-}
+    {
+        "key": "profit_take_full",
+        "label": "Voitto-otto (täysi optimointi / hold-time)",
+        "metric": "profit_take_trades",
+        "target": 15,
+        "mode": "collect",
+        "action": "ATR/regiimi-pohjainen trailing sell_strategy.py",
+    },
+    {
+        "key": "trade_flow_learning",
+        "label": "Trade flow entry -tuning (seuraava koodi)",
+        "metric": "closed_trades_with_flow",
+        "target": 8,
+        "mode": "implement",
+        "action": "Toteuta: flow-bucket → entry score/block ai_trader.py (Deploy E)",
+    },
+    {
+        "key": "shadow_portfolio",
+        "label": "Varjopolitiikka → live (Deploy D)",
+        "metric": "shadow_mirror_trades",
+        "target": 3,
+        "mode": "implement",
+        "action": "Arvioi counterfactual → DAILY_POLICY_LIVE feature flag",
+    },
+    {
+        "key": "bull_satellite_tuning",
+        "label": "Bull satellite auto-säätö",
+        "metric": "bull_satellite_splits",
+        "target": 3,
+        "mode": "collect",
+        "action": "Automaattinen 65/35 paino/kynnys kun ≥3 split-eventtiä",
+    },
+)
 
 
 def _fetch_state() -> dict:
     req = urllib.request.Request(API_URL, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read().decode())
-
-
-def _cmp(actual: float, target: float, op: str) -> bool:
-    if op == "ge":
-        return actual >= target
-    if op == "lt":
-        return actual < target
-    raise ValueError(op)
 
 
 def _metrics(state: dict) -> dict[str, float]:
@@ -72,65 +99,127 @@ def _metrics(state: dict) -> dict[str, float]:
     stats = learning.get("stats") or {}
     ml = state.get("marketLearning") or {}
     setup = learning.get("setup_memory") or {}
+    shadow = state.get("dailyPolicyShadow") or {}
+    shadow_metrics = shadow.get("portfolioMetrics") or {}
+    shadow_mirror = int(shadow_metrics.get("tradesMirrored") or 0) + int(
+        shadow_metrics.get("tradesSkipped") or 0
+    )
+
+    bull_splits = 0
+    closed_with_micro = 0.0
+    closed_with_flow = 0.0
+    for section in (state.get("learningReport") or {}).get("sections") or []:
+        sid = section.get("id")
+        for txt in section.get("lines") or []:
+            s = str(txt)
+            if sid == "microstructure" and "Suljetut kaupat micro-datalla:" in s:
+                try:
+                    closed_with_micro = float(s.split("Suljetut kaupat micro-datalla:")[1].split("kpl")[0].strip())
+                except (IndexError, ValueError):
+                    pass
+            if sid == "bull_satellite" and "Split-jakoja:" in s:
+                try:
+                    bull_splits = int(s.split("Split-jakoja:")[1].split()[0])
+                except (IndexError, ValueError):
+                    pass
+
+    # flow-kaupoille riittää micro-suljetut (flowBucket tallennetaan entry-metaan)
+    closed_with_flow = closed_with_micro
 
     gemini_sells = stats.get("gemini_sell", {})
     profit_take = stats.get("profit_take", {})
-
-    trades = state.get("portfolio", {}).get("trades") or []
-    gemini_conf_count = sum(
-        1
-        for t in trades
-        if t.get("type") == "sell"
-        and "gemini" in (t.get("reason") or "").lower()
-        and t.get("geminiConfidence") is not None
-    )
+    setup_backfill = learning.get("setup_backfill") or {}
 
     return {
-        "setup_memory_keys": len(setup),
+        "app_build": state.get("appBuild"),
+        "setup_memory_keys": float(len(setup)),
+        "blocked_setups": float(len(learning.get("blocked_setups") or [])),
         "regime_tagged_sells": float(learning.get("regime_tagged_sells") or 0),
+        "gemini_confidence_tagged": float(learning.get("gemini_confidence_tagged") or 0),
         "gemini_sell_trades": float(gemini_sells.get("trades") or 0),
-        "gemini_tagged_confidence": float(gemini_conf_count),
+        "profit_take_trades": float(profit_take.get("trades") or 0),
         "buckets_learned": float(ml.get("bucketsLearned") or 0),
         "buckets_tracked": float(ml.get("bucketsTracked") or 0),
-        "profit_take_trades": float(profit_take.get("trades") or 0),
+        "history_buckets_learned": float(ml.get("historyBucketsLearned") or 0),
+        "setup_history_ready": float(setup_backfill.get("setupHistorySetupsReady") or 0),
+        "closed_trades_with_flow": float(closed_with_flow),
+        "closed_trades_with_micro": float(closed_with_micro),
+        "shadow_mirror_trades": float(shadow_mirror),
+        "exit_setups_ready": float((state.get("exitLearning") or {}).get("setupsReady") or 0),
+        "bull_satellite_splits": float(bull_splits),
         "learning_samples": float(learning.get("samples") or 0),
     }
 
 
-def _check_item(key: str, cfg: dict, m: dict[str, float]) -> dict:
-    blocked = False
-    for field, target, op in cfg.get("block_if") or []:
-        if _cmp(m.get(field, 0), target, op):
-            blocked = True
+def _progress(current: float, target: float) -> str:
+    if current >= target:
+        return "käytössä" if current >= target else f"{int(current)}/{int(target)}"
+    if current >= target * 0.5:
+        return f"{int(current)}/{int(target)}"
+    return f"{int(current)}/{int(target)}"
 
-    ready = False
-    if not blocked:
-        all_ok = all(_cmp(m.get(f, 0), t, op) for f, t, op in cfg.get("ready_if_all") or [])
-        any_ok = any(_cmp(m.get(f, 0), t, op) for f, t, op in cfg.get("ready_if_any") or [])
-        if cfg.get("ready_if_all"):
-            ready = all_ok
-        elif cfg.get("ready_if_any"):
-            ready = any_ok
 
-    return {"key": key, "label": cfg["label"], "ready": ready, "blocked": blocked, "action": cfg["action"]}
+def _status(cfg: dict, current: float, target: float) -> str:
+    mode = cfg.get("mode", "collect")
+    if mode == "active":
+        return "aktiivinen"
+    if current >= target:
+        return "valmis toteutettavaksi" if mode == "implement" else "aktiivinen"
+    if current >= target * 0.5:
+        return "tulossa"
+    return "kerätään"
 
 
 def main() -> int:
     state = _fetch_state()
     m = _metrics(state)
-    results = [_check_item(k, cfg, m) for k, cfg in THRESHOLDS.items()]
+    results = []
+    for cfg in ROADMAP_ITEMS:
+        current = m.get(cfg["metric"], 0)
+        target = float(cfg["target"])
+        results.append(
+            {
+                **cfg,
+                "current": current,
+                "target": target,
+                "progress": _progress(current, target),
+                "status": _status(cfg, current, target),
+            }
+        )
 
-    print("=== Oppimisroadmap ===\n")
-    for r in results:
-        status = "VALMIS TOTEUTETTAVAKSI" if r["ready"] else ("ODOTA (liian vähän profit_take)" if r["blocked"] else "kerätään dataa")
-        print(f"{r['label']}")
-        print(f"  Tila: {status}")
-        print(f"  Seuraava: {r['action']}\n")
+    print("=== Oppimisroadmap (live) ===")
+    print(f"appBuild: {m.get('app_build')}\n")
 
-    print("Metriikat:", json.dumps(m, ensure_ascii=False))
-    ready = [r["key"] for r in results if r["ready"]]
-    if ready:
-        print("\n>>> Muistutus: toteuta nyt:", ", ".join(ready))
+    for group, label in (
+        ("aktiivinen", "KÄYTÖSSÄ"),
+        ("tulossa", "TULOSSA"),
+        ("kerätään", "KERÄTÄÄN"),
+        ("valmis toteutettavaksi", "VALMIS TOTEUTETTAVAKSI"),
+    ):
+        items = [r for r in results if r["status"] == group]
+        if not items:
+            continue
+        print(f"--- {label} ---")
+        for r in items:
+            print(f"  {r['label']}")
+            print(f"    {r['metric']}: {int(r['current'])}/{int(r['target'])} ({r['progress']})")
+            print(f"    → {r['action']}")
+        print()
+
+    print("--- Yhteenveto-metriikat ---")
+    summary = {
+        k: v
+        for k, v in m.items()
+        if k
+        not in (
+            "gemini_sell_trades",
+        )
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+    ready_impl = [r["key"] for r in results if r["status"] == "valmis toteutettavaksi"]
+    if ready_impl:
+        print("\n>>> Seuraava koodityö:", ", ".join(ready_impl))
         return 2
     return 0
 
