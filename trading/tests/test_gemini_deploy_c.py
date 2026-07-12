@@ -10,6 +10,7 @@ from trading.services.gemini import (
     _scorecard_micro_from_pick,
 )
 from trading.services.gemini_pick_tracking import build_pick_scorecard
+from trading.services.market_learning import setup_key_for_analysis
 
 
 def _label(sym: str) -> str:
@@ -70,12 +71,11 @@ class PickMicroBucketTests(TestCase):
 
 class BlockedSetupFilterTests(TestCase):
     def setUp(self):
-        self.blocked = {"bear|d2|mtf-|rsi_ob|vol_md|quick|bk0|cr0|fl0"}
         self.analyses = {
             "tOKUSD": {
                 "currentPrice": 5.0,
                 "volumeEur": 300_000,
-                "changePct": -2.0,
+                "changePct": -3.0,
                 "mtfAlign": -1,
                 "rsi": 72,
                 "quick": True,
@@ -98,6 +98,9 @@ class BlockedSetupFilterTests(TestCase):
         self.tickers = {
             "tOKUSD": {"last": 5.0, "volumeEur": 300_000},
             "tGOODUSD": {"last": 6.0, "volumeEur": 400_000},
+        }
+        self.blocked = {
+            setup_key_for_analysis(self.analyses["tOKUSD"], {"regime": "bear"})
         }
 
     def test_filters_blocked_setup(self):
