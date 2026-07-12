@@ -12,6 +12,7 @@ urlpatterns = [
         name="google_site_verification",
     ),
     path("", views.index, name="index"),
+    path("muutokset/", views.muutokset_page, name="muutokset"),
     path("stats/login/", views.stats_login, name="stats_login"),
     path("stats/logout/", views.stats_logout, name="stats_logout"),
     path("stats", views.stats_page, name="stats"),

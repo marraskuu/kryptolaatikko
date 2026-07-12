@@ -2339,3 +2339,77 @@ body.modal-open {
   color: #b8c5d9;
   font-weight: 600;
 }
+
+.site-seo-footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.site-seo-footer a:hover {
+  text-decoration: underline;
+}
+
+/* Muutosloki /muutokset */
+.changelog-page .header-title-row {
+  align-items: flex-start;
+}
+
+.changelog-section {
+  max-width: 720px;
+  margin-top: 8px;
+}
+
+.changelog-intro {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+.changelog-day {
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changelog-day:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.changelog-date {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 14px;
+}
+
+.changelog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.changelog-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 14px;
+  border-left: 2px solid var(--accent-dim, rgba(99, 179, 237, 0.35));
+}
+
+.changelog-item-title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.changelog-item-body {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}

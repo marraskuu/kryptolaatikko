@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
+from .changelog import changelog_days
 from .security_utils import admin_task_key, rate_limit_exceeded, read_admin_key_from_request, safe_next_path
 from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
@@ -86,6 +87,8 @@ def _llms_txt_body(base_url: str) -> str:
             "",
             f"- [Etusivu — live-kryptobotti]({home}): salkku, kauppahistoria, "
             "oppimisraportit, regiimi ja botin päätökset reaaliajassa selaimessa.",
+            f"- [Muutokset — julkaisuloki]({base_url}/muutokset/): uudet ominaisuudet "
+            "ja korjaukset päivämäärittäin.",
             "",
             "## Tekninen yhteenveto",
             "",
@@ -122,6 +125,36 @@ def index(request):
             "visit_id": visit_id,
             "canonical_url": canonical_url,
             "json_ld": _site_json_ld(canonical_url),
+        },
+    )
+
+
+def _format_changelog_date(iso: str) -> str:
+    y, m, d = iso.split("-")
+    return f"{int(d)}.{int(m)}.{y}"
+
+
+def muutokset_page(request):
+    try:
+        record_page_visit(request, request.path)
+    except Exception:
+        logger.exception("Käyntitallennus epäonnistui")
+    days = [
+        {
+            "date": day["date"],
+            "date_display": _format_changelog_date(day["date"]),
+            "entries": day["entries"],
+        }
+        for day in changelog_days()
+    ]
+    canonical_url = f"{_public_site_url(request)}/muutokset/"
+    return render(
+        request,
+        "trading/muutokset.html",
+        {
+            "days": days,
+            "canonical_url": canonical_url,
+            "app_build": settings.APP_BUILD,
         },
     )
 
@@ -334,21 +367,26 @@ def robots_txt(request):
 
 @require_GET
 def sitemap_xml(request):
-    """Yksi julkinen URL — etusivu."""
+    """Julkinen sivusto — etusivu ja muutosloki."""
     base = _public_site_url(request)
     lastmod = timezone.localdate().isoformat()
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        "  <url>\n"
-        f"    <loc>{base}/</loc>\n"
-        f"    <lastmod>{lastmod}</lastmod>\n"
-        "    <changefreq>daily</changefreq>\n"
-        "    <priority>1.0</priority>\n"
-        "  </url>\n"
-        "</urlset>\n"
-    )
-    return HttpResponse(xml, content_type="application/xml; charset=utf-8")
+    urls = [
+        (f"{base}/", "daily", "1.0"),
+        (f"{base}/muutokset/", "weekly", "0.6"),
+    ]
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>\n',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n',
+    ]
+    for loc, freq, priority in urls:
+        parts.append("  <url>\n")
+        parts.append(f"    <loc>{loc}</loc>\n")
+        parts.append(f"    <lastmod>{lastmod}</lastmod>\n")
+        parts.append(f"    <changefreq>{freq}</changefreq>\n")
+        parts.append(f"    <priority>{priority}</priority>\n")
+        parts.append("  </url>\n")
+    parts.append("</urlset>\n")
+    return HttpResponse("".join(parts), content_type="application/xml; charset=utf-8")
 
 
 @require_GET

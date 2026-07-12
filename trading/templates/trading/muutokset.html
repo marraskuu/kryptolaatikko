@@ -1,0 +1,68 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muutokset ja päivitykset — hiekkalaatikko.pro</title>
+  <meta
+    name="description"
+    content="Kaikki hiekkalaatikko.pro -kryptosimulaattorin julkaistut muutokset, uudet ominaisuudet ja korjaukset päivämäärittäin."
+  />
+  <link rel="canonical" href="{{ canonical_url }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="fi_FI" />
+  <meta property="og:url" content="{{ canonical_url }}" />
+  <meta property="og:site_name" content="hiekkalaatikko.pro" />
+  <meta property="og:title" content="Muutokset ja päivitykset — hiekkalaatikko.pro" />
+  <meta
+    property="og:description"
+    content="Kryptosimulaattorin muutosloki: uudet ominaisuudet ja korjaukset päivämäärittäin."
+  />
+  <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
+</head>
+<body>
+  <div class="app changelog-page">
+    <header class="header">
+      <div class="logo">◈</div>
+      <div class="header-body">
+        <div class="header-title-row">
+          <h1>Muutokset</h1>
+          <div class="stats-header-actions">
+            <a class="stats-back-link" href="/">← Etusivu</a>
+          </div>
+        </div>
+        <p class="subtitle">hiekkalaatikko.pro · julkaistut päivitykset · build {{ app_build }}</p>
+      </div>
+    </header>
+
+    <section class="changelog-section">
+      <p class="changelog-intro">
+        Kaikki merkittävät lisäykset ja korjaukset live-simulaattoriin. Uusin ensin.
+      </p>
+
+      {% for day in days %}
+      <article class="changelog-day" id="d-{{ day.date }}">
+        <h2 class="changelog-date">{{ day.date_display }}</h2>
+        <ul class="changelog-list">
+          {% for entry in day.entries %}
+          <li class="changelog-item">
+            <strong class="changelog-item-title">{{ entry.title }}</strong>
+            {% if entry.body %}
+            <span class="changelog-item-body">{{ entry.body }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </article>
+      {% endfor %}
+    </section>
+
+    <footer class="site-seo-footer">
+      <p>
+        <a href="/">← Takaisin Krypto Simulaattoriin</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
