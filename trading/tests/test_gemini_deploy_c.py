@@ -12,6 +12,8 @@ from trading.services.gemini import (
 from trading.services.gemini_pick_tracking import build_pick_scorecard
 from trading.services.market_learning import setup_key_for_analysis
 
+_MICRO_OK = {"microChecked": True, "microBlocked": False}
+
 
 def _label(sym: str) -> str:
     return sym.replace("t", "").replace("USD", "")
@@ -82,6 +84,7 @@ class BlockedSetupFilterTests(TestCase):
                 "bookBucket": "bk0",
                 "crowdBucket": "cr0",
                 "flowBucket": "fl0",
+                **_MICRO_OK,
             },
             "tGOODUSD": {
                 "currentPrice": 6.0,
@@ -93,6 +96,7 @@ class BlockedSetupFilterTests(TestCase):
                 "bookBucket": "bk+",
                 "crowdBucket": "cr0",
                 "flowBucket": "fl+",
+                **_MICRO_OK,
             },
         }
         self.tickers = {

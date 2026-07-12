@@ -18,6 +18,10 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-12",
         "entries": [
             {
+                "title": "Gemini pick-suodatus: micro fail-closed",
+                "body": "Pickit ja scan leaders käyttävät samaa blocks_entry-logiikkaa kuin live-ostot — ilman microChecked-tarkistusta ehdotusta ei näytetä.",
+            },
+            {
                 "title": "Muutosloki-linkki etusivun footeriin",
                 "body": "Selkeä linkki “Muutokset ja päivitykset” sivun alareunassa.",
             },

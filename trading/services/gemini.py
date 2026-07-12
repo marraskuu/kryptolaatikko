@@ -19,6 +19,7 @@ import requests
 from .bitfinex import is_stablecoin, normalize_symbol
 from .ai_trader import MIN_ENTRY_PRICE_EUR, MIN_ENTRY_VOLUME_EUR, entry_price_ok, entry_volume_ok
 from .market_learning import setup_key_for_analysis
+from .market_microstructure import blocks_entry
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +271,7 @@ def _entry_eligible_for_picks(
     regime: dict[str, Any] | str | None = None,
 ) -> bool:
     analysis = _analysis_for_symbol(sym, analyses, tickers)
-    if analysis.get("condBlocked") or analysis.get("microBlocked"):
+    if analysis.get("condBlocked") or blocks_entry(analysis):
         return False
     if blocked_setups:
         setup = setup_key_for_analysis(analysis, _regime_label(regime))
@@ -313,7 +314,7 @@ def _build_scan_leaders(
         if is_stablecoin(symbol):
             continue
         analysis = analyses.get(symbol, {})
-        if analysis.get("condBlocked") or analysis.get("microBlocked"):
+        if analysis.get("condBlocked") or blocks_entry(analysis):
             continue
         if analysis.get("currentPrice", 0) <= 0 or not entry_volume_ok(analysis):
             continue
@@ -366,7 +367,7 @@ def _technical_top_picks(
             if not is_stablecoin(sym)
             and a.get("currentPrice", 0) > 0
             and not a.get("condBlocked")
-            and not a.get("microBlocked")
+            and not blocks_entry(a)
             and entry_volume_ok(a)
             and entry_price_ok(a)
             and (
@@ -1360,7 +1361,7 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                     reject = "volyymi/hinta"
                     if analysis.get("condBlocked"):
                         reject = "varjo-esto"
-                    elif analysis.get("microBlocked"):
+                    elif blocks_entry(analysis):
                         reject = "micro-esto"
                     elif blocked_setups and setup_key_for_analysis(
                         analysis, _regime_label(regime)

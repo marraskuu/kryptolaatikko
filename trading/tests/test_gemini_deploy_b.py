@@ -1,5 +1,7 @@
 """Deploy B: microstructure-kentät Geminin markkinadataan + suodatus."""
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from trading.services.gemini import (
@@ -9,6 +11,8 @@ from trading.services.gemini import (
     _filter_gemini_picks,
     _micro_fields_for_gemini,
 )
+
+_MICRO_OK = {"microChecked": True, "microBlocked": False}
 
 
 def _label(sym: str) -> str:
@@ -74,7 +78,7 @@ class ScanLeadersMicroTests(TestCase):
             "tBADUSD": {"last": 6.0, "volumeEur": 600_000, "changePct": 3.0},
         }
         analyses = {
-            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 500_000, "score": 5},
+            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 500_000, "score": 5, **_MICRO_OK},
             "tBADUSD": {
                 "currentPrice": 6.0,
                 "volumeEur": 600_000,
@@ -92,7 +96,7 @@ class ScanLeadersMicroTests(TestCase):
 class FilterGeminiPicksMicroTests(TestCase):
     def setUp(self):
         self.analyses = {
-            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 300_000},
+            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 300_000, **_MICRO_OK},
             "tBADUSD": {
                 "currentPrice": 6.0,
                 "volumeEur": 400_000,
@@ -112,3 +116,39 @@ class FilterGeminiPicksMicroTests(TestCase):
     def test_entry_eligible_rejects_micro_blocked(self):
         self.assertFalse(_entry_eligible_for_picks("tBADUSD", self.analyses, self.tickers))
         self.assertTrue(_entry_eligible_for_picks("tOKUSD", self.analyses, self.tickers))
+
+
+class FilterGeminiPicksMicroFailClosedTests(TestCase):
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_filters_missing_micro_checked(self):
+        analyses = {
+            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 300_000, **_MICRO_OK},
+            "tSKIPUSD": {"currentPrice": 6.0, "volumeEur": 400_000},
+        }
+        tickers = {
+            "tOKUSD": {"last": 5.0, "volumeEur": 300_000},
+            "tSKIPUSD": {"last": 6.0, "volumeEur": 400_000},
+        }
+        picks = _filter_gemini_picks(["tSKIPUSD", "tOKUSD"], analyses, tickers)
+        self.assertEqual(picks, ["tOKUSD"])
+
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_entry_eligible_rejects_missing_micro_checked(self):
+        analyses = {"tSKIPUSD": {"currentPrice": 6.0, "volumeEur": 400_000}}
+        tickers = {"tSKIPUSD": {"last": 6.0, "volumeEur": 400_000}}
+        self.assertFalse(_entry_eligible_for_picks("tSKIPUSD", analyses, tickers))
+
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_scan_leaders_skip_missing_micro_checked(self):
+        tickers = {
+            "tOKUSD": {"last": 5.0, "volumeEur": 500_000, "changePct": 2.0},
+            "tSKIPUSD": {"last": 6.0, "volumeEur": 600_000, "changePct": 3.0},
+        }
+        analyses = {
+            "tOKUSD": {"currentPrice": 5.0, "volumeEur": 500_000, "score": 5, **_MICRO_OK},
+            "tSKIPUSD": {"currentPrice": 6.0, "volumeEur": 600_000, "score": 8},
+        }
+        leaders = _build_scan_leaders(tickers, analyses, _label)
+        symbols = [r["symbol"] for r in leaders]
+        self.assertIn("tOKUSD", symbols)
+        self.assertNotIn("tSKIPUSD", symbols)
