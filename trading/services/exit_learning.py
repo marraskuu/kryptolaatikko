@@ -7,6 +7,8 @@ Tallennus BotState pk=4 — ei kuormita päätilaa.
 
 from __future__ import annotations
 
+from copy import deepcopy
+import threading
 import time
 from typing import Any
 
@@ -25,6 +27,7 @@ GIVEBACK_TIGHTEN_PCT = 1.0
 LEFT_ON_TABLE_LOOSE_PCT = 1.2
 
 _DEFAULT = {"obs": [], "stats": {}}
+_exit_learning_lock = threading.RLock()
 
 
 def _load() -> dict[str, Any]:
@@ -34,7 +37,7 @@ def _load() -> dict[str, Any]:
     data = obj.data or {}
     data.setdefault("obs", [])
     data.setdefault("stats", {})
-    return data
+    return deepcopy(data)
 
 
 def _save(data: dict[str, Any]) -> None:
@@ -116,78 +119,80 @@ def record_profit_take_exit(
     """Kirjaa voitto-myynti arvioitavaksi (1h/4h jälkiseuranta)."""
     if sell_price <= 0 or peak_price <= 0:
         return
-    store = _load()
-    obs: list[dict[str, Any]] = store["obs"]
-    if len(obs) >= MAX_OBS:
-        obs.pop(0)
-    obs.append(
-        {
-            "s": symbol,
-            "t": int(time.time() * 1000),
-            "sell": sell_price,
-            "peak": peak_price,
-            "profitPct": round(profit_pct, 2),
-            "giveback": round(pullback_pct, 3),
-            "setup": exit_setup,
-            "maxHigh": sell_price,
-            "done": {},
-            "tradeId": trade_id,
-        }
-    )
-    store["obs"] = obs
-    _save(store)
+    with _exit_learning_lock:
+        store = _load()
+        obs: list[dict[str, Any]] = store["obs"]
+        if len(obs) >= MAX_OBS:
+            obs.pop(0)
+        obs.append(
+            {
+                "s": symbol,
+                "t": int(time.time() * 1000),
+                "sell": sell_price,
+                "peak": peak_price,
+                "profitPct": round(profit_pct, 2),
+                "giveback": round(pullback_pct, 3),
+                "setup": exit_setup,
+                "maxHigh": sell_price,
+                "done": {},
+                "tradeId": trade_id,
+            }
+        )
+        store["obs"] = obs
+        _save(store)
 
 
 def step(tickers: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Päivitä odottavat havainnot ja palauta yhteenveto."""
-    store = _load()
-    now = int(time.time() * 1000)
-    obs: list[dict[str, Any]] = store["obs"]
-    stats: dict[str, Any] = store["stats"]
-    survivors: list[dict[str, Any]] = []
-    completed = 0
+    with _exit_learning_lock:
+        store = _load()
+        now = int(time.time() * 1000)
+        obs: list[dict[str, Any]] = store["obs"]
+        stats: dict[str, Any] = store["stats"]
+        survivors: list[dict[str, Any]] = []
+        completed = 0
 
-    for o in obs:
-        sym = o.get("s")
-        tk = tickers.get(sym) if sym else None
-        price_now = float(tk["last"]) if tk and tk.get("last") else None
-        age_sec = (now - o.get("t", now)) / 1000.0
-        done = dict(o.get("done") or {})
+        for o in obs:
+            sym = o.get("s")
+            tk = tickers.get(sym) if sym else None
+            price_now = float(tk["last"]) if tk and tk.get("last") else None
+            age_sec = (now - o.get("t", now)) / 1000.0
+            done = dict(o.get("done") or {})
 
-        if price_now and price_now > float(o.get("maxHigh") or 0):
-            o["maxHigh"] = price_now
+            if price_now and price_now > float(o.get("maxHigh") or 0):
+                o["maxHigh"] = price_now
 
-        sell_price = float(o.get("sell") or 0)
-        max_high = float(o.get("maxHigh") or sell_price)
-        left_on_table = ((max_high - sell_price) / sell_price * 100.0) if sell_price else 0.0
-        giveback = float(o.get("giveback") or 0)
-        setup = o.get("setup") or "exit|neutral|p1|rsi_md|mtf0|bk0|cr0"
+            sell_price = float(o.get("sell") or 0)
+            max_high = float(o.get("maxHigh") or sell_price)
+            left_on_table = ((max_high - sell_price) / sell_price * 100.0) if sell_price else 0.0
+            giveback = float(o.get("giveback") or 0)
+            setup = o.get("setup") or "exit|neutral|p1|rsi_md|mtf0|bk0|cr0"
 
-        for hz, sec in HORIZONS.items():
-            if hz in done or age_sec < sec:
-                continue
-            _update_stat(stats, setup, giveback=giveback, left_on_table=left_on_table)
-            done[hz] = True
-            completed += 1
+            for hz, sec in HORIZONS.items():
+                if hz in done or age_sec < sec:
+                    continue
+                _update_stat(stats, setup, giveback=giveback, left_on_table=left_on_table)
+                done[hz] = True
+                completed += 1
 
-        o["done"] = done
-        if age_sec < MAX_HORIZON_SEC + EVAL_SLACK_SEC:
-            survivors.append(o)
+            o["done"] = done
+            if age_sec < MAX_HORIZON_SEC + EVAL_SLACK_SEC:
+                survivors.append(o)
 
-    store["obs"] = survivors
-    store["stats"] = stats
-    _save(store)
+        store["obs"] = survivors
+        store["stats"] = stats
+        _save(store)
 
-    setups_ready = sum(
-        1 for st in stats.values() if int(st.get("n", 0)) >= MIN_SAMPLES_LIGHT
-    )
-    return {
-        "pending": len(survivors),
-        "completedThisStep": completed,
-        "setupsTracked": len(stats),
-        "setupsReady": setups_ready,
-        "totalSamples": int(sum(st.get("n", 0) for st in stats.values())),
-    }
+        setups_ready = sum(
+            1 for st in stats.values() if int(st.get("n", 0)) >= MIN_SAMPLES_LIGHT
+        )
+        return {
+            "pending": len(survivors),
+            "completedThisStep": completed,
+            "setupsTracked": len(stats),
+            "setupsReady": setups_ready,
+            "totalSamples": int(sum(st.get("n", 0) for st in stats.values())),
+        }
 
 
 def _stat_for_key(stats: dict[str, Any], keys: list[str]) -> dict[str, float] | None:
