@@ -18,6 +18,15 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-13",
+        "entries": [
+            {
+                "title": "Huippumyynti-oppimisen tallennus kovennettu",
+                "body": "Rinnakkaiset hinta- ja kaupankäyntikierrokset eivät enää voi pudottaa voitto-ottojen jälkiseurantahavaintoja.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-12",
         "entries": [
             {
