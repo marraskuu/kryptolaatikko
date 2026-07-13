@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -13,6 +14,7 @@ APP_BUILD = "20250712e"
 load_dotenv(BASE_DIR / ".env")
 
 DEBUG = os.environ.get("DEBUG", "false").lower() in ("1", "true", "yes")
+TESTING = "test" in sys.argv
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-in-production")
 if not DEBUG and SECRET_KEY == "dev-only-change-in-production":
@@ -172,7 +174,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-if DEBUG:
+if DEBUG or TESTING:
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {
