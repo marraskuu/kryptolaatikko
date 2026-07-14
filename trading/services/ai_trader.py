@@ -889,6 +889,43 @@ def _gemini_conf_scale_for_analysis(
     return _confidence_scale(scales, conf)
 
 
+def _hard_blocked_buys(symbol_memory: dict[str, dict[str, Any]]) -> set[str]:
+    """Symbolimuistin kova esto: cooldown tai krooninen häviäjä (ei score-rangaistus)."""
+    return {
+        normalize_symbol(sym)
+        for sym, m in symbol_memory.items()
+        if m.get("blocked")
+    }
+
+
+def _ranked_buyable_candidates(
+    ranked: list[dict[str, Any]],
+    *,
+    entry_regime: str,
+    blocked_buys: set[str],
+    buy_blocked_fn: Callable[[str, dict[str, Any] | None], bool],
+    entry_score_min: int,
+) -> list[dict[str, Any]]:
+    buyable = [
+        r
+        for r in ranked
+        if _entry_ok(r["analysis"], entry_regime)
+        and entry_eligible(r["analysis"])
+        and normalize_symbol(r["symbol"]) not in blocked_buys
+        and not buy_blocked_fn(r["symbol"], r["analysis"])
+        and r["rank"] >= entry_score_min
+    ]
+    ranked_liquid = [
+        r
+        for r in ranked
+        if _entry_ok(r["analysis"], entry_regime)
+        and entry_eligible(r["analysis"])
+        and normalize_symbol(r["symbol"]) not in blocked_buys
+        and not buy_blocked_fn(r["symbol"], r["analysis"])
+    ]
+    return buyable or ranked_liquid
+
+
 def _is_buy_blocked(
     symbol: str,
     analysis: dict[str, Any] | None,
@@ -900,6 +937,7 @@ def _is_buy_blocked(
     gemini_active: bool = False,
     gemini_conf_scales: dict[Any, float] | None = None,
     gemini_buy_min_confidence: int | None = None,
+    allow_non_gemini_pick: bool = False,
 ) -> bool:
     if not analysis:
         return True
@@ -914,7 +952,7 @@ def _is_buy_blocked(
 
     if blocks_entry(analysis):
         return True
-    if not _gemini_buy_allowed(
+    if not allow_non_gemini_pick and not _gemini_buy_allowed(
         symbol,
         analysis,
         gemini_insights,
@@ -2472,6 +2510,60 @@ def make_trading_decisions(
     )
 
     if len(holdings) == 0 and cash > 100:
+        idle_cash = _is_idle_cash(cash, total_value)
+        if idle_cash and not _bear_cash_deploy_ok(cash, total_value, regime_info):
+            idle_cash = False
+        idle_empty_deploy = False
+
+        def _empty_pick_blocked(
+            sym: str,
+            analysis: dict[str, Any] | None,
+            *,
+            allow_idle: bool = False,
+        ) -> bool:
+            effective_blocked = (
+                _hard_blocked_buys(symbol_memory)
+                if allow_idle and idle_cash
+                else blocked_buys
+            )
+            return _is_buy_blocked(
+                sym,
+                analysis if analysis is not None else analyses.get(sym),
+                blocked_buys=effective_blocked,
+                blocked_setups=blocked_setups,
+                regime=entry_regime,
+                gemini_insights=gemini_insights,
+                gemini_active=gemini_active,
+                gemini_conf_scales=gemini_conf_scales,
+                gemini_buy_min_confidence=gemini_buy_min_conf,
+                allow_non_gemini_pick=allow_idle and idle_cash,
+            )
+
+        def _relaxed_idle_ranked() -> list[dict[str, Any]]:
+            relaxed_buys = _hard_blocked_buys(symbol_memory)
+
+            def _relaxed_blocked(sym: str, analysis: dict[str, Any] | None) -> bool:
+                return _is_buy_blocked(
+                    sym,
+                    analysis if analysis is not None else analyses.get(sym),
+                    blocked_buys=relaxed_buys,
+                    blocked_setups=blocked_setups,
+                    regime=entry_regime,
+                    gemini_insights=gemini_insights,
+                    gemini_active=gemini_active,
+                    gemini_conf_scales=gemini_conf_scales,
+                    gemini_buy_min_confidence=gemini_buy_min_conf,
+                    allow_non_gemini_pick=True,
+                )
+
+            return _ranked_buyable_candidates(
+                ranked,
+                entry_regime=entry_regime,
+                blocked_buys=relaxed_buys,
+                buy_blocked_fn=_relaxed_blocked,
+                entry_score_min=entry_score_min,
+            )
+
         picks: list[dict[str, Any]] = []
         if desired:
             picks = _to_crypto_items(desired, analyses, gemini_boost=True)
@@ -2484,8 +2576,25 @@ def make_trading_decisions(
             picks = [
                 c
                 for c in picks
-                if not buy_blocked(c["symbol"], c.get("analysis"))
+                if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
+        if not picks and idle_cash:
+            idle_ranked = _relaxed_idle_ranked()
+            fallback_n = min(position_cap, max_new_positions, len(idle_ranked))
+            picks = _liquid_crypto_items(idle_ranked[:fallback_n])
+            picks = [
+                c
+                for c in picks
+                if not _empty_pick_blocked(
+                    c["symbol"], c.get("analysis"), allow_idle=True
+                )
+            ]
+            if picks:
+                idle_empty_deploy = True
+                logger.info(
+                    "Tyhjä salkku: idle-cash deploy (%d kohdetta, Gemini/score-esto ohitettu)",
+                    len(picks),
+                )
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
                 picks, gemini_insights, regime, rotation_enabled
@@ -2497,10 +2606,17 @@ def make_trading_decisions(
                 "targetCount": len(picks),
                 "topSymbols": [c["symbol"] for c in picks],
                 "initialAllocation": _plan_initial_allocation(
-                    picks, cash, gemini_insights, gemini_active, analyses, empty_conc
+                    picks,
+                    cash,
+                    gemini_insights,
+                    gemini_active and not idle_empty_deploy,
+                    analyses,
+                    empty_conc,
                 ),
                 "geminiActive": gemini_active,
                 "concentrationMode": empty_conc,
+                "idleCashDeploy": idle_cash,
+                "idleEmptyDeploy": idle_empty_deploy,
             }
 
     portfolio_trades = portfolio_data.get("trades") or []
