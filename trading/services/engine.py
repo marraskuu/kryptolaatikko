@@ -19,7 +19,13 @@ from .ai_trader import (
     format_initial_buy_reason,
     make_trading_decisions,
 )
-from .bitfinex import fetch_all_markets, fetch_candles, get_crypto_label, ensure_portfolio_tickers
+from .bitfinex import (
+    fetch_all_markets,
+    fetch_candles,
+    get_crypto_label,
+    ensure_portfolio_tickers,
+    normalize_symbol,
+)
 from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
@@ -74,7 +80,22 @@ _CARRY_FORWARD_KEYS = (
 )
 
 
+def _prune_analyses_to_tickers(state: dict[str, Any]) -> None:
+    analyses = state.get("analyses")
+    tickers = state.get("tickers")
+    if not isinstance(analyses, dict):
+        state["analyses"] = {}
+        return
+    if not isinstance(tickers, dict):
+        tickers = {}
+    live_symbols = {normalize_symbol(symbol) for symbol in tickers.keys()}
+    for symbol in list(analyses.keys()):
+        if normalize_symbol(symbol) not in live_symbols:
+            analyses.pop(symbol, None)
+
+
 def _refresh_analyses(state: dict[str, Any]) -> None:
+    _prune_analyses_to_tickers(state)
     for symbol, ticker in state["tickers"].items():
         prev = state["analyses"].get(symbol) or {}
         fresh = analyze_ticker_quick(ticker)
@@ -304,6 +325,7 @@ def _try_clear_price_error(state: dict[str, Any]) -> bool:
             state.get("portfolio", {}).get("holdings") or {},
             tickers,
         )
+        _prune_analyses_to_tickers(state)
         state["error"] = None
         return True
     except Exception:
@@ -322,7 +344,8 @@ def refresh_prices() -> dict[str, Any]:
             state.get("portfolio", {}).get("holdings") or {},
             tickers,
         )
-        for symbol, ticker in tickers.items():
+        _prune_analyses_to_tickers(state)
+        for symbol, ticker in state["tickers"].items():
             existing = state["analyses"].get(symbol)
             if not existing or existing.get("quick"):
                 state["analyses"][symbol] = analyze_ticker_quick(ticker)
