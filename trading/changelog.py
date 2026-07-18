@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Korjaus: vanhentuneet analyysit eivät voi ohjata kauppoja",
+                "body": "Kun Bitfinexin tuore ticker-lista ei enää sisällä symbolia, sen vanha analyysi poistetaan ennen Geminiä ja ostopäätöksiä.",
+                "title_en": "Fix: stale analyses cannot drive trades",
+                "body_en": "When the fresh Bitfinex ticker set no longer includes a symbol, its old analysis is removed before Gemini and buy decisions.",
+            },
+            {
                 "title": "Korjaus: pitkä pito ei anna Gemini-osamyyntiä ennen trailingia",
                 "body": "Kun ≥4 h + fade ohittaa porras 1:n, tier1Taken merkitään heti — Gemini ei voi trimmaa positioita siinä ikkunassa.",
                 "title_en": "Fix: long hold blocks Gemini partial sells before trailing",
