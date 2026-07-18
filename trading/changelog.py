@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Englanninkieliset sivut: kauppahistoria ja oppimiskortit",
+                "body": "Kauppojen Gemini-perustelut ja oppimisraportin korttien rivit käännetään /eng-sivulla.",
+                "title_en": "English pages: trade history and learning cards",
+                "body_en": "Gemini trade reasons and learning-report card lines are translated on /eng.",
+            },
+            {
                 "title": "Englanninkieliset sivut: oppimismuistiinpanot ja Gemini-kertomus",
                 "body": "Oppimischipin suomenkieliset fragmentit käännetään. Vanha Gemini-kertomus täydennetään eng-kentillä taustalla kun /eng avataan.",
                 "title_en": "English pages: learning notes and Gemini narrative",

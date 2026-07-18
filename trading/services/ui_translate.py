@@ -327,40 +327,132 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
     (r"— laskussa", "— declining"),
     (r"yliextended, voitto talteen", "overextended, take profit"),
     (r"vakaa nousu", "steady rise"),
+    # Learning report section lines
+    (r"asetelmaa opittu", "setups learned"),
+    (r"Paras:", "Best:"),
+    (r"Huonoin:", "Worst:"),
+    (r"Aikastoppi/jumitus", "Time stop/stuck"),
+    (r"Gemini-myynnit", "Gemini sells"),
+    (r"Voitto-otto:", "Profit-take:"),
+    (r"\bVoitto-otto\b", "Profit-take"),
+    (r"\bRotaatio\b", "Rotation"),
+    (r"\bkpl\b", "pcs"),
+    (r"Oppiminen kerää vielä kauppadataa", "Learning is still collecting trade data"),
+    (r"Varjosalkku ([\d.]+) € vs\. live ([\d.]+) € \(ero ", r"Shadow portfolio \1 € vs live \2 € (diff "),
+    (r"Varjosalkku vs\. live:", "Shadow portfolio vs live:"),
+    (r"Varjopolitiikka: ([\d]+) kauppaa, arvioitu ero ", r"Shadow policy: \1 trades, estimated diff "),
+    (r"Varjopolitiikka kerää dataa — liian vähän kauppoja vertailuun",
+     "Shadow policy is collecting data — too few trades to compare"),
+    (r"Estetyt ostot:", "Blocked buys:"),
+    (r"Estetyt myynnit:", "Blocked sells:"),
+    (r"Aikaisempi voitto-otto:", "Earlier profit-take:"),
+    (r"signaalia \(~", "signals (~"),
+    (r"peilattu ([\d]+) kauppaa, ohitettu ([\d]+)\)", r"mirrored \1 trades, skipped \2)"),
+    (r"arvio, ei takaa voittoa", "estimate, does not guarantee profit"),
+    (r"Estettyjen kauppojen counterfactual-yhteenveto ", "Blocked-trades counterfactual summary "),
+    (r"\((\d+) kauppaa\)", r"(\1 trades)"),
+    (r"Päivästop/profit-lock olisi välttänyt tappiollisia myyntejä",
+     "Day-stop/profit-lock would have avoided losing sells"),
+    (r"Ostojen rajoitus olisi säästänyt tappioita",
+     "Buy limits would have reduced losses"),
+    (r"Varjopolitiikan counterfactual-arvio ", "Shadow policy counterfactual estimate "),
+    (r"Viime kierros:", "Last round:"),
+    (r"Order book, trade flow ja crowd -data kerätään kierroksittain",
+     "Order book, trade flow and crowd data are collected each round"),
+    (r"Ei vielä suljettuja kauppoja micro-meta-datalla — keruu alkaa uusista ostoista",
+     "No closed trades with micro-meta yet — collection starts with new buys"),
+    (r"Suljetut kaupat micro-datalla:", "Closed trades with micro-data:"),
+    (r" · netto ", " · net "),
+    (r"Ostopaine \(bk\+\):", "Buy pressure (bk+):"),
+    (r"Myyntipaine \(bk-\):", "Sell pressure (bk-):"),
+    (r"Ostoalotteinen flow \(fl\+\):", "Buy-initiated flow (fl+):"),
+    (r"Myyntialotteinen flow \(fl-\):", "Sell-initiated flow (fl-):"),
+    (r"Nyt: ", "Now: "),
+    (r"\((\d+) kauppaa / 1 min\)", r"(\1 trades / 1 min)"),
+    (r"Exit-setuppeja: ([\d]+)/([\d]+) valmiina · ([\d]+) odottaa arviointia",
+     r"Exit setups: \1/\2 ready · \3 awaiting evaluation"),
+    (r"Huippumyynti-oppiminen pois päältä", "Peak-sell learning disabled"),
+    (r"Huippumyynti-oppiminen kerää dataa voitto-otoista",
+     "Peak-sell learning is collecting profit-take data"),
+    (r"Ei vielä voitto-ottomyyntejä — dynaaminen trailing aktiivinen RSI/MTF/book-signaaleilla",
+     "No profit-take sells yet — dynamic trailing active with RSI/MTF/book signals"),
+    (r"Voitto-otot:", "Profit-takes:"),
+    (r"Exit-metalla:", "With exit meta:"),
+    (r"Keskimääräinen giveback myynnissä:", "Average giveback at sell:"),
+    (r"huipusta", "from peak"),
+    (r"jäi pöydälle", "left on the table"),
+    (r"Viime ([\d]+) myyntiä: ([\d]+)V / ([\d]+)T · netto ",
+     r"Last \1 sells: \2W / \3L · net "),
+    (r"Voitoissa:", "In wins:"),
+    (r"Tappioissa:", "In losses:"),
+    (r"\bMuu\b", "Other"),
+    (r"Suositus:", "Recommendation:"),
+    (r"Muut myynnit:", "Other sells:"),
+    (r"tappiota, netto ", "losses, net "),
+    (r"hillitse tätä myyntityyppiä tappiossa", "curb this sell type when losing"),
+    (r"tuottaa keskimäärin ", "averages "),
+    (r"€/voitto — suosi tätä polkua kun positio on plussalla",
+     "€/win — favor this path when the position is profitable"),
+    (r"Voitto-myyntien osuus ", "Winning-sell share "),
+    (r"keskity vähentämään tappiollisia pakko-/rotaatiomyyntejä",
+     "focus on reducing forced/rotation loss sells"),
+    (r"Kerätään lisää myyntidataa ennen vahvoja suosituksia",
+     "Collecting more sell data before strong recommendations"),
+    (r"Voitoissa annettiin keskimäärin ", "Wins gave back on average "),
+    (r" % takaisin huipusta — tiukempi trailing voi parantaa nettotuottoa",
+     " % from the peak — tighter trailing may improve net return"),
+    (r"Voittojen keskikoko ", "Average win size "),
+    (r" on pieni — harkitse pidempää pitoa vahvoissa trendeissä \(bull/regiimi\)",
+     " is small — consider longer holds in strong trends (bull/regime)"),
+    (r"Rotaatio on jo hillitty oppimisen perusteella — jatka seurantaa",
+     "Rotation is already eased by learning — keep monitoring"),
+    (r"vaativat vähintään conf ", "require at least conf "),
+    (r"— säilytä korkea kynnys", "— keep the high threshold"),
+    (r"Myyntijakauma tasapainoinen — jatka nykyistä linjaa ja kerää lisää näytteitä",
+     "Sell mix is balanced — keep the current line and gather more samples"),
+    (r"Microstructure pois päältä \(MICROSTRUCTURE_ENABLED=0\)",
+     "Microstructure disabled (MICROSTRUCTURE_ENABLED=0)"),
+    # Gemini free-text fragments (trade reasons)
+    (r":llä on vahva ", " has a strong "),
+    (r":lla on vahva ", " has a strong "),
+    (r"24h muutos", "24h change"),
+    (r"1h muutos", "1h change"),
+    (r"4h muutos", "4h change"),
+    (r"\bmuutos\b", "change"),
+    (r"ja positiivinen ", "and positive "),
+    (r"on korkea, mutta ei vielä ylikuumentunut", "is high but not yet overheated"),
+    (r"on korkea", "is high"),
+    (r"ei vielä ylikuumentunut", "not yet overheated"),
+    (r"EMA-trendi on bullish", "EMA trend is bullish"),
+    (r"EMA-trendi on bearish", "EMA trend is bearish"),
+    (r"on vahvasti positiivinen", "is strongly positive"),
+    (r"on vahvasti negatiivinen", "is strongly negative"),
+    (r"mikä osoittaa aggressiivista ostoa", "which indicates aggressive buying"),
+    (r"mikä osoittaa aggressiivista myyntiä", "which indicates aggressive selling"),
+    (r"\bVaikka\b", "Although"),
+    (r"\bvaikka\b", "although"),
+    (r"positiivinen ", "positive "),
+    (r"negatiivinen ", "negative "),
+    (r"vahva ", "strong "),
+    (r"heikko ", "weak "),
 ]
 
 _COMPILED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(pat), repl) for pat, repl in _REASON_PATTERNS
 ]
 
-# Protect Gemini free-text so only wrappers / structured suffixes are rewritten.
-_GEMINI_FREE_PROTECT: list[re.Pattern[str]] = [
-    re.compile(r"(Gemini \(\d+/10\): )(.+?)(?= · |$)"),
-    re.compile(r"(Gemini suosittelee osittaista myyntiä — )(.+)$"),
-]
-
 
 def translate_text(text: str, lang: str = "en") -> str:
-    """If lang != 'en' or empty, return text. Else apply ordered regex replacements."""
+    """If lang != 'en' or empty, return text. Else apply ordered regex replacements.
+
+    Gemini free-text is translated with the same patterns (not left as Finnish).
+    """
     if lang != "en" or not text:
         return text
 
-    saved: list[str] = []
-
-    def _stash(match: re.Match[str]) -> str:
-        saved.append(match.group(2))
-        return f"{match.group(1)}\x00G{len(saved) - 1}\x00"
-
-    protected = text
-    for pattern in _GEMINI_FREE_PROTECT:
-        protected = pattern.sub(_stash, protected)
-
-    out = protected
+    out = text
     for pattern, repl in _COMPILED:
         out = pattern.sub(repl, out)
-
-    for i, free in enumerate(saved):
-        out = out.replace(f"\x00G{i}\x00", free)
     return out
 
 

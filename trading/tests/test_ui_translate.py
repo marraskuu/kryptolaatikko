@@ -42,15 +42,51 @@ class TranslateTextTests(SimpleTestCase):
         self.assertEqual(translate_text(fi, "fi"), fi)
         self.assertEqual(translate_text(fi, ""), fi)
 
-    def test_gemini_wrapper_preserves_free_text(self):
+    def test_gemini_wrapper_translates_free_text_fragments(self):
         fi = (
             "Gemini (7/10): vahva momentum ja likvidi order book · "
             "Hinta 1h +0.5 % · salkun osuus 40 %"
         )
         en = translate_text(fi, "en")
-        self.assertTrue(en.startswith("Gemini (7/10): vahva momentum ja likvidi order book"))
+        self.assertTrue(en.startswith("Gemini (7/10): strong momentum"))
         self.assertIn("Price 1h +0.5 %", en)
         self.assertIn("portfolio share 40 %", en)
+
+    def test_trade_reason_gemini_finnish_body(self):
+        fi = (
+            "Gemini (7/10): XMR:llä on vahva 24h muutos (0.84%) ja positiivinen 1h muutos "
+            "(0.37%). RSI (63.0) on korkea, mutta ei vielä ylikuumentunut. "
+            "Flow_imbalance_5m on vahvasti positiivinen (1.0), mikä osoittaa aggressiivista ostoa."
+        )
+        en = translate_text(fi, "en")
+        self.assertIn("XMR has a strong 24h change", en)
+        self.assertIn("and positive 1h change", en)
+        self.assertIn("is high but not yet overheated", en)
+        self.assertIn("is strongly positive", en)
+        self.assertIn("which indicates aggressive buying", en)
+        self.assertNotIn("muutos", en)
+        self.assertNotIn("ylikuumentunut", en)
+
+    def test_learning_report_section_lines(self):
+        fi = (
+            "1459/6648 asetelmaa opittu · Paras: bear · Huonoin: neutral · "
+            "Aikastoppi/jumitus: -0.18 €/kauppa (4 kpl) · "
+            "Varjosalkku 942.99 € vs. live 943.49 € (ero -0.50 €) · "
+            "Estetyt ostot: 331 · Voitto-otot: 69 kpl · netto +553.23 € · "
+            "jäi pöydälle 0.28 % · Suositus: Muut myynnit: 9 tappiota"
+        )
+        en = translate_text(fi, "en")
+        self.assertIn("setups learned", en)
+        self.assertIn("Best:", en)
+        self.assertIn("Worst:", en)
+        self.assertIn("Time stop/stuck", en)
+        self.assertIn("Shadow portfolio 942.99 € vs live", en)
+        self.assertIn("Blocked buys:", en)
+        self.assertIn("Profit-takes:", en)
+        self.assertIn("left on the table", en)
+        self.assertIn("Recommendation:", en)
+        self.assertNotIn("asetelmaa", en)
+        self.assertNotIn("jumitus", en)
 
     def test_gemini_scanned_message(self):
         fi = (
