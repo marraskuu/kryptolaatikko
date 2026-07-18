@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from trading.services.ai_trader import (
     _deploy_cash_to_targets,
     _entry_ok,
+    _fast_loss_exit_reason,
     make_trading_decisions,
 )
 from trading.services.learning import compute_tuning
@@ -57,6 +58,65 @@ class BearBuyFreezeTests(SimpleTestCase):
             learning={"entry_score_min": 1},
         )
         self.assertFalse(result.get("initialAllocation"))
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    @patch("trading.services.ai_trader.BEAR_BUY_FREEZE", True)
+    def test_no_initial_allocation_when_bear_freeze_active_during_recovery_phase(self):
+        symbol = "tETHUSD"
+        analyses = {symbol: _buy_analysis(currentPrice=3_000.0)}
+        portfolio = default_portfolio()
+        portfolio["cash"] = 900.0
+        portfolio["holdings"] = {}
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=900.0,
+            label_fn=lambda s: "ETH",
+            regime="bear",
+            regime_info={
+                "regime": "bear",
+                "phase": "neutral_emerging",
+                "shift_to": "neutral",
+                "shift_strength": "weak",
+            },
+            learning={"entry_score_min": 1},
+        )
+        self.assertFalse(result.get("initialAllocation"))
+        self.assertFalse([d for d in result.get("decisions", []) if d.get("type") == "buy"])
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    @patch("trading.services.ai_trader.BEAR_BUY_FREEZE", True)
+    def test_gemini_desired_symbol_not_readded_after_bear_entry_filter(self):
+        symbol = "tETHUSD"
+        analyses = {symbol: _buy_analysis(currentPrice=3_000.0)}
+        portfolio = default_portfolio()
+        portfolio["cash"] = 900.0
+        portfolio["holdings"] = {}
+        insights = {
+            "top_picks": [symbol],
+            "signals": {symbol: {"action": "buy", "confidence": 9}},
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=900.0,
+            label_fn=lambda s: "ETH",
+            gemini_insights=insights,
+            regime="neutral",
+            regime_info={
+                "regime": "neutral",
+                "phase": "bear_emerging",
+                "shift_to": "bear",
+                "shift_strength": "weak",
+            },
+            learning={"entry_score_min": 1},
+        )
+
+        buys = [d for d in result.get("decisions", []) if d.get("type") == "buy"]
+        self.assertFalse(result.get("initialAllocation"))
+        self.assertFalse(buys)
 
 
 class RotationOutOfPicksTests(SimpleTestCase):
@@ -204,3 +264,24 @@ class SymbolMemoryNetPositiveTests(SimpleTestCase):
         tuning = compute_tuning(portfolio)
         blocked = set(tuning.get("blocked_buys") or [])
         self.assertIn("tHYPEUST", blocked)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_net_positive_cooldown_does_not_force_fast_exit(self):
+        symbol = "tETHUSD"
+        reason = _fast_loss_exit_reason(
+            symbol,
+            -2.0,
+            _buy_analysis(),
+            "neutral",
+            {
+                symbol: {
+                    "blocked": True,
+                    "chronic": False,
+                    "net_eur": 14.5,
+                    "score_adjust": 0.0,
+                }
+            },
+            set(),
+        )
+
+        self.assertIsNone(reason)

@@ -1096,7 +1096,7 @@ def _fast_loss_exit_reason(
             f"Krooninen häviäjä — täysi myynti {profit_pct:.1f} % "
             f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
         )
-    if mem.get("blocked"):
+    if mem.get("blocked") and float(mem.get("net_eur") or 0) < 0:
         return (
             f"Symboli cooldownissa — täysi myynti {profit_pct:.1f} % "
             f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
@@ -2528,7 +2528,11 @@ def make_trading_decisions(
         CONCENTRATION_TRIM_FRACTION if concentration_mode else rotation_trim
     )
 
-    if len(holdings) == 0 and cash > 100:
+    if (
+        len(holdings) == 0
+        and cash > 100
+        and not _bear_buy_freeze_active(regime_info if regime_info else regime)
+    ):
         idle_cash = _is_idle_cash(cash, total_value)
         if idle_cash and not _bear_cash_deploy_ok(cash, total_value, regime_info):
             idle_cash = False
@@ -3185,9 +3189,7 @@ def make_trading_decisions(
                 }
             )
 
-    alloc_symbols = list(
-        dict.fromkeys([c["symbol"] for c in top_cryptos] + desired)
-    )[:position_cap]
+    alloc_symbols = list(dict.fromkeys(c["symbol"] for c in top_cryptos))[:position_cap]
     idle_cash = _is_idle_cash(cash, total_value)
     if idle_cash and not _bear_cash_deploy_ok(cash, total_value, regime_info):
         idle_cash = False
@@ -3200,7 +3202,7 @@ def make_trading_decisions(
             position_cap,
             blocked_buys=blocked_buys,
             blocked_setups=blocked_setups,
-            regime=regime,
+            regime=entry_regime,
             gemini_insights=gemini_insights,
             gemini_active=gemini_active,
             gemini_conf_scales=gemini_conf_scales,
@@ -3285,7 +3287,7 @@ def make_trading_decisions(
             concentration_mode=concentration_mode,
             concentration_trim=concentration_trim,
             blocked_setups=blocked_setups,
-            regime=regime,
+            regime=entry_regime,
             regime_info=regime_info,
             buy_scale=effective_buy_scale,
             gemini_insights=gemini_insights,
