@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Huippumyynti: aiempi arm pitkille pidoille",
+                "body": "Kun positio on ≥2–4 h ja 1h-muutos/flow heikkenee, voitto-otto aktivoituu aiemmin ja trailing kiristyy. Holdingeille haetaan myös trade flow exit-polulla.",
+                "title_en": "Peak sell: earlier arm for long holds",
+                "body_en": "When a position is held ≥2–4 h and 1h change/flow fades, profit-take arms earlier and trailing tightens. Holdings also get trade flow on the exit path.",
+            },
+            {
                 "title": "Englanninkieliset sivut: regiimi-, satelliitti- ja muutokset-kortit",
                 "body": "Oppimisraportin loput kortit ja “muutokset edelliseen” -rivit käännetään /eng-sivulla.",
                 "title_en": "English pages: regime, satellite and changes cards",

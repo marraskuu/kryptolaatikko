@@ -434,6 +434,7 @@ def enrich_holdings_for_exits(
     summary = {
         "enabled": ENABLED and HOLDINGS_EXIT_BOOK_ENABLED,
         "bookFetched": 0,
+        "tradesFetched": 0,
         "statsCached": 0,
         "symbols": [],
     }
@@ -453,6 +454,18 @@ def enrich_holdings_for_exits(
         _apply_micro_fields(analysis, parsed)
         summary["bookFetched"] += 1
         summary["symbols"].append(sym)
+
+        if TRADES_ENABLED:
+            trade_rows = fetch_trades_hist(sym, limit=TRADES_LIMIT)
+            flow = parse_trade_flow(
+                trade_rows,
+                window_1m_sec=TRADES_WINDOW_1M_SEC,
+                window_5m_sec=TRADES_WINDOW_5M_SEC,
+            )
+            if flow:
+                _apply_micro_fields(analysis, flow)
+                summary["tradesFetched"] += 1
+
         if BOOK_REQ_PAUSE_SEC > 0:
             time.sleep(BOOK_REQ_PAUSE_SEC)
 
@@ -471,6 +484,7 @@ def enrich_holdings_for_exits(
         if analysis and (
             analysis.get("bookImbalance") is not None
             or analysis.get("longShortRatio") is not None
+            or analysis.get("flowImbalance") is not None
         ):
             _score_and_block(analysis, regime)
 

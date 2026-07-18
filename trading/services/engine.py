@@ -192,6 +192,9 @@ def _check_profit_sells(
             else 0.0
         )
         exit_learned = exit_learning.adjustments_for_analysis(analysis, regime, profit_pct)
+        from .ai_trader import _holding_age_hours
+
+        hold_age_h = _holding_age_hours(holding.get("openedAt"))
         result = update_profit_sell(
             state["watches"],
             symbol,
@@ -201,6 +204,7 @@ def _check_profit_sells(
             profit_take_config=pt_cfg,
             analysis=analysis,
             exit_learned=exit_learned,
+            hold_age_hours=hold_age_h,
         )
         if shadow_flags:
             shadow_watches = deepcopy(state["watches"])
@@ -213,6 +217,7 @@ def _check_profit_sells(
                 profit_take_config=shadow_cfg,
                 analysis=analysis,
                 exit_learned=exit_learned,
+                hold_age_hours=hold_age_h,
             )
             record_profit_take_shadow(
                 state,

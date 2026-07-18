@@ -28,6 +28,14 @@ ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja (vain 30 % vo
 PARTIAL_TAKE_TRIGGER_PCT = 2.5  # ensimmäinen porras kun voitto ylittää tämän
 PARTIAL_TAKE_FRACTION = 0.30    # kotiuta 30 % positiosta portaassa 1
 
+# Pitkä pito + hiipuva 1h/flow → aiempi arm + tiukempi trailing
+LONG_HOLD_EARLY_HOURS = 2.0
+LONG_HOLD_STRICT_HOURS = 4.0
+LONG_HOLD_EARLY_TRIGGER_MULT = 0.75   # ≥2 h + fade → arm 75 % normaalikynnyksestä
+LONG_HOLD_STRICT_TRIGGER_MULT = 0.65  # ≥4 h + fade → arm 65 %
+LONG_HOLD_1H_FADE_PCT = 0.0           # 1h-muutos ≤ tämä = hiipuminen
+LONG_HOLD_MIN_PROFIT_PCT = 0.8        # alle tämän ei pakoteta aikaisempaa armia
+
 
 def default_profit_take_config() -> dict[str, Any]:
     return {
@@ -80,6 +88,45 @@ def _pullback_threshold_pct(atr_pct: float | None, config: dict[str, Any]) -> fl
     return PULLBACK_FROM_PEAK_PCT * scale
 
 
+def _momentum_fading(analysis: dict[str, Any] | None) -> bool:
+    """1h heikko tai myyntialotteinen flow → momentum hiipuu."""
+    if not analysis:
+        return False
+    ch1 = analysis.get("change1hPct")
+    if ch1 is not None and float(ch1) <= LONG_HOLD_1H_FADE_PCT:
+        return True
+    flow = str(analysis.get("flowBucket") or "")
+    return flow == "fl-"
+
+
+def long_hold_trigger_mult(
+    analysis: dict[str, Any] | None,
+    hold_age_hours: float | None,
+    profit_pct: float,
+) -> tuple[float, list[str]]:
+    """Aiempi voitto-oton arm pitkälle pidolle kun 1h/flow heikkenee."""
+    if hold_age_hours is None or hold_age_hours < LONG_HOLD_EARLY_HOURS:
+        return 1.0, []
+    if profit_pct < LONG_HOLD_MIN_PROFIT_PCT:
+        return 1.0, []
+    if not _momentum_fading(analysis):
+        return 1.0, []
+    signals: list[str] = []
+    ch1 = analysis.get("change1hPct") if analysis else None
+    flow = (analysis or {}).get("flowBucket") or ""
+    if ch1 is not None and float(ch1) <= LONG_HOLD_1H_FADE_PCT:
+        signals.append(f"pito {hold_age_hours:.1f} h + 1h {float(ch1):+.1f} %")
+    if flow == "fl-":
+        signals.append(f"pito {hold_age_hours:.1f} h + myyntiflow")
+    if hold_age_hours >= LONG_HOLD_STRICT_HOURS:
+        return LONG_HOLD_STRICT_TRIGGER_MULT, signals or [
+            f"pito {hold_age_hours:.1f} h + hiipuva momentum"
+        ]
+    return LONG_HOLD_EARLY_TRIGGER_MULT, signals or [
+        f"pito {hold_age_hours:.1f} h + hiipuva momentum"
+    ]
+
+
 def compute_peak_exit_adjustments(
     analysis: dict[str, Any] | None,
     *,
@@ -87,10 +134,11 @@ def compute_peak_exit_adjustments(
     elapsed_ms: int,
     pullback_pct: float,
     learned: dict[str, Any] | None = None,
+    hold_age_hours: float | None = None,
 ) -> dict[str, Any]:
     """
-    Dynaaminen huippumyynti: RSI/MTF/book + opittu exit-setup säätää
-    tasaantumisodotusta ja trailing-rajaa.
+    Dynaaminen huippumyynti: RSI/MTF/book + opittu exit-setup + pitkä pito/1h/flow
+    säätää tasaantumisodotusta ja trailing-rajaa.
     """
     signals: list[str] = []
     stabilize_mult = 1.0
@@ -108,6 +156,7 @@ def compute_peak_exit_adjustments(
     mtf = int(analysis.get("mtfAlign")) if analysis and analysis.get("mtfAlign") is not None else None
     book = (analysis or {}).get("bookBucket") or ""
     crowd = (analysis or {}).get("crowdBucket") or ""
+    flow = (analysis or {}).get("flowBucket") or ""
     spread = float(analysis["bookSpreadPct"]) if analysis and analysis.get("bookSpreadPct") is not None else None
 
     if analysis and analysis.get("condBlocked") and profit_pct > 0:
@@ -136,6 +185,13 @@ def compute_peak_exit_adjustments(
     elif book == "bk+":
         pullback_mult = min(pullback_mult * 1.08, 1.25)
 
+    if flow == "fl-":
+        pullback_mult *= 0.88
+        stabilize_mult *= 0.85
+        signals.append("myyntialotteinen flow")
+    elif flow == "fl+":
+        pullback_mult = min(pullback_mult * 1.05, 1.25)
+
     if crowd == "crL" and profit_pct >= PARTIAL_TAKE_TRIGGER_PCT:
         stabilize_mult *= 0.7
         pullback_mult *= 0.85
@@ -160,6 +216,24 @@ def compute_peak_exit_adjustments(
         force_arm = True
         force_sell = True
         signals.append(f"nopea lasku -{pullback_pct:.2f} % huipusta")
+
+    # Pitkä pito + hiipuva momentum → tiukempi trailing ja nopeampi arm
+    if (
+        hold_age_hours is not None
+        and hold_age_hours >= LONG_HOLD_EARLY_HOURS
+        and profit_pct >= LONG_HOLD_MIN_PROFIT_PCT
+        and _momentum_fading(analysis)
+    ):
+        if hold_age_hours >= LONG_HOLD_STRICT_HOURS:
+            stabilize_mult *= 0.45
+            pullback_mult *= 0.72
+            force_arm = True
+            signals.append(f"pitkä pito {hold_age_hours:.1f} h + hiipuva 1h/flow")
+        else:
+            stabilize_mult *= 0.65
+            pullback_mult *= 0.82
+            force_arm = True
+            signals.append(f"pito {hold_age_hours:.1f} h + hiipuva 1h/flow")
 
     stabilize_ms = max(
         STABILIZE_WAIT_MIN_MS,
@@ -186,12 +260,18 @@ def update_profit_sell(
     profit_take_config: dict[str, Any] | None = None,
     analysis: dict[str, Any] | None = None,
     exit_learned: dict[str, Any] | None = None,
+    hold_age_hours: float | None = None,
 ) -> dict[str, Any]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     cfg = _scaled_config(profit_take_config)
     state = dict(states.get(symbol) or default_watch_state())
     profit_pct = ((current_price - avg_price) / avg_price) * 100 if avg_price else 0
     trigger_pct = _trigger_pct(atr_pct, cfg)
+    early_mult, early_signals = long_hold_trigger_mult(
+        analysis, hold_age_hours, profit_pct
+    )
+    if early_mult < 1.0:
+        trigger_pct *= early_mult
     pullback_threshold = _pullback_threshold_pct(atr_pct, cfg)
     covers_cost = profit_pct > ROUND_TRIP_COST_PCT
     partial_trigger = PARTIAL_TAKE_TRIGGER_PCT * float(cfg.get("partial_trigger_scale", 1.0))
@@ -272,6 +352,7 @@ def update_profit_sell(
         elapsed_ms=elapsed,
         pullback_pct=pullback_pct,
         learned=exit_learned,
+        hold_age_hours=hold_age_hours,
     )
     stabilize_ms = int(peak_adj["stabilize_ms"])
     pullback_threshold *= float(peak_adj["pullback_mult"])
@@ -282,7 +363,10 @@ def update_profit_sell(
 
     should_sell = False
     reason = ""
-    exit_signals = peak_adj.get("signals") or []
+    exit_signals = list(peak_adj.get("signals") or [])
+    for sig in early_signals:
+        if sig not in exit_signals:
+            exit_signals.append(sig)
     if (
         peak_adj.get("force_sell")
         and peak > 0

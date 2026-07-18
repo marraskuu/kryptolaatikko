@@ -517,6 +517,13 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
      r"pidä kiinni tiukemmista tappiorajoista \(rotaatio/aikastoppi\)",
      "Sells are weaker in anticipation than in a stable regime — "
      "stick to tighter loss limits (rotation/time-stop)"),
+    (r"pito ([\d.]+) h \+ 1h ", r"hold \1 h + 1h "),
+    (r"pito ([\d.]+) h \+ myyntiflow", r"hold \1 h + sell flow"),
+    (r"pito ([\d.]+) h \+ hiipuva momentum", r"hold \1 h + fading momentum"),
+    (r"pitkä pito ([\d.]+) h \+ hiipuva 1h/flow", r"long hold \1 h + fading 1h/flow"),
+    (r"pito ([\d.]+) h \+ hiipuva 1h/flow", r"hold \1 h + fading 1h/flow"),
+    (r"myyntialotteinen flow", "sell-initiated flow"),
+    (r"ostoalotteinen flow", "buy-initiated flow"),
 ]
 
 _COMPILED: list[tuple[re.Pattern[str], str]] = [
