@@ -18,6 +18,15 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-18",
+        "entries": [
+            {
+                "title": "Voittostrategia: karhu-jäädytys + rotaatio + symbolimuisti",
+                "body": "Ei uusia ostoja karhussa (live: bear −239 € vs bull +235 €). “Ei valinnoissa” -rotaatio vain voitolla ja selkeällä edgellä. Nettopositiivisia ei estetä symbolimuistissa.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-14",
         "entries": [
             {

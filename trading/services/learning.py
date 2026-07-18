@@ -249,12 +249,9 @@ def _apply_category_tuning(
     rot_n = int(rot.get("trades", 0))
     rot_exp = float(rot.get("expectancy_eur", 0.0))
     if rot_n >= min_samples:
-        if rot_exp < -0.15:
+        if rot_exp < 0:
             rotation_enabled = False
             notes.append(f"rotaatio pois ({rot_exp:+.2f} €/kauppa)")
-        elif rot_exp < 0:
-            rotation_scale = 0.5
-            notes.append(f"rotaatio -50 % ({rot_exp:+.2f} €/kauppa)")
         elif rot_exp > 0.2:
             notes.append(f"rotaatio ok ({rot_exp:+.2f} €/kauppa)")
 
@@ -886,15 +883,28 @@ def compute_tuning(
     notes.extend(pick_notes)
 
     memory = compute_symbol_memory(portfolio)
-    blocked = [s for s, m in memory.items() if m["blocked"]]
+    # Nettopositiivisia ei estetä score-/cooldown-listalla — crooniset (0 voittoa)
+    # jäävät silti blocked=True ja net < 0.
+    blocked = [
+        s
+        for s, m in memory.items()
+        if m["blocked"] and float(m.get("net_eur") or 0) < 0
+    ]
     score_blocked = [
         normalize_symbol(s)
         for s, m in memory.items()
         if (m.get("score_adjust") or 0) <= SYMBOL_SCORE_BLOCK
+        and float(m.get("net_eur") or 0) < 0
     ]
     blocked = list(dict.fromkeys(normalize_symbol(s) for s in blocked + score_blocked))
     chronic = [s for s, m in memory.items() if m.get("chronic")]
-    cooldown = [s for s, m in memory.items() if m["blocked"] and not m.get("chronic")]
+    cooldown = [
+        s
+        for s, m in memory.items()
+        if m["blocked"]
+        and not m.get("chronic")
+        and float(m.get("net_eur") or 0) < 0
+    ]
     score_blocked_unique = [s for s in score_blocked if s in blocked]
     losers = [s for s, m in memory.items() if m["score_adjust"] < 0]
     winners = [s for s, m in memory.items() if m["score_adjust"] > 0]

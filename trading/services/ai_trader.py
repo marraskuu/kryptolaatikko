@@ -19,9 +19,17 @@ MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
 ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
+# "ei valinnoissa" -trimmaus vain voitolla — tappiorotaatio on ollut −78 € / 37 pv.
+ROTATION_OUT_MIN_PROFIT_PCT = 0.5
 # Kun suurin osa pääomasta on käteisenä, sijoita aggressiivisesti (ei 30 min taukoa).
 IDLE_CASH_DEPLOY_PCT = 0.35
 IDLE_CASH_MIN_EUR = 150
+# Karhu: ei uusia ostoja (bull +235 € / bear −239 € live-datassa).
+BEAR_BUY_FREEZE = os.environ.get("BEAR_BUY_FREEZE", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
@@ -70,7 +78,7 @@ ROUND_TRIP_COST_PCT = 0.0    # Bitfinex: ei kaupankäyntikuluja
 # 1: Etuviisas rotaatio — kuluja ei enää ole, mutta vältetään silti turha
 # noise-churn: vaihto vain jos uuden kohteen odotettu etu ylittää nykyisen
 # selvällä marginaalilla (ja säästää 30 % voittoveron turhalta realisoinnilta).
-ROTATION_EDGE_MARGIN_PCT = 0.3
+ROTATION_EDGE_MARGIN_PCT = 1.2
 ROTATION_MIN_EDGE_PCT = ROUND_TRIP_COST_PCT + ROTATION_EDGE_MARGIN_PCT
 
 # 2: Aikastoppi — vapauta pääoma jämähtäneestä positiosta parempaan kohteeseen.
@@ -684,6 +692,11 @@ def risk_regime_key(regime_info: dict[str, Any] | str) -> str:
     return current
 
 
+def _bear_buy_freeze_active(regime_info: dict[str, Any] | str | None) -> bool:
+    """Karhu-jäädytys: ei uusia ostoja kun defenssi on päällä."""
+    return BEAR_BUY_FREEZE and _bear_defense_active(regime_info)
+
+
 def _bear_defense_active(regime_info: dict[str, Any] | str | None) -> bool:
     if not BEAR_DEFENSE_ENABLED or not regime_info:
         return False
@@ -711,6 +724,8 @@ def _stuck_position_hours(regime: str) -> float:
 
 
 def _bear_cash_deploy_ok(cash: float, total_value: float, regime_info: dict[str, Any] | str | None) -> bool:
+    if _bear_buy_freeze_active(regime_info):
+        return False
     if not _bear_defense_active(regime_info) or total_value <= 0:
         return True
     return (cash / total_value) >= BEAR_MIN_CASH_SHARE
@@ -848,13 +863,16 @@ def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
         return False
     if not entry_price_ok(analysis):
         return False
+    if regime == "bear" and BEAR_BUY_FREEZE:
+        # Karhu-jäädytys: ei uusia ostoja (live: bear −239 € vs bull +235 €).
+        return False
     mtf = analysis.get("mtfAlign", 0)
     change_24h = analysis.get("changePct")
     if change_24h is None:
         change_24h = analysis.get("momentum") or 0
     change_4h = analysis.get("change4hPct")
     if regime == "bear":
-        # Karhu: vain selvä moniaikainen nousu, ei putoavia veitsiä
+        # Karhu (jos freeze pois): vain selvä moniaikainen nousu
         if change_4h is not None and change_4h <= 0:
             return False
         return mtf >= 2 and change_24h > -1
@@ -890,11 +908,11 @@ def _gemini_conf_scale_for_analysis(
 
 
 def _hard_blocked_buys(symbol_memory: dict[str, dict[str, Any]]) -> set[str]:
-    """Symbolimuistin kova esto: cooldown tai krooninen häviäjä (ei score-rangaistus)."""
+    """Symbolimuistin kova esto: cooldown/krooninen vain kun nettotulos < 0."""
     return {
         normalize_symbol(sym)
         for sym, m in symbol_memory.items()
-        if m.get("blocked")
+        if m.get("blocked") and float(m.get("net_eur") or 0) < 0
     }
 
 
@@ -940,6 +958,8 @@ def _is_buy_blocked(
     allow_non_gemini_pick: bool = False,
 ) -> bool:
     if not analysis:
+        return True
+    if regime == "bear" and BEAR_BUY_FREEZE:
         return True
     if normalize_symbol(symbol) in blocked_buys:
         return True
@@ -2011,13 +2031,12 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
             else:
-                # 1: etuviisas — trimmaa pois valinnoista vain jos kohteella on selvä etu,
-                # tai jos positio on selvästi heikkenevä (vältä turhaa noise-churnia).
+                # Rotaatio pois valinnoista vain voitolla + selvällä edgellä.
+                # Tappio-/nollatrimmaus on tuottanut −78 € (37 pv live).
                 profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
-                if not _rotation_trim_allowed(profit_pct, regime):
+                if profit_pct < ROTATION_OUT_MIN_PROFIT_PCT:
                     continue
-                weak = (analysis.get("changePct") or analysis.get("momentum") or 0) < -1
-                if not (weak or _rotation_worthwhile(analysis, best_target_edge)):
+                if not _rotation_worthwhile(analysis, best_target_edge):
                     continue
                 sell_amount = _rotation_sell_amount(
                     amount, profit_pct, ROTATION_TRIM_FRACTION
