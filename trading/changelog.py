@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Englanninkieliset sivut: kauppojen syyt ja Gemini-kertomukset",
+                "body": "/eng hakee tilan ?lang=en — syyt, AI-raportit ja oppimisraportti käännetään. Uudet Gemini-signaalit ja kertomukset tallennetaan kaksikielisinä (reason_en / *_en).",
+                "title_en": "English pages: trade reasons and Gemini narratives",
+                "body_en": "/eng fetches state with ?lang=en — reasons, AI reports and the learning report are localized. New Gemini signals and narratives are stored bilingually (reason_en / *_en).",
+            },
+            {
                 "title": "Englanninkieliset sivut (/eng, /changelog)",
                 "body": "Etusivu ja muutosloki saatavilla englanniksi; kielivalitsin headerissa ja footereissa.",
                 "title_en": "English pages (/eng, /changelog)",

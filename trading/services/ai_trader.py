@@ -1711,13 +1711,24 @@ def analyze_market(candles: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _gemini_reason(analysis: dict[str, Any]) -> str | None:
+def _gemini_reason(analysis: dict[str, Any], *, lang: str = "fi") -> str | None:
     signal = analysis.get("geminiSignal")
-    if signal and signal.get("reason"):
-        conf = signal.get("confidence", 0)
-        return f"Gemini ({conf}/10): {signal['reason']}"
+    if signal:
+        reason = signal.get("reason") or ""
+        if lang == "en":
+            reason = signal.get("reason_en") or signal.get("reasonEn") or reason
+        if reason:
+            conf = signal.get("confidence", 0)
+            return f"Gemini ({conf}/10): {reason}"
     for reason in analysis.get("reasons", []):
         if reason.startswith("Gemini"):
+            if lang == "en":
+                # Prefer structured EN if present; otherwise leave Finnish free-text.
+                signal = analysis.get("geminiSignal") or {}
+                en = signal.get("reason_en") or signal.get("reasonEn")
+                if en:
+                    conf = signal.get("confidence", 0)
+                    return f"Gemini ({conf}/10): {en}"
             return reason
     return None
 
@@ -1742,18 +1753,52 @@ def _format_trade_reason(
     fallback: str,
     alloc_pct: float | None = None,
     eur_amount: float | None = None,
+    lang: str = "fi",
 ) -> str:
     """Perustelu selkeällä erottelulla: Gemini-teksti · hintamuutokset · salkun osuus · summa."""
-    main = (_gemini_reason(analysis) if gemini_active else None) or fallback
+    from .ui_translate import translate_text
+
+    main = (_gemini_reason(analysis, lang=lang) if gemini_active else None) or (
+        translate_text(fallback, lang) if lang == "en" else fallback
+    )
     segments = [main]
     changes = _market_change_summary(analysis)
     if changes:
-        segments.append(f"Hinta {changes}")
+        segments.append(f"Price {changes}" if lang == "en" else f"Hinta {changes}")
     if alloc_pct is not None:
-        segments.append(f"salkun osuus {alloc_pct:.0f} %")
+        label = "portfolio share" if lang == "en" else "salkun osuus"
+        segments.append(f"{label} {alloc_pct:.0f} %")
     if eur_amount is not None:
         segments.append(f"{eur_amount:.0f} €")
     return " · ".join(segments)
+
+
+def _decision_reasons(
+    analysis: dict[str, Any],
+    *,
+    gemini_active: bool,
+    fallback: str,
+    alloc_pct: float | None = None,
+    eur_amount: float | None = None,
+) -> tuple[str, str | None]:
+    """Return (fi_reason, en_reason). EN is set when Gemini provides reason_en or templates translate."""
+    fi = _format_trade_reason(
+        analysis,
+        gemini_active=gemini_active,
+        fallback=fallback,
+        alloc_pct=alloc_pct,
+        eur_amount=eur_amount,
+        lang="fi",
+    )
+    en = _format_trade_reason(
+        analysis,
+        gemini_active=gemini_active,
+        fallback=fallback,
+        alloc_pct=alloc_pct,
+        eur_amount=eur_amount,
+        lang="en",
+    )
+    return fi, en if en != fi else None
 
 
 def _gemini_signal(
@@ -1903,6 +1948,7 @@ def _append_sell_decision(
     price: float,
     reason: str,
     analysis: dict[str, Any],
+    reason_en: str | None = None,
 ) -> None:
     if crypto_amount <= 0 or crypto_amount * price < MIN_TRADE_EUR:
         return
@@ -1911,16 +1957,17 @@ def _append_sell_decision(
             d["amount"] += crypto_amount
             d["eurAmount"] = d["amount"] * price
             return
-    decisions.append(
-        {
-            "type": "sell",
-            "symbol": symbol,
-            "amount": crypto_amount,
-            "eurAmount": crypto_amount * price,
-            "reason": reason,
-            "analysis": analysis,
-        }
-    )
+    entry: dict[str, Any] = {
+        "type": "sell",
+        "symbol": symbol,
+        "amount": crypto_amount,
+        "eurAmount": crypto_amount * price,
+        "reason": reason,
+        "analysis": analysis,
+    }
+    if reason_en and reason_en != reason:
+        entry["reasonEn"] = reason_en
+    decisions.append(entry)
 
 
 def _deploy_cash_to_targets(
@@ -2142,16 +2189,25 @@ def _deploy_cash_to_targets(
             alloc_pct=alloc_pct,
             eur_amount=buy_eur,
         )
-        decisions.append(
-            {
-                "type": "buy",
-                "symbol": sym,
-                "eurAmount": buy_eur,
-                "amount": buy_eur / price,
-                "reason": reason,
-                "analysis": analysis,
-            }
+        reason_en = _format_trade_reason(
+            analysis,
+            gemini_active=gemini_active,
+            fallback="Käteinen sijoitettu",
+            alloc_pct=alloc_pct,
+            eur_amount=buy_eur,
+            lang="en",
         )
+        entry = {
+            "type": "buy",
+            "symbol": sym,
+            "eurAmount": buy_eur,
+            "amount": buy_eur / price,
+            "reason": reason,
+            "analysis": analysis,
+        }
+        if reason_en and reason_en != reason:
+            entry["reasonEn"] = reason_en
+        decisions.append(entry)
         remaining -= buy_eur
 
 
@@ -3054,16 +3110,27 @@ def make_trading_decisions(
                         * gemini_sell_scale
                         * conf_scale
                     )
+                    fallback = (
+                        f"Gemini suosittelee osittaista myyntiä — "
+                        f"{gemini_sig.get('reason', '')}"
+                    )
                     _append_sell_decision(
                         decisions,
                         symbol,
                         sell_amount,
                         analysis["currentPrice"],
-                        _action_reason(
+                        _format_trade_reason(
                             analysis,
-                            f"Gemini suosittelee osittaista myyntiä — {gemini_sig.get('reason', '')}",
+                            gemini_active=True,
+                            fallback=fallback,
                         ),
                         analysis,
+                        reason_en=_format_trade_reason(
+                            analysis,
+                            gemini_active=True,
+                            fallback=fallback,
+                            lang="en",
+                        ),
                     )
         elif (
             gemini_active
@@ -3072,14 +3139,22 @@ def make_trading_decisions(
             and gemini_sig.get("confidence", 0) >= 7
             and profit_pct >= ROTATE_LOSS_PCT
         ):
-            decisions.append(
-                {
-                    "type": "hold",
-                    "symbol": symbol,
-                    "reason": _action_reason(analysis, "Gemini: pidä positio"),
-                    "analysis": analysis,
-                }
+            hold_reason = _action_reason(analysis, "Gemini: pidä positio")
+            hold_reason_en = _format_trade_reason(
+                analysis,
+                gemini_active=True,
+                fallback="Gemini: pidä positio",
+                lang="en",
             )
+            hold_entry: dict[str, Any] = {
+                "type": "hold",
+                "symbol": symbol,
+                "reason": hold_reason,
+                "analysis": analysis,
+            }
+            if hold_reason_en and hold_reason_en != hold_reason:
+                hold_entry["reasonEn"] = hold_reason_en
+            decisions.append(hold_entry)
         elif (
             _bear_defense_active(regime_info)
             and profit_pct < 0
@@ -3319,14 +3394,16 @@ def format_initial_buy_reason(
     gemini_active: bool,
     alloc_pct: float | None = None,
     eur_amount: float | None = None,
+    lang: str = "fi",
 ) -> str:
-    if gemini_active and _gemini_reason(analysis):
+    if gemini_active and _gemini_reason(analysis, lang=lang):
         return _format_trade_reason(
             analysis,
             gemini_active=True,
             fallback=f"Gemini: avaa salkku — {label}",
             alloc_pct=alloc_pct,
             eur_amount=eur_amount,
+            lang=lang,
         )
     fallback = (
         f"Gemini: avaa salkku — {label} ({index}/{total})"
@@ -3339,6 +3416,7 @@ def format_initial_buy_reason(
         fallback=fallback,
         alloc_pct=alloc_pct,
         eur_amount=eur_amount,
+        lang=lang,
     )
 
 
@@ -3379,6 +3457,7 @@ def apply_gemini_insights(
         action = signal.get("action", "hold")
         confidence = int(signal.get("confidence", 5))
         reason = signal.get("reason", "")
+        reason_en = signal.get("reason_en") or signal.get("reasonEn") or ""
 
         if confidence >= min_conf:
             analysis["score"] = analysis.get("score", 0) + (confidence - 5) + (
@@ -3405,6 +3484,8 @@ def apply_gemini_insights(
             "confidence": confidence,
             "reason": reason,
         }
+        if reason_en:
+            analysis["geminiSignal"]["reason_en"] = reason_en
         if signal.get("alloc_pct") is not None:
             analysis["geminiSignal"]["alloc_pct"] = signal["alloc_pct"]
             analysis["geminiAllocPct"] = signal["alloc_pct"]
@@ -3459,6 +3540,7 @@ def build_decision_report(
                 "amount": b.get("eurAmount"),
                 "reason": b["reason"],
                 "analysis": b.get("analysis"),
+                **({"reasonEn": b["reasonEn"]} if b.get("reasonEn") else {}),
             }
             for b in buys
         ],
@@ -3468,6 +3550,7 @@ def build_decision_report(
                 "amount": s.get("eurAmount"),
                 "reason": s["reason"],
                 "analysis": s.get("analysis"),
+                **({"reasonEn": s["reasonEn"]} if s.get("reasonEn") else {}),
             }
             for s in sells
         ],
@@ -3476,6 +3559,7 @@ def build_decision_report(
                 "symbol": label_fn(h["symbol"]),
                 "reason": h["reason"],
                 "analysis": h.get("analysis"),
+                **({"reasonEn": h["reasonEn"]} if h.get("reasonEn") else {}),
             }
             for h in holds
         ],

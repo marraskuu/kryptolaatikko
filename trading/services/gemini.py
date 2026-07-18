@@ -1271,7 +1271,8 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
     {{
       "symbol": "tSYM1",
       "alloc_pct": 40,
-      "reason": "miksi juuri tämä osuus — vahvin voittopotentiaali"
+      "reason": "miksi juuri tämä osuus — vahvin voittopotentiaali (suomeksi)",
+      "reason_en": "why this allocation — strongest upside (English)"
     }}
   ],
   "signals": [
@@ -1280,7 +1281,8 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
       "action": "buy|sell|hold",
       "confidence": 1-10,
       "alloc_pct": 40,
-      "reason": "konkreettinen voitto-orientoitunut perustelu suomeksi"
+      "reason": "konkreettinen voitto-orientoitunut perustelu suomeksi",
+      "reason_en": "concrete profit-oriented rationale in English"
     }}
   ]
 }}
@@ -1288,6 +1290,7 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
 top_picks = 1–5 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta).
 allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
 signals = held-positiot + top_picks + vähintään 3 parasta momentum_johtajaa (max 20 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
+Jokaisella signal- ja allocation-rivillä ANNA sekä reason (suomi) ETTÄ reason_en (englanti) — sama sisältö kahdella kielellä.
 Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.
 Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
@@ -1318,11 +1321,15 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                 if action not in ("buy", "sell", "hold"):
                     action = "hold"
                 confidence = max(1, min(10, int(item.get("confidence", 5))))
+                reason_fi = str(item.get("reason", "")).strip()[:240]
+                reason_en = str(item.get("reason_en") or item.get("reasonEn") or "").strip()[:240]
                 signal: dict[str, Any] = {
                     "action": action,
                     "confidence": confidence,
-                    "reason": str(item.get("reason", "")).strip()[:240],
+                    "reason": reason_fi,
                 }
+                if reason_en:
+                    signal["reason_en"] = reason_en
                 if item.get("alloc_pct") is not None:
                     signal["alloc_pct"] = max(0.0, min(100.0, float(item["alloc_pct"])))
                 signals_map[sym] = signal
@@ -1359,17 +1366,25 @@ Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
                     signal = dict(signal)
                     signal["action"] = "hold"
                     reject = "volyymi/hinta"
+                    reject_en = "volume/price"
                     if analysis.get("condBlocked"):
                         reject = "varjo-esto"
+                        reject_en = "shadow block"
                     elif blocks_entry(analysis):
                         reject = "micro-esto"
+                        reject_en = "micro block"
                     elif blocked_setups and setup_key_for_analysis(
                         analysis, _regime_label(regime)
                     ) in blocked_setups:
                         reject = "setup-esto"
+                        reject_en = "setup block"
                     signal["reason"] = (
                         (signal.get("reason") or "") + f" [hylätty: {reject}]"
                     ).strip()[:240]
+                    if signal.get("reason_en"):
+                        signal["reason_en"] = (
+                            (signal.get("reason_en") or "") + f" [rejected: {reject_en}]"
+                        ).strip()[:240]
                     signals_map[sym] = signal
 
             allocations_map: dict[str, float] = {}
@@ -1531,26 +1546,44 @@ Roadmap:
 Edellinen kertomus (viite):
 {prev_text}
 
-Vastaa VAIN validilla JSON:lla:
+Vastaa VAIN validilla JSON:lla. Anna KAIKKI kentät suomeksi JA vastaavat *_en-kentät englanniksi (sama sisältö):
 {{
   "story": "Vapaamuotoinen kertomus 3–5 kappaletta. Erota kappaleet tyhjällä rivillä (\\\\n\\\\n).",
+  "story_en": "Same story in English, 3–5 paragraphs separated by blank lines (\\\\n\\\\n).",
   "intro": "Yksi lause: tilanne nyt",
+  "intro_en": "One sentence: situation now (English)",
   "learned": "Lyhyt bullet-lista uusista oivalluksista (valinnainen, \\\\n)",
+  "learned_en": "Short bullet list of new insights (optional, \\\\n)",
   "in_use": "Lyhyt bullet-lista: mitä jo tehdään eri tavalla (valinnainen, \\\\n)",
+  "in_use_en": "Short bullet list: what is already done differently (optional, \\\\n)",
   "next_steps": "Mitä aktivoituu kun dataa kertyy (1–2 lausetta)",
+  "next_steps_en": "What activates as more data arrives (1–2 sentences)",
   "shadow_learned": "Varjopolitiikka: mitä testidata opettaa (1–2 kappaletta, vapaamuoto)",
+  "shadow_learned_en": "Shadow policy: what test data teaches (1–2 paragraphs)",
   "shadow_ideas": "Varjopolitiikka: hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "shadow_ideas_en": "Shadow policy: usage ideas — not live yet (1 paragraph)",
   "micro_learned": "Order book, trade flow & crowd: miten signaaleja hyödynnetään ja miten ne on onnistuneet/epäonnistuneet (1–2 kappaletta)",
+  "micro_learned_en": "Order book, trade flow & crowd: how signals are used and how they succeeded/failed (1–2 paragraphs)",
   "micro_ideas": "Order book, trade flow & crowd: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "micro_ideas_en": "Order book, trade flow & crowd: deeper usage ideas — not live yet (1 paragraph)",
   "exit_learned": "Huippumyynti: miten voitto-otto lähellä huippua toimii ja mitä exit-setup-data opettaa (1–2 kappaletta)",
+  "exit_learned_en": "Peak selling: how near-peak profit-taking works and what exit-setup data teaches (1–2 paragraphs)",
   "exit_ideas": "Huippumyynti: tarkemmat hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "exit_ideas_en": "Peak selling: deeper usage ideas — not live yet (1 paragraph)",
   "sell_learned": "Voitto- vs tappiomyynnit: mitä eri myyntityypeistä on opittu (1–2 kappaletta)",
+  "sell_learned_en": "Win vs loss sells: what different sell types taught (1–2 paragraphs)",
   "sell_ideas": "Myyntisuositukset: miten myydä enemmän voitolla jatkossa — ei vielä automaattisesti käytössä (1 kappale)",
+  "sell_ideas_en": "Sell recommendations: how to sell more at a profit going forward — not automated yet (1 paragraph)",
   "anticipation_learned": "Regiimin ennakointi: miten sitä hyödynnetään ja mitä myynneistä on opittu (1–2 kappaletta)",
+  "anticipation_learned_en": "Regime anticipation: how it is used and what sells taught (1–2 paragraphs)",
   "anticipation_ideas": "Ennakoinnin hyödyntämisehdotukset — ei vielä käytössä (1 kappale)",
+  "anticipation_ideas_en": "Anticipation usage ideas — not live yet (1 paragraph)",
   "satellite_learned": "Bull-satelliitti: miten 65/35-jako on tuottanut vs pelkkä ydin (1–2 kappaletta, €-luvut)",
+  "satellite_learned_en": "Bull satellite: how the 65/35 split performed vs core-only (1–2 paragraphs, € figures)",
   "satellite_ideas": "Satelliittijaon hienosäätöehdotukset — ei vielä automaattisesti käytössä (1 kappale)",
-  "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)"
+  "satellite_ideas_en": "Satellite split tuning ideas — not automated yet (1 paragraph)",
+  "ideas": "Muut ehdotukset — selvästi merkittynä ettei vielä käytössä (1 kappale)",
+  "ideas_en": "Other ideas — clearly marked as not live yet (1 paragraph)"
 }}"""
 
     api_key = _read_api_key()
@@ -1566,28 +1599,36 @@ Vastaa VAIN validilla JSON:lla:
             body = response.json()
             text = body["candidates"][0]["content"]["parts"][0]["text"]
             parsed = _extract_json(text)
+            narrative_keys = (
+                "story",
+                "intro",
+                "learned",
+                "in_use",
+                "next_steps",
+                "shadow_learned",
+                "shadow_ideas",
+                "micro_learned",
+                "micro_ideas",
+                "exit_learned",
+                "exit_ideas",
+                "sell_learned",
+                "sell_ideas",
+                "anticipation_learned",
+                "anticipation_ideas",
+                "satellite_learned",
+                "satellite_ideas",
+                "ideas",
+            )
             narrative = {
-                "story": str(parsed.get("story") or "").strip(),
-                "intro": str(parsed.get("intro") or "").strip(),
-                "learned": str(parsed.get("learned") or "").strip(),
-                "in_use": str(parsed.get("in_use") or "").strip(),
-                "next_steps": str(parsed.get("next_steps") or "").strip(),
-                "shadow_learned": str(parsed.get("shadow_learned") or "").strip(),
-                "shadow_ideas": str(parsed.get("shadow_ideas") or "").strip(),
-                "micro_learned": str(parsed.get("micro_learned") or "").strip(),
-                "micro_ideas": str(parsed.get("micro_ideas") or "").strip(),
-                "exit_learned": str(parsed.get("exit_learned") or "").strip(),
-                "exit_ideas": str(parsed.get("exit_ideas") or "").strip(),
-                "sell_learned": str(parsed.get("sell_learned") or "").strip(),
-                "sell_ideas": str(parsed.get("sell_ideas") or "").strip(),
-                "anticipation_learned": str(parsed.get("anticipation_learned") or "").strip(),
-                "anticipation_ideas": str(parsed.get("anticipation_ideas") or "").strip(),
-                "satellite_learned": str(parsed.get("satellite_learned") or "").strip(),
-                "satellite_ideas": str(parsed.get("satellite_ideas") or "").strip(),
-                "ideas": str(parsed.get("ideas") or "").strip(),
                 "source": "gemini",
                 "model": model,
             }
+            for key in narrative_keys:
+                narrative[key] = str(parsed.get(key) or "").strip()
+                en_key = f"{key}_en"
+                en_val = str(parsed.get(en_key) or "").strip()
+                if en_val:
+                    narrative[en_key] = en_val
             from .learning_report import sanitize_learning_narrative
 
             return sanitize_learning_narrative(narrative), {

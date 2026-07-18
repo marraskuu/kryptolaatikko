@@ -265,6 +265,14 @@ def api_state(request):
         stale_sec = 0
 
     payload = build_api_payload(state)
+    lang = (request.GET.get("lang") or "fi").strip().lower()
+    if lang not in ("fi", "en"):
+        lang = "fi"
+    if lang == "en":
+        from .services.ui_translate import localize_api_payload
+
+        payload = localize_api_payload(payload, "en")
+    payload["lang"] = lang
     payload["error"] = state.get("error")
     payload["autoRun"] = True
     payload["db"] = _db_diagnostics()

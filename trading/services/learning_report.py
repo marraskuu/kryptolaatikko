@@ -36,9 +36,32 @@ def sanitize_learning_narrative(narrative: dict[str, Any] | None) -> dict[str, A
     if not narrative:
         return narrative
     cleaned = dict(narrative)
-    for key in ("story", "intro", "learned", "in_use", "next_steps", "ideas", "shadow_learned", "shadow_ideas", "micro_learned", "micro_ideas", "exit_learned", "exit_ideas", "sell_learned", "sell_ideas", "anticipation_learned", "anticipation_ideas", "satellite_learned", "satellite_ideas"):
+    keys = (
+        "story",
+        "intro",
+        "learned",
+        "in_use",
+        "next_steps",
+        "ideas",
+        "shadow_learned",
+        "shadow_ideas",
+        "micro_learned",
+        "micro_ideas",
+        "exit_learned",
+        "exit_ideas",
+        "sell_learned",
+        "sell_ideas",
+        "anticipation_learned",
+        "anticipation_ideas",
+        "satellite_learned",
+        "satellite_ideas",
+    )
+    for key in keys:
         if cleaned.get(key):
             cleaned[key] = _sanitize_narrative_text(str(cleaned[key]))
+        en_key = f"{key}_en"
+        if cleaned.get(en_key):
+            cleaned[en_key] = _sanitize_narrative_text(str(cleaned[en_key]))
     return cleaned
 
 from .bitfinex import get_crypto_label, normalize_symbol

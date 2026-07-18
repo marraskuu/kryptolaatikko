@@ -47,19 +47,20 @@ def log_ai_event(
     label: str,
     reason: str,
     amount: float | None = None,
+    reason_en: str | None = None,
 ) -> None:
     state["aiEventId"] += 1
-    state["aiEvents"].insert(
-        0,
-        {
-            "id": state["aiEventId"],
-            "timestamp": _now_iso(),
-            "type": event_type,
-            "label": label,
-            "reason": reason,
-            "amount": amount,
-        },
-    )
+    event: dict[str, Any] = {
+        "id": state["aiEventId"],
+        "timestamp": _now_iso(),
+        "type": event_type,
+        "label": label,
+        "reason": reason,
+        "amount": amount,
+    }
+    if reason_en and reason_en != reason:
+        event["reasonEn"] = reason_en
+    state["aiEvents"].insert(0, event)
     state["aiEvents"] = state["aiEvents"][:AI_EVENT_LIMIT]
 
 

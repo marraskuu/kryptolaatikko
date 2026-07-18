@@ -600,25 +600,40 @@ def execute_trading_cycle() -> dict[str, Any]:
         initial_allocation = decision_result.get("initialAllocation") or []
         gemini_active = decision_result.get("geminiActive", False)
         if initial_allocation:
-            slots = [
-                {
-                    "symbol": item["symbol"],
-                    "price": item["analysis"]["currentPrice"],
-                    "eur_amount": item.get("eurAmount"),
-                    "atrPct": (item.get("analysis") or {}).get("atrPct"),
-                    "tradeMeta": meta_from_analysis(item.get("analysis"), regime),
-                    "reason": format_initial_buy_reason(
-                        item["analysis"],
-                        get_crypto_label(item["symbol"]),
-                        i + 1,
-                        len(initial_allocation),
-                        gemini_active,
-                        alloc_pct=item.get("allocPct"),
-                        eur_amount=item.get("eurAmount"),
-                    ),
-                }
-                for i, item in enumerate(initial_allocation)
-            ]
+            slots = []
+            for i, item in enumerate(initial_allocation):
+                reason = format_initial_buy_reason(
+                    item["analysis"],
+                    get_crypto_label(item["symbol"]),
+                    i + 1,
+                    len(initial_allocation),
+                    gemini_active,
+                    alloc_pct=item.get("allocPct"),
+                    eur_amount=item.get("eurAmount"),
+                )
+                reason_en = format_initial_buy_reason(
+                    item["analysis"],
+                    get_crypto_label(item["symbol"]),
+                    i + 1,
+                    len(initial_allocation),
+                    gemini_active,
+                    alloc_pct=item.get("allocPct"),
+                    eur_amount=item.get("eurAmount"),
+                    lang="en",
+                )
+                trade_meta = meta_from_analysis(item.get("analysis"), regime)
+                if reason_en and reason_en != reason:
+                    trade_meta["reasonEn"] = reason_en
+                slots.append(
+                    {
+                        "symbol": item["symbol"],
+                        "price": item["analysis"]["currentPrice"],
+                        "eur_amount": item.get("eurAmount"),
+                        "atrPct": (item.get("analysis") or {}).get("atrPct"),
+                        "tradeMeta": trade_meta,
+                        "reason": reason,
+                    }
+                )
             portfolio.allocate_initial(slots)
             for i, item in enumerate(initial_allocation):
                 symbol = item["symbol"]
@@ -649,7 +664,24 @@ def execute_trading_cycle() -> dict[str, Any]:
                     alloc_pct=item.get("allocPct"),
                     eur_amount=eur_amount,
                 )
-                log_ai_event(state, "buy", label, reason, eur_amount)
+                reason_en = format_initial_buy_reason(
+                    item["analysis"],
+                    label,
+                    i + 1,
+                    len(initial_allocation),
+                    gemini_active,
+                    alloc_pct=item.get("allocPct"),
+                    eur_amount=eur_amount,
+                    lang="en",
+                )
+                log_ai_event(
+                    state,
+                    "buy",
+                    label,
+                    reason,
+                    eur_amount,
+                    reason_en=reason_en if reason_en != reason else None,
+                )
                 executed_buys.append(
                     {
                         "symbol": symbol,
@@ -662,19 +694,29 @@ def execute_trading_cycle() -> dict[str, Any]:
 
         for d in [x for x in decisions if x["type"] == "sell"]:
             analysis = d.get("analysis") or {}
+            sell_meta = meta_from_analysis(
+                analysis,
+                regime,
+                regime_info=regime_info,
+                for_sell=True,
+            )
+            if d.get("reasonEn"):
+                sell_meta["reasonEn"] = d["reasonEn"]
             portfolio.sell(
                 d["symbol"],
                 d["amount"],
                 analysis["currentPrice"],
                 d["reason"],
-                meta=meta_from_analysis(
-                    analysis,
-                    regime,
-                    regime_info=regime_info,
-                    for_sell=True,
-                ),
+                meta=sell_meta,
             )
-            log_ai_event(state, "sell", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+            log_ai_event(
+                state,
+                "sell",
+                get_crypto_label(d["symbol"]),
+                d["reason"],
+                d.get("eurAmount"),
+                reason_en=d.get("reasonEn"),
+            )
             _log_shadow_trade(
                 state,
                 shadow_flags,
@@ -700,6 +742,8 @@ def execute_trading_cycle() -> dict[str, Any]:
             analysis = d.get("analysis") or {}
             buy_meta = meta_from_analysis(analysis, regime)
             buy_meta.update(d.get("bullSatelliteMeta") or {})
+            if d.get("reasonEn"):
+                buy_meta["reasonEn"] = d["reasonEn"]
             ok = portfolio.buy(
                 d["symbol"],
                 d["eurAmount"],
@@ -708,7 +752,14 @@ def execute_trading_cycle() -> dict[str, Any]:
                 meta=buy_meta,
             )
             if ok:
-                log_ai_event(state, "buy", get_crypto_label(d["symbol"]), d["reason"], d.get("eurAmount"))
+                log_ai_event(
+                    state,
+                    "buy",
+                    get_crypto_label(d["symbol"]),
+                    d["reason"],
+                    d.get("eurAmount"),
+                    reason_en=d.get("reasonEn"),
+                )
                 _log_shadow_trade(
                     state,
                     shadow_flags,
@@ -760,7 +811,13 @@ def execute_trading_cycle() -> dict[str, Any]:
         state["lastAIReport"] = report
 
         for d in [x for x in decisions if x["type"] == "hold"]:
-            log_ai_event(state, "hold", get_crypto_label(d["symbol"]), d["reason"])
+            log_ai_event(
+                state,
+                "hold",
+                get_crypto_label(d["symbol"]),
+                d["reason"],
+                reason_en=d.get("reasonEn"),
+            )
         for w in watches:
             log_watch_event(state, w["symbol"], state["profitWatch"].get(w["symbol"]))
 

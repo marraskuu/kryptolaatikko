@@ -21,7 +21,8 @@ let lastLearningReportBodyKey = "";
 let nextTradeDeadlineMs = null;
 
 async function fetchState() {
-  const res = await fetch("/api/state/", {
+  const lang = typeof UI_LANG === "string" ? UI_LANG : "fi";
+  const res = await fetch(`/api/state/?lang=${encodeURIComponent(lang)}`, {
     credentials: "same-origin",
     cache: "no-store",
     headers: { Accept: "application/json" },
