@@ -1,24 +1,21 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="fi">
+<html lang="{{ ui.html_lang }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Muutokset ja päivitykset — hiekkalaatikko.pro</title>
-  <meta
-    name="description"
-    content="Kaikki hiekkalaatikko.pro -kryptosimulaattorin julkaistut muutokset, uudet ominaisuudet ja korjaukset päivämäärittäin."
-  />
+  <title>{{ ui.title }}</title>
+  <meta name="description" content="{{ ui.description }}" />
   <link rel="canonical" href="{{ canonical_url }}" />
+  <link rel="alternate" hreflang="fi" href="{{ alternate_fi }}" />
+  <link rel="alternate" hreflang="en" href="{{ alternate_en }}" />
+  <link rel="alternate" hreflang="x-default" href="{{ alternate_fi }}" />
   <meta property="og:type" content="website" />
-  <meta property="og:locale" content="fi_FI" />
+  <meta property="og:locale" content="{{ ui.og_locale }}" />
   <meta property="og:url" content="{{ canonical_url }}" />
   <meta property="og:site_name" content="hiekkalaatikko.pro" />
-  <meta property="og:title" content="Muutokset ja päivitykset — hiekkalaatikko.pro" />
-  <meta
-    property="og:description"
-    content="Kryptosimulaattorin muutosloki: uudet ominaisuudet ja korjaukset päivämäärittäin."
-  />
+  <meta property="og:title" content="{{ ui.og_title }}" />
+  <meta property="og:description" content="{{ ui.og_description }}" />
   <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
 </head>
 <body>
@@ -27,19 +24,49 @@
       <div class="logo">◈</div>
       <div class="header-body">
         <div class="header-title-row">
-          <h1>Muutokset</h1>
+          <h1>{{ ui.h1 }}</h1>
           <div class="stats-header-actions">
-            <a class="stats-back-link" href="/">← Etusivu</a>
+            <a class="stats-back-link" href="{{ ui.back_href }}">{{ ui.back }}</a>
+            <nav class="lang-flags" aria-label="Language">
+              <a
+                class="lang-flag{% if ui.lang == 'fi' %} is-active{% endif %}"
+                href="{{ ui.lang_fi_href }}"
+                title="{{ ui.lang_fi_title }}"
+                hreflang="fi"
+                {% if ui.lang == 'fi' %}aria-current="page"{% endif %}
+              >
+                <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                  <rect width="36" height="24" fill="#fff"/>
+                  <rect y="9" width="36" height="6" fill="#003580"/>
+                  <rect x="10" width="6" height="24" fill="#003580"/>
+                </svg>
+                <span class="visually-hidden">{{ ui.lang_fi_title }}</span>
+              </a>
+              <a
+                class="lang-flag{% if ui.lang == 'en' %} is-active{% endif %}"
+                href="{{ ui.lang_en_href }}"
+                title="{{ ui.lang_en_title }}"
+                hreflang="en"
+                {% if ui.lang == 'en' %}aria-current="page"{% endif %}
+              >
+                <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                  <rect width="36" height="24" fill="#012169"/>
+                  <path d="M0 0 L36 24 M36 0 L0 24" stroke="#fff" stroke-width="5"/>
+                  <path d="M0 0 L36 24 M36 0 L0 24" stroke="#C8102E" stroke-width="2.5"/>
+                  <path d="M18 0 V24 M0 12 H36" stroke="#fff" stroke-width="8"/>
+                  <path d="M18 0 V24 M0 12 H36" stroke="#C8102E" stroke-width="4.5"/>
+                </svg>
+                <span class="visually-hidden">{{ ui.lang_en_title }}</span>
+              </a>
+            </nav>
           </div>
         </div>
-        <p class="subtitle">hiekkalaatikko.pro · julkaistut päivitykset · build {{ app_build }}</p>
+        <p class="subtitle">{{ ui.subtitle }}</p>
       </div>
     </header>
 
     <section class="changelog-section">
-      <p class="changelog-intro">
-        Kaikki merkittävät lisäykset ja korjaukset live-simulaattoriin. Uusin ensin.
-      </p>
+      <p class="changelog-intro">{{ ui.intro }}</p>
 
       {% for day in days %}
       <article class="changelog-day" id="d-{{ day.date }}">
@@ -60,7 +87,7 @@
 
     <footer class="site-seo-footer">
       <p>
-        <a href="/">← Takaisin Krypto Simulaattoriin</a>
+        <a href="{{ ui.back_href }}">{{ ui.footer_back }}</a>
       </p>
     </footer>
   </div>

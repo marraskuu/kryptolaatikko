@@ -11,7 +11,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .changelog import changelog_days
+from .changelog import changelog_days_localized
+from .i18n_ui import CHANGELOG_UI, PAGE_UI
 from .security_utils import admin_task_key, rate_limit_exceeded, read_admin_key_from_request, safe_next_path
 from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
@@ -34,33 +35,53 @@ def _public_site_url(request) -> str:
     return request.build_absolute_uri("/").rstrip("/")
 
 
-def _site_json_ld(base_url: str) -> str:
-    """Schema.org WebSite + SoftwareApplication etusivulle (hakukoneet / AI-tiivistelmät)."""
+def _site_json_ld(canonical_url: str, *, lang: str = "fi") -> str:
+    base_url = canonical_url.rstrip("/") or canonical_url
+    if base_url.endswith("/eng"):
+        site_root = base_url[: -len("/eng")] or base_url
+    else:
+        site_root = base_url
+    if lang == "en":
+        website_desc = (
+            "Open crypto simulator: live bot, Bitfinex prices "
+            "and an approx. €1000 virtual portfolio. No real money, no investment advice."
+        )
+        app_name = "Crypto Simulator"
+        app_desc = (
+            "Simulated crypto trading 24/7: technical analysis, order book, "
+            "Gemini AI and a learning bot on Bitfinex real-time prices."
+        )
+        in_lang = "en-US"
+    else:
+        website_desc = (
+            "Avoin kryptovaluutta-simulaattori: live-botti, Bitfinex-kurssit "
+            "ja noin 1000 € virtuaalisalkku. Ei oikeaa rahaa eikä sijoitusneuvontaa."
+        )
+        app_name = "Krypto Simulaattori"
+        app_desc = (
+            "Simuloitu kryptokaupankäynti 24/7: tekninen analyysi, order book, "
+            "Gemini AI ja oppiva botti Bitfinexin reaaliaikaisilla kursseilla."
+        )
+        in_lang = "fi-FI"
     graph = [
         {
             "@type": "WebSite",
-            "@id": f"{base_url}#website",
-            "url": base_url,
+            "@id": f"{site_root}#website",
+            "url": site_root + "/",
             "name": "hiekkalaatikko.pro",
-            "description": (
-                "Avoin kryptovaluutta-simulaattori: live-botti, Bitfinex-kurssit "
-                "ja noin 1000 € virtuaalisalkku. Ei oikeaa rahaa eikä sijoitusneuvontaa."
-            ),
-            "inLanguage": "fi-FI",
+            "description": website_desc,
+            "inLanguage": in_lang,
         },
         {
             "@type": "SoftwareApplication",
-            "@id": f"{base_url}#app",
-            "name": "Krypto Simulaattori",
-            "url": base_url,
+            "@id": f"{site_root}#app",
+            "name": app_name,
+            "url": canonical_url,
             "applicationCategory": "FinanceApplication",
             "operatingSystem": "Web",
-            "description": (
-                "Simuloitu kryptokaupankäynti 24/7: tekninen analyysi, order book, "
-                "Gemini AI ja oppiva botti Bitfinexin reaaliaikaisilla kursseilla."
-            ),
+            "description": app_desc,
             "isAccessibleForFree": True,
-            "inLanguage": "fi-FI",
+            "inLanguage": in_lang,
             "offers": {
                 "@type": "Offer",
                 "price": "0",
@@ -76,33 +97,37 @@ def _llms_txt_body(base_url: str) -> str:
     home = f"{base_url}/"
     return "\n".join(
         [
-            "# hiekkalaatikko.pro — Krypto Simulaattori",
+            "# hiekkalaatikko.pro — Krypto Simulaattori / Crypto Simulator",
             "",
             "> Avoin kryptovaluutta-simulaattori ja simuloitu kaupankäynti-demo. "
             "Live-botti käy kauppaa Bitfinexin reaaliaikaisilla kursseilla noin "
             "1000 € virtuaalisalkulla. Ei oikeaa rahaa, ei sijoituspalvelua, "
             "ei sijoitusneuvontaa.",
             "",
-            "## Julkinen sisältö",
+            "> Open crypto simulator and paper-trading demo. A live bot trades on "
+            "Bitfinex real-time prices with an approx. €1000 virtual portfolio. "
+            "No real money, no investment service, no investment advice.",
             "",
-            f"- [Etusivu — live-kryptobotti]({home}): salkku, kauppahistoria, "
-            "oppimisraportit, regiimi ja botin päätökset reaaliajassa selaimessa.",
-            f"- [Muutokset — julkaisuloki]({base_url}/muutokset/): uudet ominaisuudet "
-            "ja korjaukset päivämäärittäin.",
+            "## Public pages",
             "",
-            "## Tekninen yhteenveto",
+            f"- [Etusivu / Home (FI)]({home}): salkku, kauppahistoria, oppimisraportit.",
+            f"- [Home (EN)]({base_url}/eng/): English UI for the live bot dashboard.",
+            f"- [Muutokset (FI)]({base_url}/muutokset/): julkaisuloki päivämäärittäin.",
+            f"- [Changelog (EN)]({base_url}/changelog/): release notes in English.",
             "",
-            "- Markkinadata: Bitfinex (reaaliaikaiset kurssit).",
-            "- Strategia: tekninen analyysi (momentum, RSI, moniaikainen trendi, order book).",
-            "- AI: Gemini voi täydentää päätöksiä; järjestelmä oppii omista kaupoistaan.",
-            "- Riskinhallinta: regiimit (nousu, lasku, neutraali), voittojen kotiutus, karhu-puolustus.",
+            "## Technical summary",
             "",
-            "## Ei julkista",
+            "- Market data: Bitfinex (real-time prices).",
+            "- Strategy: technical analysis (momentum, RSI, multi-timeframe trend, order book).",
+            "- AI: Gemini may complement decisions; the system learns from its own trades.",
+            "- Risk: regimes (bull/bear/neutral), profit-taking, bear defense.",
             "",
-            "- `/stats/` — ylläpitäjän kävijätilastot (vaatii kirjautumisen).",
-            "- `/api/` — botin sisäinen API (ei dokumentoitu ulkoiseen käyttöön).",
+            "## Not public",
             "",
-            "## Löydettävyys",
+            "- `/stats/` — admin visitor stats (login required).",
+            "- `/api/` — internal bot API (not documented for external use).",
+            "",
+            "## Discovery",
             "",
             f"- [Sitemap]({base_url}/sitemap.xml)",
             f"- [robots.txt]({base_url}/robots.txt)",
@@ -111,30 +136,48 @@ def _llms_txt_body(base_url: str) -> str:
     )
 
 
-def index(request):
+def _render_home(request, *, lang: str):
     visit_id = None
     try:
         visit_id = record_page_visit(request, request.path)
     except Exception:
         logger.exception("Käyntitallennus epäonnistui")
-    canonical_url = f"{_public_site_url(request)}/"
+    base = _public_site_url(request)
+    canonical_url = f"{base}/eng/" if lang == "en" else f"{base}/"
     return render(
         request,
         "trading/index.html",
         {
             "visit_id": visit_id,
             "canonical_url": canonical_url,
-            "json_ld": _site_json_ld(canonical_url),
+            "alternate_fi": f"{base}/",
+            "alternate_en": f"{base}/eng/",
+            "json_ld": _site_json_ld(canonical_url, lang=lang),
+            "ui": PAGE_UI[lang],
         },
     )
 
 
-def _format_changelog_date(iso: str) -> str:
+def index(request):
+    return _render_home(request, lang="fi")
+
+
+def index_en(request):
+    return _render_home(request, lang="en")
+
+
+def _format_changelog_date(iso: str, lang: str = "fi") -> str:
     y, m, d = iso.split("-")
+    if lang == "en":
+        months = (
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        )
+        return f"{months[int(m) - 1]} {int(d)}, {y}"
     return f"{int(d)}.{int(m)}.{y}"
 
 
-def muutokset_page(request):
+def _render_changelog(request, *, lang: str):
     try:
         record_page_visit(request, request.path)
     except Exception:
@@ -142,21 +185,36 @@ def muutokset_page(request):
     days = [
         {
             "date": day["date"],
-            "date_display": _format_changelog_date(day["date"]),
+            "date_display": _format_changelog_date(day["date"], lang),
             "entries": day["entries"],
         }
-        for day in changelog_days()
+        for day in changelog_days_localized(lang)
     ]
-    canonical_url = f"{_public_site_url(request)}/muutokset/"
+    base = _public_site_url(request)
+    path = "/changelog/" if lang == "en" else "/muutokset/"
+    canonical_url = f"{base}{path}"
+    ui = dict(CHANGELOG_UI[lang])
+    ui["subtitle"] = ui["subtitle"].format(build=settings.APP_BUILD)
     return render(
         request,
         "trading/muutokset.html",
         {
             "days": days,
             "canonical_url": canonical_url,
+            "alternate_fi": f"{base}/muutokset/",
+            "alternate_en": f"{base}/changelog/",
             "app_build": settings.APP_BUILD,
+            "ui": ui,
         },
     )
+
+
+def muutokset_page(request):
+    return _render_changelog(request, lang="fi")
+
+
+def changelog_page(request):
+    return _render_changelog(request, lang="en")
 
 
 @csrf_exempt
@@ -372,7 +430,9 @@ def sitemap_xml(request):
     lastmod = timezone.localdate().isoformat()
     urls = [
         (f"{base}/", "daily", "1.0"),
+        (f"{base}/eng/", "daily", "0.9"),
         (f"{base}/muutokset/", "weekly", "0.6"),
+        (f"{base}/changelog/", "weekly", "0.6"),
     ]
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>\n',

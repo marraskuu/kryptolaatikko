@@ -1,31 +1,25 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="fi">
+<html lang="{{ ui.html_lang }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   {% if visit_id %}<meta name="visit-id" content="{{ visit_id }}" />{% endif %}
-  <title>Live-kryptobotti — simuloitu kaupankäynti Bitfinexillä | hiekkalaatikko.pro</title>
-  <meta
-    name="description"
-    content="Seuraa live-kryptobottia 24/7: 1000 € virtuaalisalkku, Bitfinex-kurssit, tekninen analyysi ja Gemini AI. Ilmainen kryptosimulaattori — ei oikeaa rahaa, ei sijoitusneuvontaa."
-  />
+  <title>{{ ui.title }}</title>
+  <meta name="description" content="{{ ui.description }}" />
   <link rel="canonical" href="{{ canonical_url }}" />
+  <link rel="alternate" hreflang="fi" href="{{ alternate_fi }}" />
+  <link rel="alternate" hreflang="en" href="{{ alternate_en }}" />
+  <link rel="alternate" hreflang="x-default" href="{{ alternate_fi }}" />
   <meta property="og:type" content="website" />
-  <meta property="og:locale" content="fi_FI" />
+  <meta property="og:locale" content="{{ ui.og_locale }}" />
   <meta property="og:url" content="{{ canonical_url }}" />
   <meta property="og:site_name" content="hiekkalaatikko.pro" />
-  <meta property="og:title" content="Live-kryptobotti — simuloitu kaupankäynti Bitfinexillä" />
-  <meta
-    property="og:description"
-    content="Avoin kryptovaluutta-simulaattori: live-botti, Bitfinex-kurssit ja oppiva AI. Simuloitu kaupankäynti ilman taloudellista riskiä."
-  />
+  <meta property="og:title" content="{{ ui.og_title }}" />
+  <meta property="og:description" content="{{ ui.og_description }}" />
   <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="Live-kryptobotti — simuloitu kaupankäynti Bitfinexillä" />
-  <meta
-    name="twitter:description"
-    content="Seuraa live-kryptobottia 1000 € virtuaalisalkulla. Bitfinex, tekninen analyysi ja Gemini AI — ilmainen demo."
-  />
+  <meta name="twitter:title" content="{{ ui.og_title }}" />
+  <meta name="twitter:description" content="{{ ui.twitter_description }}" />
   <script type="application/ld+json">{{ json_ld|safe }}</script>
   <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
 </head>
@@ -35,18 +29,50 @@
       <div class="logo">◈</div>
       <div class="header-body">
         <div class="header-title-row">
-          <h1>Krypto Simulaattori</h1>
+          <h1>{{ ui.h1 }}</h1>
           <div class="header-badges">
             <div id="header-market-learning-inline" class="header-chip-inline"></div>
             <div id="header-regime-inline" class="header-regime-inline"></div>
             <div class="badge-row">
-              <span class="badge live-badge" id="live-status">● Live — automaattinen</span>
-              <span class="badge ai-badge" id="ai-provider-badge">Tekninen AI</span>
+              <span class="badge live-badge" id="live-status">{{ ui.live_badge }}</span>
+              <span class="badge ai-badge" id="ai-provider-badge">{{ ui.ai_badge }}</span>
               <span class="badge ai-badge hidden" id="gemini-badge">Gemini AI</span>
+              <nav class="lang-flags" aria-label="Language">
+                <a
+                  class="lang-flag{% if ui.lang == 'fi' %} is-active{% endif %}"
+                  href="{{ ui.lang_fi_href }}"
+                  title="{{ ui.lang_fi_title }}"
+                  hreflang="fi"
+                  {% if ui.lang == 'fi' %}aria-current="page"{% endif %}
+                >
+                  <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                    <rect width="36" height="24" fill="#fff"/>
+                    <rect y="9" width="36" height="6" fill="#003580"/>
+                    <rect x="10" width="6" height="24" fill="#003580"/>
+                  </svg>
+                  <span class="visually-hidden">{{ ui.lang_fi_title }}</span>
+                </a>
+                <a
+                  class="lang-flag{% if ui.lang == 'en' %} is-active{% endif %}"
+                  href="{{ ui.lang_en_href }}"
+                  title="{{ ui.lang_en_title }}"
+                  hreflang="en"
+                  {% if ui.lang == 'en' %}aria-current="page"{% endif %}
+                >
+                  <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                    <rect width="36" height="24" fill="#012169"/>
+                    <path d="M0 0 L36 24 M36 0 L0 24" stroke="#fff" stroke-width="5"/>
+                    <path d="M0 0 L36 24 M36 0 L0 24" stroke="#C8102E" stroke-width="2.5"/>
+                    <path d="M18 0 V24 M0 12 H36" stroke="#fff" stroke-width="8"/>
+                    <path d="M18 0 V24 M0 12 H36" stroke="#C8102E" stroke-width="4.5"/>
+                  </svg>
+                  <span class="visually-hidden">{{ ui.lang_en_title }}</span>
+                </a>
+              </nav>
             </div>
           </div>
         </div>
-        <p class="subtitle">Bitfinex-kurssit · AI-kaupankäynti · 1000 € · Live 24/7</p>
+        <p class="subtitle">{{ ui.subtitle }}</p>
         <p class="contact-email">
           <svg class="contact-email-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="2" y="4" width="20" height="16" rx="2"/>
@@ -62,30 +88,30 @@
       <div id="error-banner" class="error-banner hidden"></div>
       <div class="stats-row">
       <div class="stat-card highlight">
-        <span class="stat-label">Salkun arvo yhteensä</span>
+        <span class="stat-label">{{ ui.stat_portfolio }}</span>
         <span class="stat-value" id="stat-portfolio">1 000,00 €</span>
         <span class="stat-change" id="stat-pnl">+0,00 € (0,0 %)</span>
-        <span class="stat-change neutral" id="stat-breakdown">Käteinen + kryptot</span>
+        <span class="stat-change neutral" id="stat-breakdown">{{ ui.stat_breakdown }}</span>
       </div>
       <div class="stat-card">
-        <span class="stat-label">Kryptoissa</span>
+        <span class="stat-label">{{ ui.stat_crypto }}</span>
         <span class="stat-value" id="stat-crypto-holdings">0,00 €</span>
-        <span class="stat-change neutral" id="stat-cash">Vapaa käteinen: 0,00 €</span>
+        <span class="stat-change neutral" id="stat-cash">{{ ui.stat_cash }}</span>
       </div>
       <div class="stat-card">
-        <span class="stat-label" id="stat-tax-label">Vero myyntivoitoista (30 %)</span>
+        <span class="stat-label" id="stat-tax-label">{{ ui.stat_tax }}</span>
         <span class="stat-value" id="stat-tax-year">0,00 €</span>
         <span class="stat-change neutral stat-subline" id="stat-tax-previous"></span>
-        <span class="stat-change neutral stat-subline" id="stat-tax-estimate">Arvio avoimista: 0,00 €</span>
+        <span class="stat-change neutral stat-subline" id="stat-tax-estimate">{{ ui.stat_tax_estimate }}</span>
       </div>
       <div class="stat-card">
-        <span class="stat-label">Kauppoja</span>
+        <span class="stat-label">{{ ui.stat_trades }}</span>
         <span class="stat-value" id="stat-trades">0</span>
-        <span class="stat-change neutral stat-subline" id="stat-trades-month">Tässä kuussa: 0</span>
-        <span class="stat-change neutral stat-subline" id="stat-trades-24h">Viime 24 h: 0</span>
+        <span class="stat-change neutral stat-subline" id="stat-trades-month">{{ ui.stat_trades_month }}</span>
+        <span class="stat-change neutral stat-subline" id="stat-trades-24h">{{ ui.stat_trades_24h }}</span>
       </div>
       <div class="stat-card stat-card-next">
-        <span class="stat-label">Seuraava analyysi</span>
+        <span class="stat-label">{{ ui.stat_next }}</span>
         <span class="stat-value" id="stat-next">—</span>
         <span class="stat-change stat-subline stat-uptime" id="stat-uptime">—</span>
       </div>
@@ -94,62 +120,62 @@
         <div class="stat-card shadow-policy-panel">
           <div class="shadow-policy-grid">
             <div class="shadow-metric">
-              <span class="shadow-metric-label">Varjosalkku · tänään</span>
+              <span class="shadow-metric-label">{{ ui.shadow_today }}</span>
               <span class="shadow-metric-value" id="shadow-today-pnl">—</span>
-              <span class="shadow-metric-sub" id="shadow-day-start">Live tänään —</span>
+              <span class="shadow-metric-sub" id="shadow-day-start">{{ ui.shadow_live_today }}</span>
             </div>
             <div class="shadow-metric">
-              <span class="shadow-metric-label" id="shadow-year-label">Varjosalkku · vuosi</span>
+              <span class="shadow-metric-label" id="shadow-year-label">{{ ui.shadow_year }}</span>
               <span class="shadow-metric-value" id="shadow-year-pnl">—</span>
-              <span class="shadow-metric-sub" id="shadow-year-start">Live vuosi —</span>
+              <span class="shadow-metric-sub" id="shadow-year-start">{{ ui.shadow_live_year }}</span>
             </div>
             <div class="shadow-metric">
-              <span class="shadow-metric-label">Simulaation tila</span>
+              <span class="shadow-metric-label">{{ ui.shadow_sim }}</span>
               <span class="shadow-metric-value shadow-metric-sm" id="shadow-policy-flags">—</span>
-              <span class="shadow-metric-sub" id="shadow-thresholds">Stop −1 % · lock +0,5 / +1 %</span>
+              <span class="shadow-metric-sub" id="shadow-thresholds">{{ ui.shadow_thresholds }}</span>
             </div>
             <div class="shadow-metric">
-              <span class="shadow-metric-label">Varjo vs. live (salkku)</span>
+              <span class="shadow-metric-label">{{ ui.shadow_vs_live }}</span>
               <span class="shadow-metric-value" id="shadow-counterfactual">—</span>
-              <span class="shadow-metric-sub" id="shadow-counterfactual-detail">Rinnakkaisvarjosalkku</span>
+              <span class="shadow-metric-sub" id="shadow-counterfactual-detail">{{ ui.shadow_parallel }}</span>
             </div>
             <div class="shadow-metric">
-              <span class="shadow-metric-label">Olisiko estetty</span>
+              <span class="shadow-metric-label">{{ ui.shadow_would_block }}</span>
               <span class="shadow-metric-value shadow-metric-sm" id="shadow-blocked-trades">—</span>
-              <span class="shadow-metric-sub" id="shadow-blocked-detail">Ostot · myynnit</span>
+              <span class="shadow-metric-sub" id="shadow-blocked-detail">{{ ui.shadow_buys_sells }}</span>
             </div>
             <div class="shadow-metric">
-              <span class="shadow-metric-label">Kerätty data</span>
+              <span class="shadow-metric-label">{{ ui.shadow_data }}</span>
               <span class="shadow-metric-value shadow-metric-sm" id="shadow-data-meta">—</span>
-              <span class="shadow-metric-sub" id="shadow-profit-take">Peilatut / ohitetut kaupat —</span>
+              <span class="shadow-metric-sub" id="shadow-profit-take">{{ ui.shadow_mirrored }}</span>
             </div>
           </div>
         </div>
       </div>
       <div class="stat-card winloss-card">
-        <span class="stat-label">Myyntien tulos — vain realisoidut</span>
-        <p class="winloss-note" id="wl-pnl-split">Avoimet positiot: — · Kaikki myynnit: —</p>
+        <span class="stat-label">{{ ui.wl_title }}</span>
+        <p class="winloss-note" id="wl-pnl-split">{{ ui.wl_note }}</p>
         <div class="winloss-table">
           <div class="winloss-row winloss-head">
             <span class="winloss-period"></span>
-            <span class="winloss-win">Voitolliset</span>
-            <span class="winloss-loss">Tappiolliset</span>
-            <span class="winloss-net">Yhteensä</span>
+            <span class="winloss-win">{{ ui.wl_wins }}</span>
+            <span class="winloss-loss">{{ ui.wl_losses }}</span>
+            <span class="winloss-net">{{ ui.wl_net }}</span>
           </div>
           <div class="winloss-row">
-            <span class="winloss-period" id="wl-year-label">Tänä vuonna</span>
+            <span class="winloss-period" id="wl-year-label">{{ ui.wl_year }}</span>
             <span class="winloss-win" id="wl-year-win">0 kpl · +0,00 €</span>
             <span class="winloss-loss" id="wl-year-loss">0 kpl · 0,00 €</span>
             <span class="winloss-net" id="wl-year-net">+0,00 €</span>
           </div>
           <div class="winloss-row">
-            <span class="winloss-period">Tässä kuussa</span>
+            <span class="winloss-period">{{ ui.wl_month }}</span>
             <span class="winloss-win" id="wl-month-win">0 kpl · +0,00 €</span>
             <span class="winloss-loss" id="wl-month-loss">0 kpl · 0,00 €</span>
             <span class="winloss-net" id="wl-month-net">+0,00 €</span>
           </div>
           <div class="winloss-row">
-            <span class="winloss-period">Viime 24 h</span>
+            <span class="winloss-period">{{ ui.wl_day }}</span>
             <span class="winloss-win" id="wl-day-win">0 kpl · +0,00 €</span>
             <span class="winloss-loss" id="wl-day-loss">0 kpl · 0,00 €</span>
             <span class="winloss-net" id="wl-day-net">+0,00 €</span>
@@ -161,42 +187,42 @@
     <div class="main-grid">
       <section class="panel panel-markets">
         <div class="panel-header">
-          <h2>Markkinat (Bitfinex)</h2>
-          <span class="badge" id="last-update">Päivitetään…</span>
+          <h2>{{ ui.markets_h2 }}</h2>
+          <span class="badge" id="last-update">{{ ui.markets_updating }}</span>
         </div>
         <div class="market-toolbar">
-          <input type="search" id="market-search" class="market-search" placeholder="Hae kryptoa (esim. BTC, SOL)…" />
-          <span class="market-count" id="market-count">0 kryptoparia</span>
+          <input type="search" id="market-search" class="market-search" placeholder="{{ ui.markets_search }}" />
+          <span class="market-count" id="market-count">{{ ui.markets_count }}</span>
         </div>
         <div class="market-list" id="market-list"></div>
       </section>
 
       <section class="panel panel-ai">
         <div class="panel-header">
-          <h2>AI-päätökset</h2>
-          <span class="badge ai-badge">Automaattinen</span>
+          <h2>{{ ui.ai_h2 }}</h2>
+          <span class="badge ai-badge">{{ ui.ai_auto }}</span>
         </div>
         <div class="ai-decision" id="ai-decision">
-          <p class="ai-placeholder">Botti käy kauppaa automaattisesti — data päivittyy muutaman sekunnin välein.</p>
+          <p class="ai-placeholder">{{ ui.ai_placeholder }}</p>
         </div>
       </section>
 
       <section class="panel wide">
         <div class="panel-header">
-          <h2>Salkku</h2>
-          <span class="portfolio-live-pnl neutral" id="portfolio-live-pnl" title="Avoin voitto/tappio (päivittyy 5 s välein)">—</span>
+          <h2>{{ ui.portfolio_h2 }}</h2>
+          <span class="portfolio-live-pnl neutral" id="portfolio-live-pnl" title="{{ ui.portfolio_pnl_title }}">—</span>
         </div>
         <div class="portfolio-table-wrap">
           <table class="portfolio-table">
             <thead>
               <tr>
-                <th>Krypto</th>
-                <th>Määrä</th>
-                <th>Kurssi</th>
-                <th>Arvo</th>
-                <th>Osuus</th>
-                <th>Voitto/tappio (reaaliaika)</th>
-                <th>Muutos 24h</th>
+                <th>{{ ui.th_crypto }}</th>
+                <th>{{ ui.th_amount }}</th>
+                <th>{{ ui.th_price }}</th>
+                <th>{{ ui.th_value }}</th>
+                <th>{{ ui.th_share }}</th>
+                <th>{{ ui.th_pnl }}</th>
+                <th>{{ ui.th_change24 }}</th>
               </tr>
             </thead>
             <tbody id="portfolio-body"></tbody>
@@ -206,20 +232,20 @@
 
       <section class="panel wide">
         <div class="panel-header">
-          <h2>Kauppahistoria</h2>
+          <h2>{{ ui.trades_h2 }}</h2>
           <div class="panel-header-actions">
-            <div class="trade-log-filters" role="group" aria-label="Suodata kauppoja">
-              <button type="button" class="trade-filter-btn active" data-trade-filter="all">Kaikki</button>
-              <button type="button" class="trade-filter-btn" data-trade-filter="buy">Ostot</button>
-              <button type="button" class="trade-filter-btn" data-trade-filter="sell">Myynnit</button>
+            <div class="trade-log-filters" role="group" aria-label="{{ ui.trades_filter_aria }}">
+              <button type="button" class="trade-filter-btn active" data-trade-filter="all">{{ ui.filter_all }}</button>
+              <button type="button" class="trade-filter-btn" data-trade-filter="buy">{{ ui.filter_buys }}</button>
+              <button type="button" class="trade-filter-btn" data-trade-filter="sell">{{ ui.filter_sells }}</button>
             </div>
-            <a id="btn-export" class="btn btn-secondary btn-sm" href="/api/export/" title="Lataa Excel verottajalle">
-              ⬇ Lataa Excel
+            <a id="btn-export" class="btn btn-secondary btn-sm" href="/api/export/" title="{{ ui.export_title }}">
+              {{ ui.export_btn }}
             </a>
           </div>
         </div>
         <div class="trade-log" id="trade-log">
-          <p class="empty-log">Ei kauppoja vielä.</p>
+          <p class="empty-log">{{ ui.trades_empty }}</p>
         </div>
       </section>
 
@@ -231,40 +257,26 @@
             id="learning-report-title"
             aria-haspopup="dialog"
             aria-controls="gemini-narrative-modal"
-            title="Näytä aiemmat Gemini-kertomukset"
+            title="{{ ui.learning_title_hint }}"
           >
-            Oppimisraportti
+            {{ ui.learning_title }}
           </button>
-          <span class="badge" id="learning-report-meta">Päivitetään…</span>
+          <span class="badge" id="learning-report-meta">{{ ui.learning_meta }}</span>
         </div>
         <div class="learning-report" id="learning-report">
-          <p class="empty-log">Oppimisraportti latautuu…</p>
+          <p class="empty-log">{{ ui.learning_empty }}</p>
         </div>
       </section>
     </div>
 
     <footer class="site-seo-footer">
-      <h2>Mitä hiekkalaatikko.pro on?</h2>
-      <p>
-        Hiekkalaatikko.pro on avoin kryptovaluutta-<strong>simulaattori</strong> ja simuloitu kaupankäynti -demo.
-        Sivulla seuraat live-bottia, joka käy kauppaa <strong>Bitfinexin</strong> reaaliaikaisilla kursseilla
-        noin 1&nbsp;000&nbsp;€ <strong>virtuaalisalkulla</strong>. Kyseessä ei ole oikea sijoituspalvelu eikä sivusto
-        anna sijoitusneuvontaa — mitään oikeaa rahaa ei liikuta.
-      </p>
-      <p>
-        Botti toimii <strong>24/7</strong>: se analysoi markkinoita teknisillä signaaleilla (momentum, RSI,
-        moniaikainen trendi, order book) ja tekee ostoja, myyntejä ja voittojen kotiutusta automaattisesti.
-        <strong>Gemini AI</strong> voi täydentää päätöksiä, ja järjestelmä <strong>oppii</strong> omista
-        kaupoistaan — huonot setupit estetään, hyviä painotetaan ja regiimeihin (nousu, lasku, neutraali)
-        sopeutetaan riskinhallintaa.
-      </p>
-      <p>
-        Sivu sopii erityisesti kryptomarkkinoiden seurantaan, algoritmisen kaupankäynnin kokeiluun ja
-        oppimiseen ilman taloudellista riskiä. Voit seurata salkun arvoa, kauppahistoriaa, oppimisraportteja
-        ja botin päätöksiä reaaliajassa selaimessa.
-      </p>
-      <nav class="site-footer-links" aria-label="Sivuston linkit">
-        <a href="/muutokset/">Muutokset ja päivitykset</a>
+      <h2>{{ ui.footer_h2 }}</h2>
+      <p>{{ ui.footer_p1|safe }}</p>
+      <p>{{ ui.footer_p2|safe }}</p>
+      <p>{{ ui.footer_p3|safe }}</p>
+      <nav class="site-footer-links" aria-label="{{ ui.footer_nav_aria }}">
+        <a href="{{ ui.footer_changelog_href }}">{{ ui.footer_changelog }}</a>
+        <a href="{{ ui.lang_switch_href }}" title="{{ ui.lang_switch_title }}">{{ ui.lang_switch_label }}</a>
       </nav>
     </footer>
   </div>
@@ -279,26 +291,27 @@
   >
     <div class="modal gemini-narrative-modal">
       <header class="modal-header">
-        <h3 id="gemini-narrative-modal-title">Geminin kertomukset</h3>
-        <button type="button" class="modal-close" id="gemini-narrative-close" aria-label="Sulje">×</button>
+        <h3 id="gemini-narrative-modal-title">{{ ui.modal_title }}</h3>
+        <button type="button" class="modal-close" id="gemini-narrative-close" aria-label="{{ ui.modal_close }}">×</button>
       </header>
       <div class="modal-toolbar">
         <input
           type="search"
           id="gemini-narrative-search"
-          placeholder="Hae päivämäärällä tai tekstillä…"
+          placeholder="{{ ui.modal_search }}"
           autocomplete="off"
         />
         <span class="modal-meta" id="gemini-narrative-count"></span>
       </div>
       <div class="gemini-narrative-modal-body">
-        <nav class="gemini-narrative-list" id="gemini-narrative-list" aria-label="Kertomuslista"></nav>
+        <nav class="gemini-narrative-list" id="gemini-narrative-list" aria-label="{{ ui.modal_list_aria }}"></nav>
         <div class="gemini-narrative-detail" id="gemini-narrative-detail"></div>
       </div>
     </div>
   </div>
 
-  <script src="{% static 'trading/js/app.js' %}?v=21"></script>
+  <script src="{% static 'trading/js/i18n.js' %}?v=1"></script>
+  <script src="{% static 'trading/js/app.js' %}?v=22"></script>
   <script>
     (function () {
       var started = Date.now();

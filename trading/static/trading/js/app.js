@@ -28,16 +28,16 @@ async function fetchState() {
   });
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    throw new Error(`Palvelinvirhe ${res.status}`);
+    throw new Error(t("serverError", { status: res.status }));
   }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Virhe ${res.status}`);
+  if (!res.ok) throw new Error(data.error || t("genericError", { status: res.status }));
   return data;
 }
 
 function formatEur(value) {
   if (!Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("fi-FI", {
+  return new Intl.NumberFormat(UI_LOCALE, {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 2,
@@ -47,7 +47,7 @@ function formatEur(value) {
 
 function formatCrypto(value, decimals = 6) {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("fi-FI", {
+  return value.toLocaleString(UI_LOCALE, {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
@@ -69,11 +69,11 @@ function formatMarketTimeframeChanges(analysis, ticker) {
   const parts = [];
   if (has1h) {
     parts.push(
-      `<span class="${change1hClass}" title="1 h markkinamuutos (kynttilädata)">1h ${formatPct(change1h)}</span>`
+      `<span class="${change1hClass}" title="${t("titleChange1h")}">1h ${formatPct(change1h)}</span>`
     );
   }
   parts.push(
-    `<span class="${change24Class}" title="24 h markkinamuutos (Bitfinex)">24h ${formatPct(change24)}</span>`
+    `<span class="${change24Class}" title="${t("titleChange24hBitfinex")}">24h ${formatPct(change24)}</span>`
   );
 
   return {
@@ -86,7 +86,7 @@ function formatMarketTimeframeChanges(analysis, ticker) {
 
 function formatTime(isoOrDate) {
   const date = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
-  return date.toLocaleTimeString("fi-FI", {
+  return date.toLocaleTimeString(UI_LOCALE, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -94,7 +94,7 @@ function formatTime(isoOrDate) {
 }
 
 function formatDateTime(iso) {
-  return new Date(iso).toLocaleString("fi-FI", {
+  return new Date(iso).toLocaleString(UI_LOCALE, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -106,9 +106,9 @@ function formatDateTime(iso) {
 
 function formatVolumeEur(value) {
   if (!Number.isFinite(value)) return "—";
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} M€`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(0)} k€`;
-  return `${value.toFixed(0)} €`;
+  if (value >= 1_000_000) return t("volumeMillions", { n: (value / 1_000_000).toFixed(1) });
+  if (value >= 1_000) return t("volumeThousands", { n: (value / 1_000).toFixed(0) });
+  return t("volumeEuros", { n: value.toFixed(0) });
 }
 
 function getCryptoLabel(symbol) {
@@ -194,9 +194,9 @@ function formatPnlBadge(pnlEur, pnlPct) {
 }
 
 function countTradesSince(trades, sinceMs) {
-  return trades.filter((t) => {
-    if (t.type === "tax") return false;
-    const ts = new Date(t.timestamp).getTime();
+  return trades.filter((tr) => {
+    if (tr.type === "tax") return false;
+    const ts = new Date(tr.timestamp).getTime();
     return Number.isFinite(ts) && ts >= sinceMs;
   }).length;
 }
@@ -252,33 +252,33 @@ function applyPayload(data) {
 
   if (gs?.ok || gs?.status === "ok") {
     if (providerBadge) {
-      providerBadge.textContent = "Gemini AI";
+      providerBadge.textContent = t("providerGemini");
       providerBadge.classList.add("ai-badge-active");
     }
     if (geminiBadge) geminiBadge.classList.add("hidden");
   } else if (gs?.configured && geminiWaiting) {
     if (providerBadge) {
-      providerBadge.textContent = "Gemini AI";
+      providerBadge.textContent = t("providerGemini");
       providerBadge.classList.add("ai-badge-active");
     }
   } else if (gs?.configured && geminiError) {
     if (providerBadge) {
-      providerBadge.textContent = "Gemini (virhe)";
+      providerBadge.textContent = t("geminiErrorBadge");
       providerBadge.classList.remove("ai-badge-active");
     }
     geminiNotice = gs.message || "";
   } else if (gs?.configured) {
     if (providerBadge) {
-      providerBadge.textContent = "Gemini AI";
+      providerBadge.textContent = t("providerGemini");
       providerBadge.classList.add("ai-badge-active");
     }
   } else {
     if (providerBadge) {
-      providerBadge.textContent = "Tekninen AI";
+      providerBadge.textContent = t("providerTechnical");
       providerBadge.classList.remove("ai-badge-active");
     }
     if (data.geminiStatus?.message) {
-      geminiNotice = `Gemini: ${data.geminiStatus.message}`;
+      geminiNotice = t("geminiPrefix", { message: data.geminiStatus.message });
     }
   }
 
@@ -371,10 +371,10 @@ function formatUptime(startedAtIso) {
   const hours = Math.floor((totalMin % (60 * 24)) / 60);
   const mins = totalMin % 60;
   const parts = [];
-  if (days > 0) parts.push(`${days} pv`);
-  parts.push(`${hours} t`);
-  parts.push(`${mins} min`);
-  return `Pyörinyt ${parts.join(" ")}`;
+  if (days > 0) parts.push(t("days", { n: days }));
+  parts.push(t("hours", { n: hours }));
+  parts.push(t("minutes", { n: mins }));
+  return t("uptime", { parts: parts.join(" ") });
 }
 
 function renderUptime() {
@@ -435,22 +435,22 @@ function renderNextCountdown() {
   els.statNext.classList.remove("status-due", "status-overdue");
   const remaining = computeNextTradeSec();
   if (remaining > 0) {
-    els.statNext.textContent = `${remaining}s`;
+    els.statNext.textContent = t("nextSeconds", { remaining });
     return;
   }
   const overdue = computeTradeOverdueSec();
   if (state.botStale || overdue > 90) {
-    els.statNext.textContent = "Odottaa…";
+    els.statNext.textContent = t("nextWaiting");
     els.statNext.classList.add("status-overdue");
   } else {
-    els.statNext.textContent = "Ajetaan…";
+    els.statNext.textContent = t("nextRunning");
     els.statNext.classList.add("status-due");
   }
 }
 
 function renderAll(lastUpdate) {
   if (lastUpdate) {
-    els.lastUpdate.textContent = `Päivitetty ${formatTime(lastUpdate)}`;
+    els.lastUpdate.textContent = t("updated", { time: formatTime(lastUpdate) });
   }
   renderNextCountdown();
   renderUptime();
@@ -488,15 +488,15 @@ function renderShadowPolicy() {
   const shadow = state.dailyPolicyShadow;
   const empty = () => {
     setShadowMetricValue(els.shadowTodayPnl, "—");
-    if (els.shadowDayStart) els.shadowDayStart.textContent = "Live tänään —";
-    if (els.shadowYearLabel) els.shadowYearLabel.textContent = "Varjosalkku · vuosi";
+    if (els.shadowDayStart) els.shadowDayStart.textContent = t("liveTodayDash");
+    if (els.shadowYearLabel) els.shadowYearLabel.textContent = t("yearLabelGeneric");
     setShadowMetricValue(els.shadowYearPnl, "—");
-    if (els.shadowYearStart) els.shadowYearStart.textContent = "Live vuosi —";
+    if (els.shadowYearStart) els.shadowYearStart.textContent = t("liveYearDash");
     setShadowMetricValue(els.shadowPolicyFlags, "—", null);
     if (els.shadowPolicyFlags) els.shadowPolicyFlags.className = "shadow-metric-value shadow-metric-sm";
-    if (els.shadowThresholds) els.shadowThresholds.textContent = "Testidata kerääntyy";
+    if (els.shadowThresholds) els.shadowThresholds.textContent = t("thresholdsCollecting");
     setShadowMetricValue(els.shadowCounterfactual, "—");
-    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Ei vertailua";
+    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = t("noComparison");
     setShadowMetricValue(els.shadowBlockedTrades, "—", null);
     if (els.shadowBlockedTrades) els.shadowBlockedTrades.className = "shadow-metric-value shadow-metric-sm";
     if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "—";
@@ -513,16 +513,23 @@ function renderShadowPolicy() {
   const thresholds = shadow.thresholds || {};
   const comparison = shadow.portfolioComparison || {};
   if (els.shadowThresholds) {
-    els.shadowThresholds.textContent = `Stop ${thresholds.dailyStopPct ?? -1} % · lock +${thresholds.profitLockSoftPct ?? 0.5} / +${thresholds.profitLockFirmPct ?? 1} %`;
+    els.shadowThresholds.textContent = t("thresholds", {
+      stop: thresholds.dailyStopPct ?? -1,
+      soft: thresholds.profitLockSoftPct ?? 0.5,
+      firm: thresholds.profitLockFirmPct ?? 1,
+    });
   }
 
   if (els.shadowDayStart) {
     const liveTodayEur = comparison.liveTodayPnlEur ?? shadow.liveTodayPnlEur ?? shadow.todayPnlEur;
     if (liveTodayEur != null) {
       const sign = liveTodayEur >= 0 ? "+" : "";
-      els.shadowDayStart.textContent = `Live tänään ${sign}${Number(liveTodayEur).toFixed(2)} €`;
+      els.shadowDayStart.textContent = t("liveToday", {
+        sign,
+        eur: Number(liveTodayEur).toFixed(2),
+      });
     } else {
-      els.shadowDayStart.textContent = "Live tänään —";
+      els.shadowDayStart.textContent = t("liveTodayDash");
     }
   }
 
@@ -541,14 +548,14 @@ function renderShadowPolicy() {
     const tone = shadowTodayEur > 0.005 ? "positive" : shadowTodayEur < -0.005 ? "negative" : null;
     setShadowMetricValue(els.shadowTodayPnl, `${sign}${shadowTodayEur.toFixed(2)} €`, tone);
   } else {
-    setShadowMetricValue(els.shadowTodayPnl, "Tänään —");
+    setShadowMetricValue(els.shadowTodayPnl, t("todayDash"));
   }
 
   const shadowYear = shadow.shadowYearPnl || {};
   const liveYear = shadow.yearPnl || {};
   const yearNum = shadowYear.year ?? liveYear.year ?? state.stats?.taxCurrentYearLabel ?? new Date().getFullYear();
   if (els.shadowYearLabel) {
-    els.shadowYearLabel.textContent = `Varjosalkku · ${yearNum}`;
+    els.shadowYearLabel.textContent = t("shadowYearLabel", { year: yearNum });
   }
   const yearEur = shadowYear.pnlEur;
   const yearPct = shadowYear.pnlPct;
@@ -565,35 +572,39 @@ function renderShadowPolicy() {
     const tone = yearEur > 0.005 ? "positive" : yearEur < -0.005 ? "negative" : null;
     setShadowMetricValue(els.shadowYearPnl, `${sign}${yearEur.toFixed(2)} €`, tone);
   } else {
-    setShadowMetricValue(els.shadowYearPnl, `${yearNum} —`);
+    setShadowMetricValue(els.shadowYearPnl, t("yearDash", { year: yearNum }));
   }
   if (els.shadowYearStart) {
     const liveYearEur = liveYear.pnlEur;
     const daysInYear = shadowYear.daysInYear ?? liveYear.daysInYear ?? 0;
     if (liveYearEur != null) {
       const sign = liveYearEur >= 0 ? "+" : "";
-      els.shadowYearStart.textContent = `Live vuosi ${sign}${liveYearEur.toFixed(2)} € · ${daysInYear} pv`;
+      els.shadowYearStart.textContent = t("liveYear", {
+        sign,
+        eur: liveYearEur.toFixed(2),
+        days: daysInYear,
+      });
     } else if (daysInYear) {
-      els.shadowYearStart.textContent = `Live vuosi — · ${daysInYear} pv`;
+      els.shadowYearStart.textContent = t("liveYearDaysOnly", { days: daysInYear });
     } else {
-      els.shadowYearStart.textContent = "Live vuosi —";
+      els.shadowYearStart.textContent = t("liveYearDash");
     }
   }
 
   const policy = shadow.policy || {};
-  let policyText = "Normaali — ei rajoituksia";
+  let policyText = t("policyNormal");
   let policyTone = null;
   if (policy.dailyStopActive) {
-    policyText = "Päivästop −1 %";
+    policyText = t("policyDailyStop");
     policyTone = "negative";
   } else if (policy.profitLockTier === "firm") {
-    policyText = "Profit lock +1 %";
+    policyText = t("policyLockFirm");
     policyTone = "warning";
   } else if (policy.profitLockTier === "soft") {
-    policyText = "Profit lock +0,5 %";
+    policyText = t("policyLockSoft");
     policyTone = "warning";
   } else if (policy.aggressiveEligible) {
-    policyText = "Aggressiivinen sallittu";
+    policyText = t("policyAggressive");
     policyTone = "positive";
   }
   setShadowMetricValue(els.shadowPolicyFlags, policyText, policyTone);
@@ -608,9 +619,11 @@ function renderShadowPolicy() {
   const reliable = comparison.reliable;
 
   if (!reliable && mirrored + skipped < 3) {
-    setShadowMetricValue(els.shadowCounterfactual, "Kerätään…");
+    setShadowMetricValue(els.shadowCounterfactual, t("collecting"));
     if (els.shadowCounterfactualDetail) {
-      els.shadowCounterfactualDetail.textContent = `${mirrored + skipped} peilattua/ohitettua kauppaa`;
+      els.shadowCounterfactualDetail.textContent = t("mirroredSkippedCount", {
+        n: mirrored + skipped,
+      });
     }
   } else if (advantage != null) {
     const sign = advantage >= 0 ? "+" : "";
@@ -620,15 +633,21 @@ function renderShadowPolicy() {
       const liveVal = comparison.liveTotalValue;
       const shadowVal = comparison.shadowTotalValue;
       if (liveVal != null && shadowVal != null) {
-        els.shadowCounterfactualDetail.textContent = `Varjo ${Number(shadowVal).toFixed(2)} € · live ${Number(liveVal).toFixed(2)} €`;
+        els.shadowCounterfactualDetail.textContent = t("shadowVsLive", {
+          shadow: Number(shadowVal).toFixed(2),
+          live: Number(liveVal).toFixed(2),
+        });
       } else {
-        els.shadowCounterfactualDetail.textContent = `Peilattu ${mirrored} · ohitettu ${skipped}`;
+        els.shadowCounterfactualDetail.textContent = t("mirroredSkipped", {
+          mirrored,
+          skipped,
+        });
       }
       els.shadowCounterfactualDetail.title = hints[0] || els.shadowCounterfactualDetail.textContent;
     }
   } else {
     setShadowMetricValue(els.shadowCounterfactual, "—");
-    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = "Rinnakkaisvarjosalkku";
+    if (els.shadowCounterfactualDetail) els.shadowCounterfactualDetail.textContent = t("parallelShadow");
   }
 
   const buysBlock = summary.buysWouldBlock ?? 0;
@@ -636,44 +655,47 @@ function renderShadowPolicy() {
   if (buysBlock || sellsBlock) {
     setShadowMetricValue(
       els.shadowBlockedTrades,
-      `${buysBlock} osto · ${sellsBlock} myynti`,
+      t("blockedCounts", { buys: buysBlock, sells: sellsBlock }),
       "accent"
     );
     const parts = [];
     const buyCf = summary.blockedBuyCounterfactualEur ?? summary.buyBlockEur;
     if (buyCf) {
       const b = Number(buyCf);
-      parts.push(`ostot ${b >= 0 ? "+" : ""}${b.toFixed(2)} €`);
+      parts.push(t("blockedBuysEur", { sign: b >= 0 ? "+" : "", eur: b.toFixed(2) }));
     }
     if (summary.sellBlockCounterfactualEur) {
       const s = Number(summary.sellBlockCounterfactualEur);
-      parts.push(`myynnit ${s >= 0 ? "+" : ""}${s.toFixed(2)} €`);
+      parts.push(t("blockedSellsEur", { sign: s >= 0 ? "+" : "", eur: s.toFixed(2) }));
     }
     if (els.shadowBlockedDetail) {
-      els.shadowBlockedDetail.textContent = parts.length ? parts.join(" · ") : "Counterfactual laskettu";
+      els.shadowBlockedDetail.textContent = parts.length ? parts.join(" · ") : t("counterfactualDone");
     }
   } else if (trades > 0) {
-    setShadowMetricValue(els.shadowBlockedTrades, "Ei estoja vielä");
-    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "Kaikki kaupat sallittu simulaatiossa";
+    setShadowMetricValue(els.shadowBlockedTrades, t("noBlocksYet"));
+    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = t("allAllowed");
   } else {
-    setShadowMetricValue(els.shadowBlockedTrades, "0 osto · 0 myynti");
-    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = "Odotetaan kauppoja";
+    setShadowMetricValue(els.shadowBlockedTrades, t("blockedZero"));
+    if (els.shadowBlockedDetail) els.shadowBlockedDetail.textContent = t("awaitingTrades");
   }
 
   const ptSignals = summary.profitTakeShadowSignals ?? 0;
   const ptEst = summary.profitTakeShadowEurEst;
   setShadowMetricValue(
     els.shadowDataMeta,
-    `${trades} kauppaa · ${days} pv`,
+    t("dataMeta", { trades, days }),
     trades >= 8 ? "accent" : null
   );
   if (els.shadowProfitTake) {
     if (mirrored || skipped) {
-      els.shadowProfitTake.textContent = `Peilattu ${mirrored} · ohitettu ${skipped}`;
+      els.shadowProfitTake.textContent = t("mirroredSkipped", { mirrored, skipped });
     } else if (ptSignals > 0) {
-      els.shadowProfitTake.textContent = `Aikaisempi voitto-otto: ${ptSignals}× (~${Number(ptEst || 0).toFixed(2)} €)`;
+      els.shadowProfitTake.textContent = t("profitTakeEarly", {
+        n: ptSignals,
+        eur: Number(ptEst || 0).toFixed(2),
+      });
     } else {
-      els.shadowProfitTake.textContent = "Peilatut / ohitetut kaupat —";
+      els.shadowProfitTake.textContent = t("profitTakeDash");
     }
   }
 
@@ -692,22 +714,30 @@ function renderStats() {
   els.statPortfolio.textContent = formatEur(total);
   els.statCryptoHoldings.textContent = formatEur(holdings);
   els.statCash.textContent =
-    cash > 1 ? `Vapaa käteinen: ${formatEur(cash)}` : "Kaikki sijoitettu";
+    cash > 1 ? t("cashFree", { eur: formatEur(cash) }) : t("cashAllInvested");
   els.statBreakdown.textContent =
     cash <= 5 && holdings > 0
-      ? `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä (lähes kaikki sijoitettu) = ${formatEur(total)}`
-      : `${formatEur(holdings)} kryptot + ${formatEur(cash)} käteistä = ${formatEur(total)}`;
+      ? t("breakdownAlmostAll", {
+          holdings: formatEur(holdings),
+          cash: formatEur(cash),
+          total: formatEur(total),
+        })
+      : t("breakdown", {
+          holdings: formatEur(holdings),
+          cash: formatEur(cash),
+          total: formatEur(total),
+        });
   const tradeCounts = getTradeCounts();
   els.statTrades.textContent = String(s.tradeCount ?? tradeCounts.total);
   if (els.statTradesMonth) {
-    els.statTradesMonth.textContent = `Tässä kuussa: ${tradeCounts.month}`;
+    els.statTradesMonth.textContent = t("tradesThisMonth", { n: tradeCounts.month });
   }
   if (els.statTrades24h) {
-    els.statTrades24h.textContent = `Viime 24 h: ${tradeCounts.last24h}`;
+    els.statTrades24h.textContent = t("tradesLast24h", { n: tradeCounts.last24h });
   }
   const taxYear = s.taxCurrentYearLabel;
   if (els.statTaxLabel && taxYear) {
-    els.statTaxLabel.textContent = `Vero myyntivoitoista ${taxYear} (30 %)`;
+    els.statTaxLabel.textContent = t("taxLabel", { year: taxYear });
   }
   els.statTaxYear.textContent = formatEur(s.taxCurrentYear ?? 0);
   if (els.statTaxPrevious) {
@@ -720,9 +750,10 @@ function renderStats() {
   const grossWins = s.taxCurrentYearGrossWins;
   const taxBasis =
     grossWins != null && grossWins > 0
-      ? `Voitoilliset myynnit ${formatEur(grossWins)} · `
+      ? t("taxGrossWinsPrefix", { eur: formatEur(grossWins) })
       : "";
-  els.statTaxEstimate.textContent = `${taxBasis}Arvio avoimista (jos myyt nyt): ${formatEur(s.estimatedTax ?? 0)}`;
+  els.statTaxEstimate.textContent =
+    taxBasis + t("taxEstimateOpen", { eur: formatEur(s.estimatedTax ?? 0) });
 
   renderWinLoss(s.realizedBreakdown);
 
@@ -731,9 +762,10 @@ function renderStats() {
     const real = s.realizedPnl ?? 0;
     const uSign = unreal >= 0 ? "+" : "−";
     const rSign = real >= 0 ? "+" : "−";
-    els.wlPnlSplit.textContent =
-      `Avoimet positiot: ${uSign}${formatEur(Math.abs(unreal)).replace("€", "").trim()} € · ` +
-      `Kaikki myynnit: ${rSign}${formatEur(Math.abs(real)).replace("€", "").trim()} €`;
+    els.wlPnlSplit.textContent = t("pnlOpenClosed", {
+      unreal: `${uSign}${formatEur(Math.abs(unreal)).replace("€", "").trim()}`,
+      real: `${rSign}${formatEur(Math.abs(real)).replace("€", "").trim()}`,
+    });
   }
 
   const pnl = s.pnl ?? 0;
@@ -747,9 +779,13 @@ function renderStats() {
 function renderWinLoss(breakdown) {
   const empty = { winCount: 0, winEur: 0, lossCount: 0, lossEur: 0 };
   const data = breakdown || {};
-  const winText = (p) => `${p.winCount} kpl · +${formatEur(p.winEur || 0)}`;
+  const winText = (p) => t("winCount", { n: p.winCount, eur: formatEur(p.winEur || 0) });
   const lossText = (p) =>
-    `${p.lossCount} kpl · ${p.lossEur > 0 ? "−" : ""}${formatEur(p.lossEur || 0)}`;
+    t("lossCount", {
+      n: p.lossCount,
+      sign: p.lossEur > 0 ? "−" : "",
+      eur: formatEur(p.lossEur || 0),
+    });
   const netText = (p) => {
     const net = (p.winEur || 0) - (p.lossEur || 0);
     const sign = net > 0.005 ? "+" : net < -0.005 ? "−" : "";
@@ -778,7 +814,7 @@ function renderWinLoss(breakdown) {
   });
   if (els.wlYearLabel) {
     const year = state.stats?.taxCurrentYearLabel;
-    els.wlYearLabel.textContent = year ? `Vuonna ${year}` : "Tänä vuonna";
+    els.wlYearLabel.textContent = year ? t("yearLabel", { year }) : t("yearLabelThis");
   }
 }
 
@@ -811,18 +847,22 @@ function renderMarketList() {
   });
 
   const maxPos = state.maxPositions ?? 3;
-  els.marketCount.textContent = `${Object.keys(state.tickers).length} kryptoparia Bitfinexissä · salkussa ${heldSet.size} (max ${maxPos})`;
+  els.marketCount.textContent = t("marketsCount", {
+    n: Object.keys(state.tickers).length,
+    held: heldSet.size,
+    max: maxPos,
+  });
 
   if (entries.length === 0) {
-    els.marketList.innerHTML = '<p class="empty-log">Ladataan markkinoita…</p>';
+    els.marketList.innerHTML = `<p class="empty-log">${t("marketsLoading")}</p>`;
     return;
   }
 
   els.marketList.innerHTML = `
     <div class="market-row market-row-head">
-      <div>Krypto</div>
-      <div class="market-head-price">Kurssi</div>
-      <div class="market-head-change">Muutos</div>
+      <div>${t("colCrypto")}</div>
+      <div class="market-head-price">${t("colPrice")}</div>
+      <div class="market-head-change">${t("colChange")}</div>
     </div>
   ${entries
     .map(([symbol, ticker]) => {
@@ -845,13 +885,13 @@ function renderMarketList() {
         const pnlClass = positionPct >= 0 ? "up" : "down";
         changeHtml = `
           <div class="market-change-stack">
-            <span class="market-pct-pill ${pnlClass}" title="Voitto/tappio ostohintaan">P/L ${formatPct(positionPct)}</span>
+            <span class="market-pct-pill ${pnlClass}" title="${t("titlePnlVsCost")}">P/L ${formatPct(positionPct)}</span>
             <span class="market-pct-sub market-pct-times">${marketChanges.subHtml}</span>
           </div>`;
       } else {
         changeHtml = `
           <div class="market-change-stack">
-            <span class="market-pct-pill ${change24Class}" title="24 h markkinamuutos">${change24Label}</span>
+            <span class="market-pct-pill ${change24Class}" title="${t("titleChange24h")}">${change24Label}</span>
             <span class="market-pct-sub market-pct-times">${marketChanges.subHtml}</span>
           </div>`;
       }
@@ -888,16 +928,19 @@ function renderMarketList() {
           const valueStr = `${formatEur(pnl.currentValue).replace("€", "").trim()} €`;
           holdingPrefix = `<span class="holding-value ${valueCls}">${valueStr}</span> `;
         }
-        badge = `<span class="market-row-badge">${holdingPrefix}${signal} Salkussa${holdingDurationSuffix}</span>`;
+        badge = `<span class="market-row-badge">${holdingPrefix}${signal} ${t("badgeInPortfolio")}${holdingDurationSuffix}</span>`;
       } else if (isTarget) {
-        badge = `<span class="market-row-badge market-row-badge-target">◎ Gemini-valinta</span>`;
+        badge = `<span class="market-row-badge market-row-badge-target">${t("badgeGeminiPick")}</span>`;
       }
 
       return `
         <div class="market-row ${isHeld ? "selected" : isTarget ? "target" : ""}">
           <div>
             <div class="market-row-id">${label}</div>
-            <div class="market-row-pair">${sym.replace(/^t/, "")} · vol ${formatVolumeEur(ticker.volumeEur)}</div>
+            <div class="market-row-pair">${t("pairVol", {
+              pair: sym.replace(/^t/, ""),
+              volume: formatVolumeEur(ticker.volumeEur),
+            })}</div>
           </div>
           <div class="market-row-price">${formatEur(ticker.last)}</div>
           ${changeHtml}
@@ -917,12 +960,16 @@ function renderPortfolio() {
   if (els.portfolioLivePnl) {
     if (unrealized) {
       const badge = formatPnlBadge(unrealized.pnlEur, unrealized.pnlPct);
-      els.portfolioLivePnl.textContent = `Avoin P/L: ${badge.pct} (${badge.eur})`;
+      els.portfolioLivePnl.textContent = t("livePnlOpen", { pct: badge.pct, eur: badge.eur });
       els.portfolioLivePnl.className = `portfolio-live-pnl ${badge.cls === "up" ? "positive" : "negative"}`;
     } else if (state.stats.pnlPct != null) {
       const pnl = state.stats.pnl ?? 0;
       const sign = pnl >= 0 ? "+" : "";
-      els.portfolioLivePnl.textContent = `Salkku: ${formatPct(state.stats.pnlPct)} (${sign}${formatEur(pnl).replace("€", "").trim()} €)`;
+      els.portfolioLivePnl.textContent = t("livePnlPortfolio", {
+        pct: formatPct(state.stats.pnlPct),
+        sign,
+        eur: formatEur(pnl).replace("€", "").trim(),
+      });
       els.portfolioLivePnl.className = `portfolio-live-pnl ${pnl >= 0 ? "positive" : pnl < 0 ? "negative" : "neutral"}`;
     } else {
       els.portfolioLivePnl.textContent = "—";
@@ -933,7 +980,7 @@ function renderPortfolio() {
   if (!hasHoldings && (portfolio.cash ?? INITIAL_CAPITAL) >= INITIAL_CAPITAL - 1) {
     els.portfolioBody.innerHTML = `
       <tr><td colspan="7" style="color:var(--muted);padding:20px 8px">
-        Botti valitsee parhaat kryptot automaattisesti — odota seuraavaa kaupankäyntikierrosta.
+        ${t("portfolioEmpty")}
       </td></tr>`;
     return;
   }
@@ -944,10 +991,10 @@ function renderPortfolio() {
     if (!ticker?.last) {
       rows.push(`
       <tr class="portfolio-stale-row">
-        <td><strong>${getCryptoLabel(symbol)}</strong><br><span style="font-size:0.75rem;color:var(--muted)">Kurssi päivittyy…</span></td>
+        <td><strong>${getCryptoLabel(symbol)}</strong><br><span style="font-size:0.75rem;color:var(--muted)">${t("priceUpdating")}</span></td>
         <td>${formatCrypto(holding.amount, 6)}</td>
         <td>—</td>
-        <td>${formatEur(holding.amount * (holding.avgPrice || 0))} <span style="font-size:0.75rem;color:var(--muted)">(hankinta)</span></td>
+        <td>${formatEur(holding.amount * (holding.avgPrice || 0))} <span style="font-size:0.75rem;color:var(--muted)">${t("costBasisHint")}</span></td>
         <td>—</td>
         <td>—</td>
         <td>—</td>
@@ -994,7 +1041,7 @@ function renderPortfolio() {
     const badge = formatPnlBadge(unrealized.pnlEur, unrealized.pnlPct);
     rows.push(`
       <tr class="portfolio-summary-row">
-        <td><strong>Yhteensä (kryptot)</strong></td>
+        <td><strong>${t("totalCryptos")}</strong></td>
         <td>—</td>
         <td>—</td>
         <td>${formatEur(unrealized.holdingsValue)}</td>
@@ -1030,15 +1077,15 @@ function renderPortfolio() {
 
 function renderAIEventLog() {
   if (!state.aiEvents.length) {
-    return `<p class="ai-placeholder">Ei tapahtumia vielä — botti aloittaa pian.</p>`;
+    return `<p class="ai-placeholder">${t("aiEmpty")}</p>`;
   }
 
   const typeLabels = {
-    buy: "OSTO",
-    sell: "MYYNTI",
-    hold: "PIDÄ",
-    watch: "SEURANTA",
-    info: "INFO",
+    buy: t("aiTypeBuy"),
+    sell: t("aiTypeSell"),
+    hold: t("aiTypeHold"),
+    watch: t("aiTypeWatch"),
+    info: t("aiTypeInfo"),
   };
 
   return state.aiEvents
@@ -1063,22 +1110,22 @@ function renderRegimeChip() {
   if (!regime?.regime) return "";
 
   const regimeMap = {
-    bull: { label: "Nouseva markkina", cls: "up" },
-    bear: { label: "Laskeva markkina", cls: "down" },
-    neutral: { label: "Neutraali markkina", cls: "neutral" },
+    bull: { label: t("regimeBull"), cls: "up" },
+    bear: { label: t("regimeBear"), cls: "down" },
+    neutral: { label: t("regimeNeutral"), cls: "neutral" },
   };
   const shiftLabels = {
-    bull: "nousevaan",
-    bear: "laskevaan",
-    neutral: "neutraaliin",
+    bull: t("shiftToBull"),
+    bear: t("shiftToBear"),
+    neutral: t("shiftToNeutral"),
   };
   const phaseLabels = {
-    bull_entering: " · käännös nousevaan",
-    bull_emerging: " · kääntymässä nousevaan",
-    bear_entering: " · käännös laskevaan",
-    bear_emerging: " · kääntymässä laskevaan",
-    neutral_entering: " · tasaantumassa",
-    neutral_emerging: " · kääntymässä neutraaliin",
+    bull_entering: t("phaseSuffixBullEntering"),
+    bull_emerging: t("phaseSuffixBullEmerging"),
+    bear_entering: t("phaseSuffixBearEntering"),
+    bear_emerging: t("phaseSuffixBearEmerging"),
+    neutral_entering: t("phaseSuffixNeutralEntering"),
+    neutral_emerging: t("phaseSuffixNeutralEmerging"),
   };
 
   const r = regimeMap[regime.regime] || regimeMap.neutral;
@@ -1087,7 +1134,7 @@ function renderRegimeChip() {
     phase =
       phaseLabels[regime.phase] ||
       (regime.shift_to && regime.shift_to !== regime.regime
-        ? ` · → ${shiftLabels[regime.shift_to] || regime.shift_to}`
+        ? t("shiftArrow", { direction: shiftLabels[regime.shift_to] || regime.shift_to })
         : "");
   }
   const strength =
@@ -1098,12 +1145,20 @@ function renderRegimeChip() {
     regime.btc_change_24h_pct != null ? ` · BTC ${formatPct(regime.btc_change_24h_pct)}` : "";
   const breadth =
     regime.breadth_up_pct != null
-      ? ` · ${regime.breadth_up_pct}% kryptoista nousussa (24 h)`
+      ? t("breadthUp", { pct: regime.breadth_up_pct })
       : "";
   const title = [
-    regime.transition ? `Siirtymä: ${regime.transition}` : "",
-    regime.signal_margin != null ? `Signaalimarginaali: ${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}` : "",
-    regime.shift_to ? `Ennakoidaan: ${shiftLabels[regime.shift_to] || regime.shift_to}` : "",
+    regime.transition ? t("titleTransition", { transition: regime.transition }) : "",
+    regime.signal_margin != null
+      ? t("titleSignalMargin", {
+          margin: `${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}`,
+        })
+      : "",
+    regime.shift_to
+      ? t("titleAnticipating", {
+          direction: shiftLabels[regime.shift_to] || regime.shift_to,
+        })
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1116,17 +1171,17 @@ function renderRegimeAnticipationChip() {
   if (!regime?.regime) return "";
 
   const shiftLabels = {
-    bull: "nousevaan",
-    bear: "laskevaan",
-    neutral: "neutraaliin",
+    bull: t("shiftToBull"),
+    bear: t("shiftToBear"),
+    neutral: t("shiftToNeutral"),
   };
   const phaseLabels = {
-    bull_entering: "Käännös nousevaan",
-    bull_emerging: "Kääntymässä nousevaan",
-    bear_entering: "Käännös laskevaan",
-    bear_emerging: "Kääntymässä laskevaan",
-    neutral_entering: "Tasaantumassa",
-    neutral_emerging: "Kääntymässä neutraaliin",
+    bull_entering: t("phaseBullEntering"),
+    bull_emerging: t("phaseBullEmerging"),
+    bear_entering: t("phaseBearEntering"),
+    bear_emerging: t("phaseBearEmerging"),
+    neutral_entering: t("phaseNeutralEntering"),
+    neutral_emerging: t("phaseNeutralEmerging"),
   };
 
   const phase = regime.phase;
@@ -1137,13 +1192,19 @@ function renderRegimeAnticipationChip() {
     phase && phase !== current
       ? phaseLabels[phase]
       : shift && shift !== current
-        ? `→ ${shiftLabels[shift] || shift}`
+        ? t("anticipateArrow", { direction: shiftLabels[shift] || shift })
         : "";
 
   if (!emerging && (!strength || strength === "none")) return "";
 
   const strengthFi =
-    strength === "strong" ? "vahva" : strength === "moderate" ? "kohtalainen" : strength === "weak" ? "heikko" : "";
+    strength === "strong"
+      ? t("strengthStrong")
+      : strength === "moderate"
+        ? t("strengthModerate")
+        : strength === "weak"
+          ? t("strengthWeak")
+          : "";
   const label = emerging + (strengthFi ? ` (${strengthFi})` : "");
   const cls =
     shift === "bull" || phase?.startsWith("bull")
@@ -1152,12 +1213,16 @@ function renderRegimeAnticipationChip() {
         ? "down"
         : "neutral";
   const title = [
-    `Nyt: ${current}`,
-    regime.transition ? `Siirtymä: ${regime.transition}` : "",
+    t("titleNow", { regime: current }),
+    regime.transition ? t("titleTransition", { transition: regime.transition }) : "",
     regime.signal_margin != null
-      ? `Signaalimarginaali: ${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}`
+      ? t("titleSignalMargin", {
+          margin: `${regime.signal_margin > 0 ? "+" : ""}${regime.signal_margin}`,
+        })
       : "",
-    shift ? `Ennakoidaan: ${shiftLabels[shift] || shift}` : "",
+    shift
+      ? t("titleAnticipating", { direction: shiftLabels[shift] || shift })
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1168,14 +1233,24 @@ function renderRegimeAnticipationChip() {
 function renderMarketLearningChip() {
   const ml = state.marketLearning;
   if (!ml || (!ml.bucketsLearned && !ml.bucketsTracked)) return "";
-  let title = "Koko markkinan varjo-oppiminen (signaalit → toteutunut 1h/4h tuotto)";
+  let title = t("chipMarketTitle");
   if (ml.best?.setup) {
-    title += `\nParas: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`;
+    title +=
+      "\n" +
+      t("chipMarketBest", {
+        setup: ml.best.setup,
+        exp: `${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h}`,
+      });
   }
   if (ml.worst?.setup) {
-    title += `\nHuonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`;
+    title +=
+      "\n" +
+      t("chipMarketWorst", {
+        setup: ml.worst.setup,
+        exp: `${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h}`,
+      });
   }
-  return `<span class="metric-chip" title="${title}">📊 ${ml.bucketsLearned} asetelmaa opittu</span>`;
+  return `<span class="metric-chip" title="${title}">📊 ${t("chipMarketLabel", { n: ml.bucketsLearned })}</span>`;
 }
 
 function renderLearningChips() {
@@ -1185,7 +1260,7 @@ function renderLearningChips() {
 
   let noteHtml = "";
   if (learning?.note) {
-    noteHtml = `<span class="metric-chip learning-note-chip" title="Oppiminen omasta kauppahistoriasta">🧠 ${learning.note}</span>`;
+    noteHtml = `<span class="metric-chip learning-note-chip" title="${t("chipOwnLearningTitle")}">🧠 ${learning.note}</span>`;
   }
 
   let chips = "";
@@ -1196,38 +1271,49 @@ function renderLearningChips() {
   if (gemTagged >= 6 && gemConfStats && Object.keys(gemConfStats).length) {
     const lines = Object.entries(gemConfStats)
       .sort(([a], [b]) => Number(a) - Number(b))
-      .map(
-        ([conf, s]) =>
-          `${conf}/10: ${s.trades} kpl, ${s.expectancy_eur >= 0 ? "+" : ""}${s.expectancy_eur} €/kauppa`
+      .map(([conf, s]) =>
+        t("chipGeminiConfLine", {
+          conf,
+          trades: s.trades,
+          expectancy: `${s.expectancy_eur >= 0 ? "+" : ""}${s.expectancy_eur}`,
+        })
       );
     chips += `<span class="metric-chip" title="${lines.join("\n")}">🔮 Gemini-conf</span>`;
   } else if (gemTagged > 0 || gemTaggedBuys > 0 || gemTaggedSells > 0) {
-    chips += `<span class="metric-chip" title="Gemini-confidence-oppiminen">🔮 Conf ${gemTagged}/6 (O${gemTaggedBuys}/M${gemTaggedSells})</span>`;
+    chips += `<span class="metric-chip" title="${t("chipGeminiConfTitle")}">🔮 ${t("chipGeminiConfProgress", {
+      tagged: gemTagged,
+      buys: gemTaggedBuys,
+      sells: gemTaggedSells,
+    })}</span>`;
   }
   const activeRegime = regime?.regime;
   if (activeRegime && learning?.regime_tuning?.[activeRegime]) {
-    chips += `<span class="metric-chip" title="Regiimikohtainen säätö aktiivisessa markkinassa">🎯 ${activeRegime}</span>`;
+    chips += `<span class="metric-chip" title="${t("chipRegimeTuningTitle")}">🎯 ${activeRegime}</span>`;
   }
   const ownSetups = learning?.setup_memory ? Object.keys(learning.setup_memory).length : 0;
   if (ownSetups > 0) {
-    chips += `<span class="metric-chip" title="Omat sisäänostoasetelmat kauppahistoriasta">📐 ${ownSetups} setuppia</span>`;
+    chips += `<span class="metric-chip" title="${t("chipOwnSetupsTitle")}">📐 ${t("chipOwnSetupsLabel", { n: ownSetups })}</span>`;
   }
   const gpt = state.geminiPickTracking;
   const gpStats = gpt?.stats;
   if (gpStats?.picks_tracked >= 3 && gpStats.win_rate_pct != null) {
     const title = [
-      `${gpStats.rounds} Gemini-kierrosta arkistoitu`,
-      `${gpStats.picks_tracked} pickiä seurattu`,
-      `Keskituotto ${gpStats.avg_return_pct >= 0 ? "+" : ""}${gpStats.avg_return_pct} %`,
+      t("chipGeminiRounds", { rounds: gpStats.rounds }),
+      t("chipGeminiPicksTracked", { picks: gpStats.picks_tracked }),
+      t("chipGeminiAvgReturn", {
+        avg: `${gpStats.avg_return_pct >= 0 ? "+" : ""}${gpStats.avg_return_pct}`,
+      }),
       gpStats.pick_beats_skipped_pct != null
-        ? `Pickit voittivat ohitetun ${gpStats.pick_beats_skipped_pct} %`
+        ? t("chipGeminiBeatsSkipped", { beat: gpStats.pick_beats_skipped_pct })
         : "",
     ]
       .filter(Boolean)
       .join("\n");
-    chips += `<span class="metric-chip" title="${escapeHtml(title)}">🎯 Gemini ${gpStats.win_rate_pct}%</span>`;
+    chips += `<span class="metric-chip" title="${escapeHtml(title)}">🎯 ${t("chipGeminiWinRate", {
+      pct: gpStats.win_rate_pct,
+    })}</span>`;
   } else if (gpt?.current?.pick_outcomes?.length) {
-    chips += `<span class="metric-chip" title="Seurataan edellisen Geminin pickien tuottoa">🎯 Gemini seuraa</span>`;
+    chips += `<span class="metric-chip" title="${t("chipGeminiTracking")}">🎯 ${t("chipGeminiTrackingLabel")}</span>`;
   }
   chips += renderRegimeAnticipationChip();
 
@@ -1240,9 +1326,9 @@ function formatDurationSec(sec) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
-  if (h > 0) return `${h} t ${m} min`;
-  if (m > 0) return s > 0 ? `${m} min ${s} s` : `${m} min`;
-  return `${s} s`;
+  if (h > 0) return t("durationHMin", { h, m });
+  if (m > 0) return s > 0 ? t("durationMinSec", { m, s }) : t("durationMin", { m });
+  return t("durationSec", { s });
 }
 
 function formatHoldingDuration(symbol) {
@@ -1255,9 +1341,9 @@ function formatHoldingDuration(symbol) {
   const sec = Math.max(0, Math.floor((Date.now() - start) / 1000));
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}min`;
-  if (m > 0) return `${m}min`;
-  return "<1min";
+  if (h > 0) return t("holdingHMin", { h, m });
+  if (m > 0) return t("holdingMin", { m });
+  return t("holdingUnder1Min");
 }
 
 function escapeHtml(text) {
@@ -1277,13 +1363,30 @@ function resolveLearningReport() {
 
   const sections = [];
   if (ml) {
-    const lines = [`${ml.bucketsLearned || 0}/${ml.bucketsTracked || 0} asetelmaa opittu`];
-    if (ml.best?.setup) lines.push(`Paras: ${ml.best.setup} (${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h} % / 1h)`);
-    if (ml.worst?.setup) lines.push(`Huonoin: ${ml.worst.setup} (${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h} % / 1h)`);
-    sections.push({ icon: "📊", title: "Markkina-asetelmat", lines });
+    const lines = [
+      t("bucketsLearned", {
+        learned: ml.bucketsLearned || 0,
+        tracked: ml.bucketsTracked || 0,
+      }),
+    ];
+    if (ml.best?.setup)
+      lines.push(
+        t("chipMarketBest", {
+          setup: ml.best.setup,
+          exp: `${ml.best.exp1h > 0 ? "+" : ""}${ml.best.exp1h}`,
+        })
+      );
+    if (ml.worst?.setup)
+      lines.push(
+        t("chipMarketWorst", {
+          setup: ml.worst.setup,
+          exp: `${ml.worst.exp1h > 0 ? "+" : ""}${ml.worst.exp1h}`,
+        })
+      );
+    sections.push({ icon: "📊", title: t("sectionMarketSetups"), lines });
   }
   if (learning?.note) {
-    sections.push({ icon: "🧠", title: "Kauppojen oppiminen", lines: [learning.note] });
+    sections.push({ icon: "🧠", title: t("sectionTradeLearning"), lines: [learning.note] });
   }
   return { sections, changes: [], roadmap: [], narrative: null };
 }
@@ -1297,12 +1400,14 @@ function renderGeminiPickTrackingHtml() {
   if (current?.pick_outcomes?.length) {
     const mins = current.minutes_since_snapshot;
     lines.push(
-      `<strong>Odottaa arkistointia</strong>${mins != null ? ` (${mins} min sitten)` : ""}:`
+      `<strong>${t("pickAwaitingArchive")}</strong>${
+        mins != null ? t("pickMinsAgo", { mins }) : ""
+      }:`
     );
     for (const p of current.pick_outcomes) {
       const ret = p.return_since_pct;
       if (ret == null) continue;
-      const tag = p.executed ? " [kauppa]" : "";
+      const tag = p.executed ? t("pickExecutedTag") : "";
       lines.push(`${escapeHtml(p.label)}: ${ret >= 0 ? "+" : ""}${ret.toFixed(1)} %${tag}`);
     }
     for (const lesson of current.lessons || []) {
@@ -1313,7 +1418,12 @@ function renderGeminiPickTrackingHtml() {
   const stats = gpt.stats;
   if (stats?.picks_tracked >= 1) {
     lines.push(
-      `<strong>Historia:</strong> ${stats.rounds} kierrosta · ${stats.picks_tracked} pickiä · osuu ${stats.win_rate_pct} % · keski ${stats.avg_return_pct >= 0 ? "+" : ""}${stats.avg_return_pct} %`
+      `<strong>${t("pickHistoryLabel")}:</strong> ${t("pickHistoryDetail", {
+        rounds: stats.rounds,
+        picks: stats.picks_tracked,
+        winRate: stats.win_rate_pct,
+        avg: `${stats.avg_return_pct >= 0 ? "+" : ""}${stats.avg_return_pct}`,
+      })}`
     );
   }
 
@@ -1333,143 +1443,81 @@ function renderGeminiPickTrackingHtml() {
 
   return `
     <div class="learning-section">
-      <h4>🎯 Gemini-pick-seuranta</h4>
+      <h4>🎯 ${t("pickSectionTitle")}</h4>
       <ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>
     </div>`;
 }
 
 function buildNarrativeContentHtml(narrative) {
   if (!narrative) return "";
+
+  const headingKey = {
+    ideas: "headingIdeasShort",
+    shadow_learned: "headingShadowLearned",
+    shadow_ideas: "headingShadowIdeas",
+    micro_learned: "headingMicroLearned",
+    micro_ideas: "headingMicroIdeas",
+    exit_learned: "headingExitLearned",
+    exit_ideas: "headingExitIdeas",
+    sell_learned: "headingSellLearned",
+    sell_ideas: "headingSellIdeas",
+    anticipation_learned: "headingAnticipationLearned",
+    anticipation_ideas: "headingAnticipationIdeas",
+    satellite_learned: "headingSatelliteLearned",
+    satellite_ideas: "headingSatelliteIdeas",
+    learned: "headingLearned",
+    in_use: "headingInUse",
+    next_steps: "headingNext",
+  };
+
+  function narrativeBlock(field, cssExtra, ideasHeading) {
+    if (!narrative[field]) return "";
+    const key = ideasHeading || headingKey[field];
+    return `<div class="learning-narrative-block${cssExtra}">
+            <h4>${t(key)}</h4>
+            <p>${escapeHtml(narrative[field])}</p>
+          </div>`;
+  }
+
   if (narrative.story) {
     return `
       <div class="learning-narrative">
-        <h4 class="learning-story-title">Geminin kertomus</h4>
+        <h4 class="learning-story-title">${t("storyTitle")}</h4>
         ${narrative.intro ? `<p class="learning-narrative-intro">${escapeHtml(narrative.intro)}</p>` : ""}
         <div class="learning-story-body">${escapeHtml(narrative.story)}</div>
-        ${
-          narrative.ideas
-            ? `<div class="learning-narrative-block ideas">
-            <h4>Ideat (ei vielä käytössä bottiin)</h4>
-            <p>${escapeHtml(narrative.ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.shadow_learned
-            ? `<div class="learning-narrative-block shadow-policy">
-            <h4>Varjopolitiikka — mitä testidata opettaa</h4>
-            <p>${escapeHtml(narrative.shadow_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.shadow_ideas
-            ? `<div class="learning-narrative-block shadow-policy ideas">
-            <h4>Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)</h4>
-            <p>${escapeHtml(narrative.shadow_ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.micro_learned
-            ? `<div class="learning-narrative-block microstructure">
-            <h4>Order book & crowd — mitä data opettaa</h4>
-            <p>${escapeHtml(narrative.micro_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.micro_ideas
-            ? `<div class="learning-narrative-block microstructure ideas">
-            <h4>Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)</h4>
-            <p>${escapeHtml(narrative.micro_ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.exit_learned
-            ? `<div class="learning-narrative-block exit-peak">
-            <h4>Huippumyynti — mitä data opettaa</h4>
-            <p>${escapeHtml(narrative.exit_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.exit_ideas
-            ? `<div class="learning-narrative-block exit-peak ideas">
-            <h4>Huippumyynti — hyödyntämisehdotukset (ei vielä käytössä)</h4>
-            <p>${escapeHtml(narrative.exit_ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.sell_learned
-            ? `<div class="learning-narrative-block sell-outcomes">
-            <h4>Voitto- vs tappiomyynnit — mitä data opettaa</h4>
-            <p>${escapeHtml(narrative.sell_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.sell_ideas
-            ? `<div class="learning-narrative-block sell-outcomes ideas">
-            <h4>Myyntisuositukset — enemmän voitolla (ei vielä automaattisesti käytössä)</h4>
-            <p>${escapeHtml(narrative.sell_ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.anticipation_learned
-            ? `<div class="learning-narrative-block regime-anticipation">
-            <h4>Regiimin ennakointi — hyödyntäminen ja oppiminen</h4>
-            <p>${escapeHtml(narrative.anticipation_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.anticipation_ideas
-            ? `<div class="learning-narrative-block regime-anticipation ideas">
-            <h4>Ennakoinnin hyödyntämisehdotukset (ei vielä käytössä)</h4>
-            <p>${escapeHtml(narrative.anticipation_ideas)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.satellite_learned
-            ? `<div class="learning-narrative-block bull-satellite">
-            <h4>Bull-satelliitti (65/35) — käytännön tulokset</h4>
-            <p>${escapeHtml(narrative.satellite_learned)}</p>
-          </div>`
-            : ""
-        }
-        ${
-          narrative.satellite_ideas
-            ? `<div class="learning-narrative-block bull-satellite ideas">
-            <h4>Satelliittijaon hienosäätö (ei vielä automaattisesti käytössä)</h4>
-            <p>${escapeHtml(narrative.satellite_ideas)}</p>
-          </div>`
-            : ""
-        }
+        ${narrativeBlock("ideas", " ideas", "headingIdeas")}
+        ${narrativeBlock("shadow_learned", " shadow-policy")}
+        ${narrativeBlock("shadow_ideas", " shadow-policy ideas")}
+        ${narrativeBlock("micro_learned", " microstructure")}
+        ${narrativeBlock("micro_ideas", " microstructure ideas")}
+        ${narrativeBlock("exit_learned", " exit-peak")}
+        ${narrativeBlock("exit_ideas", " exit-peak ideas")}
+        ${narrativeBlock("sell_learned", " sell-outcomes")}
+        ${narrativeBlock("sell_ideas", " sell-outcomes ideas")}
+        ${narrativeBlock("anticipation_learned", " regime-anticipation")}
+        ${narrativeBlock("anticipation_ideas", " regime-anticipation ideas")}
+        ${narrativeBlock("satellite_learned", " bull-satellite")}
+        ${narrativeBlock("satellite_ideas", " bull-satellite ideas")}
       </div>`;
   }
   if (narrative.intro || narrative.learned || narrative.in_use) {
     const blocks = [
-      ["learned", "Mitä opittiin"],
-      ["in_use", "Käytössä nyt"],
-      ["next_steps", "Seuraavaksi"],
-      ["shadow_learned", "Varjopolitiikka — mitä testidata opettaa"],
-      ["shadow_ideas", "Varjopolitiikka — hyödyntämisehdotukset (ei vielä käytössä)"],
-      ["micro_learned", "Order book & crowd — mitä data opettaa"],
-      ["micro_ideas", "Order book & crowd — hyödyntämisehdotukset (ei vielä käytössä)"],
-      ["exit_learned", "Huippumyynti — mitä data opettaa"],
-      ["exit_ideas", "Huippumyynti — hyödyntämisehdotukset (ei vielä käytössä)"],
-      ["sell_learned", "Voitto- vs tappiomyynnit — mitä data opettaa"],
-      ["sell_ideas", "Myyntisuositukset — enemmän voitolla (ei vielä automaattisesti käytössä)"],
-      ["anticipation_learned", "Regiimin ennakointi — hyödyntäminen ja oppiminen"],
-      ["anticipation_ideas", "Ennakoinnin hyödyntämisehdotukset (ei vielä käytössä)"],
-      ["satellite_learned", "Bull-satelliitti (65/35) — käytännön tulokset"],
-      ["satellite_ideas", "Satelliittijaon hienosäätö (ei vielä automaattisesti käytössä)"],
-      ["ideas", "Ideat (ei vielä käytössä)"],
+      ["learned", ""],
+      ["in_use", ""],
+      ["next_steps", ""],
+      ["shadow_learned", " shadow-policy"],
+      ["shadow_ideas", " shadow-policy ideas"],
+      ["micro_learned", " microstructure"],
+      ["micro_ideas", " microstructure ideas"],
+      ["exit_learned", " exit-peak"],
+      ["exit_ideas", " exit-peak ideas"],
+      ["sell_learned", " sell-outcomes"],
+      ["sell_ideas", " sell-outcomes ideas"],
+      ["anticipation_learned", " regime-anticipation"],
+      ["anticipation_ideas", " regime-anticipation ideas"],
+      ["satellite_learned", " bull-satellite"],
+      ["satellite_ideas", " bull-satellite ideas"],
+      ["ideas", " ideas"],
     ];
     return `
       <div class="learning-narrative">
@@ -1477,25 +1525,9 @@ function buildNarrativeContentHtml(narrative) {
         ${blocks
           .filter(([key]) => narrative[key])
           .map(
-            ([key, title]) => `
-          <div class="learning-narrative-block${
-            key === "ideas" || key === "shadow_ideas" || key === "micro_ideas" || key === "exit_ideas" || key === "sell_ideas" || key === "anticipation_ideas" || key === "satellite_ideas"
-              ? " ideas"
-              : key === "shadow_learned"
-                ? " shadow-policy"
-                : key === "micro_learned"
-                  ? " microstructure"
-                  : key === "exit_learned"
-                    ? " exit-peak"
-                    : key === "sell_learned"
-                      ? " sell-outcomes"
-                      : key === "anticipation_learned"
-                        ? " regime-anticipation"
-                        : key === "satellite_learned"
-                          ? " bull-satellite"
-                          : ""
-          }">
-            <h4>${title}</h4>
+            ([key, css]) => `
+          <div class="learning-narrative-block${css}">
+            <h4>${t(headingKey[key])}</h4>
             <p>${escapeHtml(narrative[key])}</p>
           </div>`
           )
@@ -1570,25 +1602,30 @@ function renderGeminiNarrativeModal() {
 
   if (els.geminiNarrativeCount) {
     if (!all.length) {
-      els.geminiNarrativeCount.textContent = "Ei tallennettuja kertomuksia";
+      els.geminiNarrativeCount.textContent = t("modalNoStories");
     } else if (narrativeModalSearch.trim()) {
-      els.geminiNarrativeCount.textContent = `${narrativeModalFiltered.length} / ${all.length} kertomusta`;
+      els.geminiNarrativeCount.textContent = t("modalCountFiltered", {
+        filtered: narrativeModalFiltered.length,
+        total: all.length,
+      });
     } else {
-      els.geminiNarrativeCount.textContent = `${all.length} kertomusta`;
+      els.geminiNarrativeCount.textContent = t("modalCount", { n: all.length });
     }
   }
 
   if (els.geminiNarrativeList) {
     if (!narrativeModalFiltered.length) {
       els.geminiNarrativeList.innerHTML = `<p class="gemini-narrative-list-empty">${
-        all.length ? "Ei hakutuloksia." : "Gemini-kertomuksia ei vielä tallennettu."
+        all.length ? t("modalNoResults") : t("modalNoneYet")
       }</p>`;
     } else {
       els.geminiNarrativeList.innerHTML = narrativeModalFiltered
         .map((entry, idx) => {
           const active = idx === narrativeModalSelectedIdx ? " active" : "";
-          const current = entry.current ? '<span class="gemini-narrative-badge">Nykyinen</span>' : "";
-          const ts = entry.timestamp ? formatDateTime(entry.timestamp) : "Ei aikaleimaa";
+          const current = entry.current
+            ? `<span class="gemini-narrative-badge">${t("modalCurrent")}</span>`
+            : "";
+          const ts = entry.timestamp ? formatDateTime(entry.timestamp) : t("modalNoTimestamp");
           const preview = escapeHtml(narrativePreviewText(entry.narrative));
           return `<button type="button" class="gemini-narrative-list-item${active}" data-idx="${idx}">
           <span class="gemini-narrative-list-date">${ts}${current}</span>
@@ -1608,7 +1645,7 @@ function renderGeminiNarrativeModal() {
       els.geminiNarrativeDetail.innerHTML = `
         <div class="gemini-narrative-detail-header">
           ${ts ? `<time datetime="${escapeHtml(entry.timestamp)}">${ts}</time>` : ""}
-          ${entry.current ? '<span class="gemini-narrative-badge">Nykyinen</span>' : ""}
+          ${entry.current ? `<span class="gemini-narrative-badge">${t("modalCurrent")}</span>` : ""}
         </div>
         ${buildNarrativeContentHtml(entry.narrative)}
       `;
@@ -1620,28 +1657,32 @@ function renderLearningReportMeta(report) {
   if (!els.learningReportMeta) return;
   const next = report.nextNarrativeInSec;
   const last = report.lastNarrativeAt;
-  const parts = [`Päivitetty ${report.timestamp ? formatTime(report.timestamp) : "juuri nyt"}`];
+  const parts = [
+    t("updated", {
+      time: report.timestamp ? formatTime(report.timestamp) : t("justNow"),
+    }),
+  ];
   if (report.narrativePending) {
-    parts.push("Gemini kirjoittaa kertomusta…");
+    parts.push(t("metaWriting"));
   } else if (last) {
-    parts.push(`Gemini ${formatTime(last)}`);
+    parts.push(t("metaGeminiTime", { time: formatTime(last) }));
   } else if (next === 0) {
-    parts.push("Gemini-kertomus tulossa");
+    parts.push(t("metaComing"));
   } else {
-    parts.push("Gemini odottaa seuraavaa kierrosta");
+    parts.push(t("metaWaitingRound"));
   }
   if (report.narrativePending) {
     // countdown hidden while writing
   } else if (report.narrativeError) {
     if (next != null && next > 0) {
-      parts.push(`uudelleenyritys ${formatDurationSec(next)} kuluttua`);
+      parts.push(t("metaRetryIn", { duration: formatDurationSec(next) }));
     } else {
-      parts.push("uusi kertomus epäonnistui — yritetään uudelleen");
+      parts.push(t("metaRetryFailed"));
     }
   } else if (next != null && next > 0) {
-    parts.push(`seuraava kertomus ${formatDurationSec(next)} kuluttua`);
+    parts.push(t("metaNextStoryIn", { duration: formatDurationSec(next) }));
   } else if (next === 0 && last) {
-    parts.push("seuraava kertomus nyt");
+    parts.push(t("metaNextStoryNow"));
   }
   if (report.narrativeError) {
     const errShort = String(report.narrativeError).slice(0, 80);
@@ -1654,8 +1695,8 @@ function renderLearningReport() {
   if (!els.learningReport) return;
   const report = resolveLearningReport();
   if (!report) {
-    els.learningReport.innerHTML = '<p class="empty-log">Oppimisraportti latautuu…</p>';
-    if (els.learningReportMeta) els.learningReportMeta.textContent = "Odotetaan dataa…";
+    els.learningReport.innerHTML = `<p class="empty-log">${t("reportLoading")}</p>`;
+    if (els.learningReportMeta) els.learningReportMeta.textContent = t("reportAwaitingData");
     lastLearningReportBodyKey = "";
     return;
   }
@@ -1682,19 +1723,21 @@ function renderLearningReport() {
   if (narrative?.story || (narrative && (narrative.intro || narrative.learned || narrative.in_use))) {
     narrativeHtml = buildNarrativeContentHtml(narrative);
   } else if (report.narrativePending) {
-    narrativeHtml =
-      '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa kertomusta… (päivittyy automaattisesti)</p></div>';
+    narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>${t("pendingWriting")}</p></div>`;
   } else if (report.narrativeError) {
     const retryNote =
       report.nextNarrativeInSec > 0
-        ? `<p class="learning-narrative-retry">Uudelleenyritys ${formatDurationSec(report.nextNarrativeInSec)} kuluttua.</p>`
+        ? `<p class="learning-narrative-retry">${t("retryNote", {
+            duration: formatDurationSec(report.nextNarrativeInSec),
+          })}</p>`
         : "";
     narrativeHtml = `<div class="learning-narrative learning-narrative-error"><p>${escapeHtml(report.narrativeError)}</p>${retryNote}</div>`;
   } else if (!report.lastNarrativeAt && report.nextNarrativeInSec > 0) {
-    narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>Seuraava Gemini-kertomus ${formatDurationSec(report.nextNarrativeInSec)} kuluttua (6 h välein).</p></div>`;
+    narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>${t("pendingNextIn", {
+      duration: formatDurationSec(report.nextNarrativeInSec),
+    })}</p></div>`;
   } else if (!report.lastNarrativeAt) {
-    narrativeHtml =
-      '<div class="learning-narrative learning-narrative-pending"><p>Gemini kirjoittaa ensimmäistä kertomusta… (päivittyy automaattisesti)</p></div>';
+    narrativeHtml = `<div class="learning-narrative learning-narrative-pending"><p>${t("pendingFirst")}</p></div>`;
   }
 
   const sectionsHtml = (report.sections || [])
@@ -1709,14 +1752,14 @@ function renderLearningReport() {
 
   const changesHtml = (report.changes || []).length
     ? `<div class="learning-changes">
-        <h4>Muuttunut edelliseen raporttiin</h4>
+        <h4>${t("changesTitle")}</h4>
         <ul>${report.changes.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>
       </div>`
     : "";
 
   const roadmapHtml = (report.roadmap || []).length
     ? `<div class="learning-roadmap">
-        <h4>Roadmap</h4>
+        <h4>${t("roadmapTitle")}</h4>
         <ul>${report.roadmap
           .map((r) => {
             const cls =
@@ -1761,12 +1804,19 @@ function renderAIDecision(report) {
     ${headerHtml}
     <div class="ai-reasoning">
       <div class="ai-section ai-event-section">
-        <h4 class="ai-section-title">Viimeiset ${AI_EVENT_LIMIT} tapahtumaa</h4>
+        <h4 class="ai-section-title">${t("aiEventsTitle", { limit: AI_EVENT_LIMIT })}</h4>
         <div class="ai-event-log">${renderAIEventLog()}</div>
       </div>
       ${
         report
-          ? `<p class="ai-decision-meta">Analysoitu ${Object.keys(state.tickers).length} kryptoparia · ${report.timestamp ? `Päivitetty ${formatTime(report.timestamp)}` : ""}</p>`
+          ? `<p class="ai-decision-meta">${
+              report.timestamp
+                ? t("aiAnalyzedUpdated", {
+                    n: Object.keys(state.tickers).length,
+                    time: formatTime(report.timestamp),
+                  })
+                : t("aiAnalyzed", { n: Object.keys(state.tickers).length })
+            }</p>`
           : ""
       }
     </div>
@@ -1780,7 +1830,7 @@ function getTradePnlBadge(trade) {
     if (!Number.isFinite(value)) return "";
     const sign = value >= 0 ? "+" : "−";
     const abs = Math.abs(value);
-    const formatted = abs.toLocaleString("fi-FI", {
+    const formatted = abs.toLocaleString(UI_LOCALE, {
       minimumFractionDigits: 2,
       maximumFractionDigits: abs < 1 ? 4 : 2,
     });
@@ -1794,7 +1844,11 @@ function getTradePnlBadge(trade) {
     const pct = (profitLoss / costBasis) * 100;
     const cls = pct >= 0 ? "up" : "down";
     const sign = pct >= 0 ? "+" : "";
-    return `<span class="trade-pnl ${cls}">Myynti ${sign}${pct.toFixed(2)} %${signedEurSuffix(profitLoss)}</span>`;
+    return `<span class="trade-pnl ${cls}">${t("pnlSell", {
+      sign,
+      pct: pct.toFixed(2),
+      eurSuffix: signedEurSuffix(profitLoss),
+    })}</span>`;
   }
   const ticker = state.tickers[trade.symbol];
   if (!ticker || !trade.price) return "";
@@ -1803,28 +1857,32 @@ function getTradePnlBadge(trade) {
   const unrealizedEur = (ticker.last - trade.price) * (trade.amount || 0);
   const cls = pct >= 0 ? "up" : "down";
   const sign = pct >= 0 ? "+" : "";
-  return `<span class="trade-pnl ${cls}">Nyt ${sign}${pct.toFixed(2)} %${signedEurSuffix(unrealizedEur)}${stillHeld ? "" : " · myyty"}</span>`;
+  return `<span class="trade-pnl ${cls}">${t("pnlNow", {
+    sign,
+    pct: pct.toFixed(2),
+    eurSuffix: signedEurSuffix(unrealizedEur),
+  })}${stillHeld ? "" : t("pnlSoldSuffix")}</span>`;
 }
 
 function renderTradeLog() {
   const trades = state.portfolio.trades || [];
   if (!trades.length) {
-    els.tradeLog.innerHTML = '<p class="empty-log">Ei kauppoja vielä.</p>';
+    els.tradeLog.innerHTML = `<p class="empty-log">${t("tradesEmpty")}</p>`;
     return;
   }
 
   const filtered =
     tradeLogFilter === "all"
       ? trades
-      : trades.filter((t) => t.type === tradeLogFilter);
+      : trades.filter((tr) => tr.type === tradeLogFilter);
 
   if (!filtered.length) {
     const emptyMsg =
       tradeLogFilter === "buy"
-        ? "Ei ostoja."
+        ? t("tradesEmptyBuys")
         : tradeLogFilter === "sell"
-          ? "Ei myyntejä."
-          : "Ei kauppoja vielä.";
+          ? t("tradesEmptySells")
+          : t("tradesEmpty");
     els.tradeLog.innerHTML = `<p class="empty-log">${emptyMsg}</p>`;
     return;
   }
@@ -1836,16 +1894,16 @@ function renderTradeLog() {
       if (trade.type === "tax") {
         return `
           <div class="trade-item">
-            <span class="trade-type tax">VERO</span>
+            <span class="trade-type tax">${t("typeTax")}</span>
             <div class="trade-details">
               <div class="main">${label} · ${formatEur(trade.eurTotal)}</div>
-              <div class="sub">30 % voittovero · voitto ${formatEur(trade.profit)}</div>
+              <div class="sub">${t("taxSub", { eur: formatEur(trade.profit) })}</div>
             </div>
             <span class="trade-time">${formatDateTime(trade.timestamp)}</span>
           </div>`;
       }
-      const typeLabel = trade.type === "buy" ? "OSTO" : "MYYNTI";
-      const taxNote = trade.tax > 0 ? ` · vero ${formatEur(trade.tax)}` : "";
+      const typeLabel = trade.type === "buy" ? t("typeBuy") : t("typeSell");
+      const taxNote = trade.tax > 0 ? t("taxNote", { eur: formatEur(trade.tax) }) : "";
       const pnlBadge = getTradePnlBadge(trade);
       return `
         <div class="trade-item">
