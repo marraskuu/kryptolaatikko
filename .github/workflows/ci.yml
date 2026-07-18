@@ -28,3 +28,7 @@ jobs:
 
       - name: Run tests
         run: python manage.py test trading.tests -v2
+        env:
+          # Belt-and-suspenders with settings.TESTING: page tests use {% static %}
+          # without collectstatic/manifest.
+          DEBUG: "true"
