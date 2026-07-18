@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Englanninkieliset sivut: regiimi-, satelliitti- ja muutokset-kortit",
+                "body": "Oppimisraportin loput kortit ja “muutokset edelliseen” -rivit käännetään /eng-sivulla.",
+                "title_en": "English pages: regime, satellite and changes cards",
+                "body_en": "Remaining learning-report cards and “changes since previous” lines are translated on /eng.",
+            },
+            {
                 "title": "Englanninkieliset sivut: kauppahistoria ja oppimiskortit",
                 "body": "Kauppojen Gemini-perustelut ja oppimisraportin korttien rivit käännetään /eng-sivulla.",
                 "title_en": "English pages: trade history and learning cards",

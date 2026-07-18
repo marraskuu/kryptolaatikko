@@ -88,6 +88,43 @@ class TranslateTextTests(SimpleTestCase):
         self.assertNotIn("asetelmaa", en)
         self.assertNotIn("jumitus", en)
 
+    def test_regime_symbol_change_lines(self):
+        fi = (
+            "Regiimi vakaa: bull · Käytössä: tasapainotus ≥0.80 %, voitto-otto ×1.00 · "
+            "Myynnit: ennakoinnissa 2V/1T · Split-jakoja: 2 (0 auki) · "
+            "Kerätään dataa (2/3 split-tapahtumaa) ennen vahvoja johtopäätöksiä · "
+            "Estetyt confidence-tasot: 5, 8 · Minimi confidence myynneille: 10/10 · "
+            "5/10: 3 kpl, +0.10 € · estetty · Vältetään: BTC · Suositaan: ZEC · "
+            "Aktiivinen regiimi: bull · Regiimikohtainen viritys: 4/4 tagattua myyntiä · "
+            "Viime 24 h: 1V / 0T · Viime 7 pv: 5V / 2T · "
+            "Estetty 1 uutta ostokohdetta: SOL · Ostokielto poistui: XRP · "
+            "+4 uutta markkina-asetelmaa opittu (1459 yhteensä) · Kokonaisexpectancy +0.1 → +0.2"
+        )
+        en = translate_text(fi, "en")
+        self.assertIn("Regime stable: bull", en)
+        self.assertIn("In use:", en)
+        self.assertIn("rebalance", en)
+        self.assertIn("Sells:", en)
+        self.assertIn("in anticipation", en)
+        self.assertIn("Split allocations: 2 (0 open)", en)
+        self.assertIn("before strong conclusions", en)
+        self.assertIn("Blocked confidence levels:", en)
+        self.assertIn("Minimum confidence for sells:", en)
+        self.assertIn("· blocked", en)
+        self.assertIn("Avoiding:", en)
+        self.assertIn("Favoring:", en)
+        self.assertIn("Active regime:", en)
+        self.assertIn("Regime-specific tuning:", en)
+        self.assertIn("Last 24 h:", en)
+        self.assertIn("Last 7 d:", en)
+        self.assertIn("Blocked 1 new buy targets:", en)
+        self.assertIn("Buy block lifted:", en)
+        self.assertIn("new market setups learned (1459 total)", en)
+        self.assertIn("Overall expectancy", en)
+        self.assertNotIn("asetelmaa", en)
+        self.assertNotIn("Vältetään", en)
+        self.assertNotIn("yhteensä", en)
+
     def test_gemini_scanned_message(self):
         fi = (
             "Gemini skannasi 42 kryptoparia (ei stablecoineja) · "
