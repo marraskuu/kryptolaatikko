@@ -269,6 +269,12 @@ def api_state(request):
     if lang not in ("fi", "en"):
         lang = "fi"
     if lang == "en":
+        try:
+            from .services.learning_report import kick_narrative_en_backfill_if_needed
+
+            kick_narrative_en_backfill_if_needed()
+        except Exception:
+            logger.exception("Narrative EN backfill kick failed")
         from .services.ui_translate import localize_api_payload
 
         payload = localize_api_payload(payload, "en")

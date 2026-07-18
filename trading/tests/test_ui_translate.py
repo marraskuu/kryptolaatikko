@@ -63,6 +63,24 @@ class TranslateTextTests(SimpleTestCase):
             "Gemini scanned 42 crypto pairs (no stablecoins) · 3 picks · 5 signals",
         )
 
+    def test_learning_note_gemini_picks(self):
+        fi = (
+            "Gemini tiukemmin (-0.22 €/kauppa) · valikoivampi win rate 35 % · "
+            "Gemini estää conf 5,8,9,10 · Gemini-pickit heikot (0 % osuu) — conf ≥7, osto 50 % · "
+            "Pickit häviävät ohituksille (30 % kierroksista)"
+        )
+        en = translate_text(fi, "en")
+        self.assertIn("Gemini stricter", en)
+        self.assertIn("more selective win rate 35 %", en)
+        self.assertIn("Gemini blocks conf 5,8,9,10", en)
+        self.assertIn("Gemini picks weak (0 % hit rate)", en)
+        self.assertIn("buy 50 %", en)
+        self.assertIn("Picks lose to skips (30 % of rounds)", en)
+        self.assertNotIn("tiukemmin", en)
+        self.assertNotIn("valikoivampi", en)
+        self.assertNotIn("osuu", en)
+        self.assertNotIn("kierroksista", en)
+
 
 class LocalizeApiPayloadTests(SimpleTestCase):
     def test_translates_trade_reason(self):

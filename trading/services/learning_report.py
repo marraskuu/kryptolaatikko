@@ -1003,6 +1003,90 @@ def kick_narrative_refresh_if_due(min_interval_sec: int = 90) -> None:
     threading.Thread(target=_run, name="learning-narrative-kick", daemon=True).start()
 
 
+_narrative_en_kick_lock = threading.Lock()
+_last_narrative_en_kick_ms = 0
+_narrative_en_running = False
+
+
+def kick_narrative_en_backfill_if_needed(min_interval_sec: int = 120) -> None:
+    """Fill missing *_en fields on the current Finnish Gemini narrative (for /eng/)."""
+    global _last_narrative_en_kick_ms, _narrative_en_running
+
+    from .gemini import is_configured, narrative_needs_en
+
+    if not is_configured():
+        return
+
+    try:
+        from .state_store import load_state, patch_state_keys
+
+        state = load_state()
+    except Exception:
+        logger.warning("Narrative EN backfill: state load failed", exc_info=True)
+        return
+
+    narrative = sanitize_learning_narrative(state.get("learningNarrative"))
+    if not narrative_needs_en(narrative):
+        return
+
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    with _narrative_en_kick_lock:
+        if _narrative_en_running:
+            return
+        if now_ms - _last_narrative_en_kick_ms < min_interval_sec * 1000:
+            return
+        _last_narrative_en_kick_ms = now_ms
+        _narrative_en_running = True
+
+    def _run() -> None:
+        global _narrative_en_running
+        try:
+            from .gemini import translate_learning_narrative_en
+            from .state_store import load_state, patch_state_keys
+
+            s = load_state()
+            current = sanitize_learning_narrative(s.get("learningNarrative")) or {}
+            if not narrative_needs_en(current):
+                return
+            translated, status = translate_learning_narrative_en(current)
+            if not status.get("ok") or not translated:
+                logger.warning("Narrative EN backfill failed: %s", status.get("message"))
+                return
+            # Preserve Finnish primary fields; merge *_en only.
+            merged = dict(current)
+            for key, val in translated.items():
+                if key.endswith("_en") and isinstance(val, str) and val.strip():
+                    merged[key] = val
+            patch_state_keys({"learningNarrative": merged})
+            # Also update learningReport.narrative + newest history entry.
+            report = dict(s.get("learningReport") or {})
+            if report:
+                report_narr = dict(report.get("narrative") or current)
+                for key, val in merged.items():
+                    if key.endswith("_en") and isinstance(val, str) and val.strip():
+                        report_narr[key] = val
+                report["narrative"] = report_narr
+                patch_state_keys({"learningReport": report})
+            history = list(s.get("learningReportHistory") or [])
+            if history and isinstance(history[0], dict):
+                entry = dict(history[0])
+                entry_narr = dict(entry.get("narrative") or current)
+                for key, val in merged.items():
+                    if key.endswith("_en") and isinstance(val, str) and val.strip():
+                        entry_narr[key] = val
+                entry["narrative"] = entry_narr
+                history[0] = entry
+                patch_state_keys({"learningReportHistory": history})
+            logger.info("Narrative EN backfill stored")
+        except Exception:
+            logger.exception("Narrative EN backfill crashed")
+        finally:
+            with _narrative_en_kick_lock:
+                _narrative_en_running = False
+
+    threading.Thread(target=_run, name="learning-narrative-en", daemon=True).start()
+
+
 def refresh_narrative_if_due(state: dict[str, Any]) -> dict[str, Any]:
     """Päivitä vain Gemini-kertomus (rule-kortit pysyvät) kun 6 h täyttyy."""
     cached = state.get("learningReport")

@@ -1666,3 +1666,124 @@ Vastaa VAIN validilla JSON:lla. Anna KAIKKI kentät suomeksi JA vastaavat *_en-k
         "provider": "gemini",
         "configured": True,
     }
+
+
+_NARRATIVE_TRANSLATE_KEYS = (
+    "story",
+    "intro",
+    "learned",
+    "in_use",
+    "next_steps",
+    "shadow_learned",
+    "shadow_ideas",
+    "micro_learned",
+    "micro_ideas",
+    "exit_learned",
+    "exit_ideas",
+    "sell_learned",
+    "sell_ideas",
+    "anticipation_learned",
+    "anticipation_ideas",
+    "satellite_learned",
+    "satellite_ideas",
+    "ideas",
+)
+
+
+def narrative_needs_en(narrative: dict[str, Any] | None) -> bool:
+    """True when Finnish narrative exists but English twin fields are missing."""
+    if not narrative or not isinstance(narrative, dict):
+        return False
+    has_fi = bool(
+        (narrative.get("story") or "").strip() or (narrative.get("intro") or "").strip()
+    )
+    if not has_fi:
+        return False
+    has_en = bool(
+        (narrative.get("story_en") or "").strip() or (narrative.get("intro_en") or "").strip()
+    )
+    return not has_en
+
+
+def translate_learning_narrative_en(
+    narrative: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Translate existing Finnish narrative fields into *_en via Gemini (one-shot)."""
+    if not narrative_needs_en(narrative):
+        return narrative, {"ok": True, "message": "English narrative already present", "skipped": True}
+
+    api_key = _read_api_key()
+    if not api_key:
+        return None, {
+            "ok": False,
+            "message": "GEMINI_API_KEY missing",
+            "configured": False,
+        }
+
+    payload = {
+        key: str(narrative.get(key) or "").strip()
+        for key in _NARRATIVE_TRANSLATE_KEYS
+        if str(narrative.get(key) or "").strip()
+    }
+    if not payload:
+        return narrative, {"ok": True, "message": "Nothing to translate", "skipped": True}
+
+    prompt = f"""Translate the following JSON values from Finnish to English.
+Keep the same keys but append _en (e.g. story → story_en).
+Preserve numbers, €, %, crypto tickers (BTC, ETH, SOL, …), and product name "Crypto Simulator" (not Finnish "Krypto Simulaattori").
+Return ONLY valid JSON with the *_en fields.
+
+Finnish source:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+    models = _model_candidates(narrative=True)
+    timeout = int(os.environ.get("LEARNING_NARRATIVE_EN_TIMEOUT", "90"))
+    errors: list[str] = []
+
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            response = _post_with_retry(url, api_key, prompt, timeout=timeout)
+            response.raise_for_status()
+            body = response.json()
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = _extract_json(text)
+            merged = dict(narrative)
+            for key in _NARRATIVE_TRANSLATE_KEYS:
+                en_key = f"{key}_en"
+                en_val = str(parsed.get(en_key) or parsed.get(key) or "").strip()
+                if en_val:
+                    merged[en_key] = en_val
+            if narrative_needs_en(merged):
+                errors.append(f"{model}: missing story_en/intro_en after translate")
+                continue
+            from .learning_report import sanitize_learning_narrative
+
+            return sanitize_learning_narrative(merged), {
+                "ok": True,
+                "message": "English narrative backfilled",
+                "provider": "gemini",
+                "model": model,
+                "configured": True,
+            }
+        except requests.RequestException as exc:
+            detail = _request_error_detail(exc)
+            errors.append(f"{model}: {detail}")
+            logger.warning("Narrative EN translate error (%s): %s", model, detail)
+            if _is_quota_or_billing_error(detail):
+                break
+            continue
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            err_msg = type(exc).__name__
+            errors.append(f"{model}: {err_msg}")
+            logger.warning("Narrative EN translate parse error (%s): %s", model, err_msg)
+            continue
+
+    detail = errors[0] if errors else "unknown"
+    return None, {
+        "ok": False,
+        "message": f"English narrative translate failed ({detail[:160]})",
+        "provider": "gemini",
+        "configured": True,
+    }

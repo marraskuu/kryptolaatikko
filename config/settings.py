@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250718e"
+APP_BUILD = "20250718f"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")

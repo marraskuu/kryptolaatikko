@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Englanninkieliset sivut: oppimismuistiinpanot ja Gemini-kertomus",
+                "body": "Oppimischipin suomenkieliset fragmentit käännetään. Vanha Gemini-kertomus täydennetään eng-kentillä taustalla kun /eng avataan.",
+                "title_en": "English pages: learning notes and Gemini narrative",
+                "body_en": "Finnish fragments in the learning chip are translated. Opening /eng backfills English fields on the existing Gemini narrative in the background.",
+            },
+            {
                 "title": "Englanninkieliset sivut: kauppojen syyt ja Gemini-kertomukset",
                 "body": "/eng hakee tilan ?lang=en — syyt, AI-raportit ja oppimisraportti käännetään. Uudet Gemini-signaalit ja kertomukset tallennetaan kaksikielisinä (reason_en / *_en).",
                 "title_en": "English pages: trade reasons and Gemini narratives",
