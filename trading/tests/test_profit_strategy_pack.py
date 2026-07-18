@@ -228,7 +228,14 @@ class SymbolMemoryNetPositiveTests(SimpleTestCase):
                 "timestamp": (now - timedelta(days=3)).isoformat(),
             },
         ]
-        tuning = compute_tuning(portfolio)
+        with (
+            patch("trading.services.setup_historical_backfill.load_setup_stats", return_value={}),
+            patch(
+                "trading.services.setup_historical_backfill.get_setup_backfill_status",
+                return_value={},
+            ),
+        ):
+            tuning = compute_tuning(portfolio)
         mem = tuning.get("symbol_memory") or {}
         eth = mem.get("tETHUSD") or {}
         self.assertGreater(float(eth.get("net_eur") or 0), 0)
@@ -261,7 +268,14 @@ class SymbolMemoryNetPositiveTests(SimpleTestCase):
                 "timestamp": old,
             },
         ]
-        tuning = compute_tuning(portfolio)
+        with (
+            patch("trading.services.setup_historical_backfill.load_setup_stats", return_value={}),
+            patch(
+                "trading.services.setup_historical_backfill.get_setup_backfill_status",
+                return_value={},
+            ),
+        ):
+            tuning = compute_tuning(portfolio)
         blocked = set(tuning.get("blocked_buys") or [])
         self.assertIn("tHYPEUST", blocked)
 
