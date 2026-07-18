@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Huippumyynti: pitkä pito × porrastettu voitto-otto",
+                "body": "≥2 h + hiipuva momentum → isompi porras 1 ja loppu heti trailingiin. ≥4 h + fade → ohita porras 1, myy tiukalla trailingilla koko position.",
+                "title_en": "Peak sell: long hold × partial profit-take",
+                "body_en": "≥2 h + fading momentum → larger tier-1 take and remainder armed for trailing. ≥4 h + fade → skip tier 1 and trail the full position tightly.",
+            },
+            {
                 "title": "Huippumyynti: aiempi arm pitkille pidoille",
                 "body": "Kun positio on ≥2–4 h ja 1h-muutos/flow heikkenee, voitto-otto aktivoituu aiemmin ja trailing kiristyy. Holdingeille haetaan myös trade flow exit-polulla.",
                 "title_en": "Peak sell: earlier arm for long holds",

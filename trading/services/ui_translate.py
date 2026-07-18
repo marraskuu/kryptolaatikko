@@ -524,6 +524,13 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
     (r"pito ([\d.]+) h \+ hiipuva 1h/flow", r"hold \1 h + fading 1h/flow"),
     (r"myyntialotteinen flow", "sell-initiated flow"),
     (r"ostoalotteinen flow", "buy-initiated flow"),
+    (r"pitkä pito: ohita porras 1 → trailing",
+     "long hold: skip tier 1 → trailing"),
+    (r"pito: isompi porras 1 \+ nopea trailing",
+     "hold: larger tier 1 + fast trailing"),
+    (r"\(porras 1\)", "(tier 1)"),
+    (r"loppu jää trailing-stopille nousua varten",
+     "rest stays on trailing stop for upside"),
 ]
 
 _COMPILED: list[tuple[re.Pattern[str], str]] = [

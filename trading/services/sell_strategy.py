@@ -35,6 +35,9 @@ LONG_HOLD_EARLY_TRIGGER_MULT = 0.75   # ≥2 h + fade → arm 75 % normaalikynny
 LONG_HOLD_STRICT_TRIGGER_MULT = 0.65  # ≥4 h + fade → arm 65 %
 LONG_HOLD_1H_FADE_PCT = 0.0           # 1h-muutos ≤ tämä = hiipuminen
 LONG_HOLD_MIN_PROFIT_PCT = 0.8        # alle tämän ei pakoteta aikaisempaa armia
+# Partial take × pitkä pito: aiempi/isompi porras 1, ≥4 h + fade → ohita porras (koko trailing)
+LONG_HOLD_PARTIAL_FRACTION_MULT = 1.5   # 30 % → 45 % kun ≥2 h + fade
+LONG_HOLD_PARTIAL_FRACTION_CAP = 0.55
 
 
 def default_profit_take_config() -> dict[str, Any]:
@@ -125,6 +128,44 @@ def long_hold_trigger_mult(
     return LONG_HOLD_EARLY_TRIGGER_MULT, signals or [
         f"pito {hold_age_hours:.1f} h + hiipuva momentum"
     ]
+
+
+def long_hold_partial_policy(
+    analysis: dict[str, Any] | None,
+    hold_age_hours: float | None,
+    profit_pct: float,
+) -> dict[str, Any]:
+    """
+    Pitkä pito + fade → partial take -käyttäytyminen.
+
+    ≥2 h: aiempi partial-kynnys (sama early_mult) + isompi osuus, loppu heti armed.
+    ≥4 h: ohita partial — anna tiukan trailingin myydä koko position.
+    """
+    base = {
+        "skip_partial": False,
+        "trigger_mult": 1.0,
+        "fraction_mult": 1.0,
+        "arm_remainder": False,
+        "signals": [],
+    }
+    mult, signals = long_hold_trigger_mult(analysis, hold_age_hours, profit_pct)
+    if mult >= 1.0:
+        return base
+    if hold_age_hours is not None and hold_age_hours >= LONG_HOLD_STRICT_HOURS:
+        return {
+            "skip_partial": True,
+            "trigger_mult": mult,
+            "fraction_mult": 1.0,
+            "arm_remainder": True,
+            "signals": signals + ["pitkä pito: ohita porras 1 → trailing"],
+        }
+    return {
+        "skip_partial": False,
+        "trigger_mult": mult,
+        "fraction_mult": LONG_HOLD_PARTIAL_FRACTION_MULT,
+        "arm_remainder": True,
+        "signals": signals + ["pito: isompi porras 1 + nopea trailing"],
+    }
 
 
 def compute_peak_exit_adjustments(
@@ -274,14 +315,24 @@ def update_profit_sell(
         trigger_pct *= early_mult
     pullback_threshold = _pullback_threshold_pct(atr_pct, cfg)
     covers_cost = profit_pct > ROUND_TRIP_COST_PCT
+    partial_policy = long_hold_partial_policy(analysis, hold_age_hours, profit_pct)
     partial_trigger = PARTIAL_TAKE_TRIGGER_PCT * float(cfg.get("partial_trigger_scale", 1.0))
+    if float(partial_policy.get("trigger_mult") or 1.0) < 1.0:
+        partial_trigger *= float(partial_policy["trigger_mult"])
     partial_fraction = min(
-        0.9,
-        max(0.1, PARTIAL_TAKE_FRACTION * float(cfg.get("partial_fraction_scale", 1.0))),
+        LONG_HOLD_PARTIAL_FRACTION_CAP if partial_policy.get("arm_remainder") else 0.9,
+        max(
+            0.1,
+            PARTIAL_TAKE_FRACTION
+            * float(cfg.get("partial_fraction_scale", 1.0))
+            * float(partial_policy.get("fraction_mult") or 1.0),
+        ),
     )
+    skip_partial = bool(partial_policy.get("skip_partial"))
 
     if (
         cfg.get("partial_enabled", True)
+        and not skip_partial
         and not state.get("tier1Taken")
         and profit_pct >= partial_trigger
         and covers_cost
@@ -291,16 +342,19 @@ def update_profit_sell(
             state["active"] = True
             state["peakPrice"] = current_price
             state["peakTime"] = now
-            state["armed"] = False
+        # Pitkä pito + fade: loppu heti trailing-valmiuteen (ei 180 s odotusta)
+        state["armed"] = bool(partial_policy.get("arm_remainder"))
         state["prevPrice"] = current_price
         states[symbol] = state
+        partial_signals = list(partial_policy.get("signals") or [])
+        signal_note = f" ({', '.join(partial_signals)})" if partial_signals else ""
         return {
             "shouldSell": True,
             "sellFraction": partial_fraction,
             "profitPct": profit_pct,
             "reason": (
                 f"Voitto +{profit_pct:.1f} % — kotiutetaan {partial_fraction * 100:.0f} % "
-                f"(porras 1), loppu jää trailing-stopille nousua varten"
+                f"(porras 1), loppu jää trailing-stopille nousua varten{signal_note}"
             ),
             "status": "tier1",
             "statusText": (
@@ -312,8 +366,16 @@ def update_profit_sell(
             "peakPrice": state["peakPrice"],
             "pullbackPct": 0.0,
             "exitSetup": (exit_learned or {}).get("exit_setup"),
-            "exitSignals": [],
+            "exitSignals": partial_signals,
         }
+
+    # ≥4 h + fade: merkitse tier1Taken jotta partial ei laukea myöhemmin
+    # (ohitettu porras → koko positio trailingilla).
+    if skip_partial and not state.get("tier1Taken") and profit_pct >= partial_trigger * 0.85:
+        state["tier1Taken"] = True
+        for sig in partial_policy.get("signals") or []:
+            if sig not in early_signals:
+                early_signals.append(sig)
 
     if profit_pct < trigger_pct:
         if state["active"] and not state["armed"]:
