@@ -145,6 +145,23 @@ class LongHoldPartialTakeTests(SimpleTestCase):
             or watches["tXMRUSD"].get("tier1Taken")
         )
 
+    def test_skip_partial_sets_tier1_taken_below_partial_trigger(self):
+        """Gemini-osamyynti lukitaan heti kun ≥4 h skip on aktiivinen (~1 %)."""
+        watches: dict = {}
+        result = update_profit_sell(
+            watches,
+            "tXMRUSD",
+            current_price=101.0,
+            avg_price=100.0,
+            now_ms=3_500_000,
+            atr_pct=None,
+            analysis={"change1hPct": -0.2, "flowBucket": "fl-"},
+            hold_age_hours=5.0,
+        )
+        self.assertNotEqual(result["status"], "tier1")
+        self.assertTrue(watches["tXMRUSD"].get("tier1Taken"))
+        self.assertAlmostEqual(result["profitPct"], 1.0, places=1)
+
     def test_normal_partial_unchanged_without_fade(self):
         watches: dict = {}
         result = update_profit_sell(

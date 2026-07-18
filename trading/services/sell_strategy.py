@@ -369,9 +369,9 @@ def update_profit_sell(
             "exitSignals": partial_signals,
         }
 
-    # ≥4 h + fade: merkitse tier1Taken jotta partial ei laukea myöhemmin
-    # (ohitettu porras → koko positio trailingilla).
-    if skip_partial and not state.get("tier1Taken") and profit_pct >= partial_trigger * 0.85:
+    # ≥4 h + fade: merkitse tier1Taken heti (sama kynnys kuin skip_partial),
+    # jotta Gemini-osamyynti ei pääse väliin ennen trailingia.
+    if skip_partial and not state.get("tier1Taken"):
         state["tier1Taken"] = True
         for sig in partial_policy.get("signals") or []:
             if sig not in early_signals:

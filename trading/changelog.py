@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-18",
         "entries": [
             {
+                "title": "Korjaus: pitkä pito ei anna Gemini-osamyyntiä ennen trailingia",
+                "body": "Kun ≥4 h + fade ohittaa porras 1:n, tier1Taken merkitään heti — Gemini ei voi trimmaa positioita siinä ikkunassa.",
+                "title_en": "Fix: long hold blocks Gemini partial sells before trailing",
+                "body_en": "When ≥4 h + fade skips tier 1, tier1Taken is set immediately so Gemini cannot trim the position in that window.",
+            },
+            {
                 "title": "Huippumyynti: pitkä pito × porrastettu voitto-otto",
                 "body": "≥2 h + hiipuva momentum → isompi porras 1 ja loppu heti trailingiin. ≥4 h + fade → ohita porras 1, myy tiukalla trailingilla koko position.",
                 "title_en": "Peak sell: long hold × partial profit-take",

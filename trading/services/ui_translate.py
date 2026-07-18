@@ -141,8 +141,10 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
         r"Time stop ≥\1 — stuck (\2)\3, freeing capital to a stronger target",
     ),
     (r"Positio jämähtänyt", "Position stuck"),
+    (r"Aikastoppi/jumitus", "Time stop/stuck"),
     (r"Aikastoppi", "Time stop"),
     (r"jämähtänyt", "stuck"),
+    (r"jumitus", "stuck"),
     (r"vapautetaan pääoma vahvempaan kohteeseen", "freeing capital to a stronger target"),
     (r"myydään riippumatta markkinan noususta", "selling regardless of market rise"),
     # Churn / bear / rotation
@@ -332,7 +334,6 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
     (r"asetelmaa opittu", "setups learned"),
     (r"Paras:", "Best:"),
     (r"Huonoin:", "Worst:"),
-    (r"Aikastoppi/jumitus", "Time stop/stuck"),
     (r"Gemini-myynnit", "Gemini sells"),
     (r"Voitto-otto:", "Profit-take:"),
     (r"\bVoitto-otto\b", "Profit-take"),
