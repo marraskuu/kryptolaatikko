@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -7,12 +8,14 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Kasvata joka deployssa — näkyy /api/state/ appBuild-kentässä.
-APP_BUILD = "20250718c"
+APP_BUILD = "20250718d"
 
 # Paikallinen .env (ei commitoida). Railway: aseta Variables-kohdassa.
 load_dotenv(BASE_DIR / ".env")
 
 DEBUG = os.environ.get("DEBUG", "false").lower() in ("1", "true", "yes")
+# GitHub Actions / manage.py test: älä vaadi WhiteNoise-manifestia.
+TESTING = "test" in sys.argv
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-in-production")
 if not DEBUG and SECRET_KEY == "dev-only-change-in-production":
@@ -172,7 +175,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-if DEBUG:
+if DEBUG or TESTING:
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {
