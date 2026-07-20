@@ -149,6 +149,14 @@ def compute_symbol_memory(
             blocked = True
             score_adjust = SYMBOL_PENALTY_CAP
 
+        # Pysyvä häviäjä — sama kynnys kuin nopeutetussa myynnissä
+        # (ai_trader._fast_loss_exit_reason: score_adjust <= SYMBOL_SCORE_BLOCK).
+        # Aiemmin tämä esti vain olemassa olevan positon nopean myynnin, ei uutta
+        # ostoa — symboli voitiin ostaa uudelleen heti kun 2 h cooldown umpeutui,
+        # vaikka nettotulos oli jatkuvasti negatiivinen (esim. BTC 9W/8L, −6,72 €).
+        if score_adjust <= SYMBOL_SCORE_BLOCK:
+            blocked = True
+
         memory[sym] = {
             "net_eur": round(net, 2),
             "wins": b["wins"],
@@ -603,11 +611,11 @@ def _compute_gemini_confidence_tuning(
         if not stat or stat["trades"] < MIN_SAMPLES_GEMINI_CONF:
             continue
         exp = float(stat["expectancy_eur"])
-        if exp < -0.15:
+        # Kova esto jo lievästi negatiivisella odotusarvolla — puolikokoinen
+        # ostokin tappiollisella luottamustasolla vain hidastaa tappiota.
+        if exp < 0:
             scales[conf] = 0.0
             blocked.append(conf)
-        elif exp < 0:
-            scales[conf] = 0.5
 
     boosted_min = base_min_conf
     if blocked:

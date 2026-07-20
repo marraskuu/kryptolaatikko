@@ -30,6 +30,11 @@ BEAR_BUY_FREEZE = os.environ.get("BEAR_BUY_FREEZE", "1").lower() not in (
     "false",
     "no",
 )
+# Poikkeus karhu-jäädytykseen: varjo-oppimisen paras löydetty asetelma on ollut
+# nimenomaan karhuregiimissä (exp1h +3,19 %, n=33) — jäädytys on estänyt sen
+# koskaan toteutumasta. Päästä läpi vain kun condAdjust on lähellä maksimia
+# (vahva, riittävällä otoksella opittu positiivinen edge tälle tarkalle asetelmalle).
+BEAR_FREEZE_EXCEPTION_MIN_ADJUST = 3.0
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
@@ -864,8 +869,10 @@ def _entry_ok(analysis: dict[str, Any], regime: str) -> bool:
     if not entry_price_ok(analysis):
         return False
     if regime == "bear" and BEAR_BUY_FREEZE:
-        # Karhu-jäädytys: ei uusia ostoja (live: bear −239 € vs bull +235 €).
-        return False
+        # Karhu-jäädytys: ei uusia ostoja (live: bear −239 € vs bull +235 €),
+        # paitsi kun tämä tarkka asetelma on varjo-oppimisessa vahvasti positiivinen.
+        if float(analysis.get("condAdjust") or 0) < BEAR_FREEZE_EXCEPTION_MIN_ADJUST:
+            return False
     mtf = analysis.get("mtfAlign", 0)
     change_24h = analysis.get("changePct")
     if change_24h is None:
@@ -960,7 +967,8 @@ def _is_buy_blocked(
     if not analysis:
         return True
     if regime == "bear" and BEAR_BUY_FREEZE:
-        return True
+        if float(analysis.get("condAdjust") or 0) < BEAR_FREEZE_EXCEPTION_MIN_ADJUST:
+            return True
     if normalize_symbol(symbol) in blocked_buys:
         return True
     if not entry_price_ok(analysis):
