@@ -36,6 +36,30 @@ def _dt_of(iso: Any) -> datetime | None:
         return None
 
 
+def _unexpired_loss_lots(carry_lots: list[tuple[int, float]], year: int) -> list[tuple[int, float]]:
+    return [
+        (expires_after, amount)
+        for expires_after, amount in carry_lots
+        if expires_after >= year and amount > 0.01
+    ]
+
+
+def _apply_loss_carry(
+    carry_lots: list[tuple[int, float]],
+    net_gain: float,
+) -> tuple[float, list[tuple[int, float]]]:
+    taxable = net_gain
+    remaining_lots: list[tuple[int, float]] = []
+    for expires_after, amount in carry_lots:
+        if taxable > 0:
+            used = min(amount, taxable)
+            taxable -= used
+            amount -= used
+        if amount > 0.01:
+            remaining_lots.append((expires_after, amount))
+    return taxable, remaining_lots
+
+
 def default_portfolio() -> dict[str, Any]:
     return {
         "initialCapital": INITIAL_CAPITAL,
@@ -293,29 +317,35 @@ class Portfolio:
         """
         by_year = self.realized_profit_by_year()
         tax_by_year: dict[int, float] = {}
-        carry = 0.0
+        carry_lots: list[tuple[int, float]] = []
         for year in sorted(by_year):
+            carry_lots = _unexpired_loss_lots(carry_lots, year)
             net = by_year[year]
             if net > 0:
-                usable_carry = min(carry, net)
-                carry -= usable_carry
-                tax_by_year[year] = (net - usable_carry) * TAX_RATE
+                taxable, carry_lots = _apply_loss_carry(carry_lots, net)
+                tax_by_year[year] = taxable * TAX_RATE
             else:
-                carry += -net
+                if net < 0:
+                    carry_lots.append((year + 5, -net))
                 tax_by_year[year] = 0.0
         return tax_by_year
 
-    def loss_carryforward(self) -> float:
+    def loss_carryforward(self, as_of_year: int | None = None) -> float:
         """Käyttämätön luovutustappio, joka siirtyy vähennettäväksi tulevien vuosien voitoista."""
         by_year = self.realized_profit_by_year()
-        carry = 0.0
+        carry_lots: list[tuple[int, float]] = []
         for year in sorted(by_year):
+            carry_lots = _unexpired_loss_lots(carry_lots, year)
             net = by_year[year]
             if net > 0:
-                carry = max(0.0, carry - net)
-            else:
-                carry += -net
-        return carry
+                _taxable, carry_lots = _apply_loss_carry(carry_lots, net)
+            elif net < 0:
+                carry_lots.append((year + 5, -net))
+        if as_of_year is None:
+            as_of_year = max(by_year) if by_year else datetime.now(timezone.utc).year
+        carry_lots = _unexpired_loss_lots(carry_lots, as_of_year)
+        return sum(amount for _expires_after, amount in carry_lots)
+
 
     def _realized_gross_wins_by_year(self) -> dict[int, float]:
         """Voitolliset myynnit yhteensä (€) per kalenterivuosi."""
@@ -408,5 +438,5 @@ class Portfolio:
             "estimatedTax": round(estimated_tax, 2),
             "unrealizedProfit": round(unrealized, 2),
             "totalTaxOwed": round(sum(tax_by_year.values()), 2),
-            "lossCarryforward": round(self.loss_carryforward(), 2),
+            "lossCarryforward": round(self.loss_carryforward(as_of_year=current_year), 2),
         }

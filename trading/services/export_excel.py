@@ -130,7 +130,8 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
         ws_summary.append(
             [f"{year} — vero 30 % nettovoitosta (EUR, maksat itse)", round(tax_by_year.get(year, 0.0), 2)]
         )
-    carry = portfolio.loss_carryforward()
+    current_year = datetime.now(timezone.utc).year
+    carry = portfolio.loss_carryforward(as_of_year=current_year)
     if carry > 0.01:
         ws_summary.append(["", ""])
         ws_summary.append(

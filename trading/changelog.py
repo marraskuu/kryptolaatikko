@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-20",
         "entries": [
             {
+                "title": "Verotappioiden 5 vuoden vanheneminen korjattu",
+                "body": "Käyttämättömät luovutustappiot eivät enää siirry ikuisesti: esimerkiksi vuoden 2020 tappio voi pienentää voittoja vain vuosina 2021–2025, ei enää vuonna 2026. Veronäkymä ja Excel-raportti käyttävät samaa sääntöä.",
+                "title_en": "Five-year expiry for tax losses fixed",
+                "body_en": "Unused capital losses no longer carry forward forever: for example, a 2020 loss can reduce gains only in 2021–2025, not in 2026. The tax view and Excel report use the same rule.",
+            },
+            {
                 "title": "Vero verovuoden nettotuloksesta, ei bruttovoitoista",
                 "body": "Vero laskettiin aiemmin jokaisesta voitollisesta myynnistä erikseen nettouttamatta saman vuoden tappioita. Nyt vero lasketaan nettoluovutusvoitosta, ja käyttämätön tappio siirtyy vähennettäväksi seuraavien 5 vuoden voitoista (TVL) — myös ladattava Excel-veroraportti korjattu vastaavasti.",
                 "title_en": "Tax on the tax year's net result, not gross wins",
