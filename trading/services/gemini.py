@@ -1102,6 +1102,10 @@ def _compact_learning(learning: dict[str, Any] | None) -> dict[str, Any]:
         "setup_losers": _compact_setup_summary(setup_memory, positive=False, limit=4),
         "losers": losers,
         "winners": winners,
+        # Oma confidence-tason ja pick-valinnan track record — kalibrointipalaute
+        # (ks. muutosloki 2026-07-20: conf 9/10 on ollut pahin, conf 7 paras).
+        "confidence_track_record": learning.get("gemini_confidence_stats"),
+        "pick_track_record": learning.get("gemini_pick_stats"),
     }
 
 
@@ -1190,6 +1194,8 @@ Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 - blocked_buys = älä osta näitä nyt (tuore tappio); losers = vältä, winners = suosi
 - blocked_setups = asetelmat joilla negatiivinen expectancy omista kaupoista — botti estää uudet ostot (setup-avain)
 - setup_winners / setup_losers = parhaiten/huonoiten menneet asetelmat historiasta — sovella ennen top_picks
+- confidence_track_record = OMA confidence-tasosi (5-10) toteutunut win rate ja €/kauppa aiemmista kaupoistasi — jos taso 9-10 on ollut tappiollinen, ÄLÄ anna sitä tasoa ellei setup on poikkeuksellisen vahva; korkea itsevarmuus ilman kate on ollut pahin luokka
+- pick_track_record = kuinka usein top_picks-valintasi ovat voittaneet ohitetut ehdokkaat (win_rate_pct, pick_beats_skipped_pct) — jos tämä on pysynyt matalana, harkitse painottavatko valintasi liikaa suurinta 24h-nousua teknisen kokonaiskuvan sijaan
 
 Koko markkinan varjo-oppiminen (olosuhde → toteutunut 1h/4h tuotto):
 {market_setups_json}
