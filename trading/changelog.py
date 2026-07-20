@@ -51,6 +51,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Bear freeze: narrow exception for the best learned setup",
                 "body_en": "Shadow learning's best-found setup has specifically been in a bear regime (+3.19% / 1h), but the freeze blocked it entirely. Buys are now allowed when the learned signal is strongly positive.",
             },
+            {
+                "title": "Symbolimuisti: pakkomyynnit pois esto-/rankinglaskennasta",
+                "body": "Karhu-kassavaran trimmaukset, aikastopit ja häviäjän vapautukset ovat salkun riskienhallintaa, eivät signaali symbolin laadusta — ne kuitenkin laskettiin mukaan symbolin voitto/tappio-muistiin, jolloin muutaman sentin pakkomyynnit karhuregiimissä saattoivat leimata hyvänkin symbolin krooniseksi häviäjäksi. Nämä kolme kategoriaa jätetään nyt pois symbolimuistin netto- ja estolaskennasta — tuotantodatalla testattuna erottelu tarkentui selvästi kumpaankin suuntaan (mm. eräs symboli nousi piilossa olleesta nollatuloksesta muistin parhaaksi).",
+                "title_en": "Symbol memory: forced exits excluded from block/ranking calculation",
+                "body_en": "Bear cash-reserve trims, time-stops, and loser releases are portfolio risk management, not a signal about a symbol's quality — but they were still counted in the per-symbol win/loss memory, so a handful of cent-sized forced sells during a bear regime could brand an otherwise good symbol a chronic loser. These three categories are now excluded from the symbol memory's net and block calculation — tested against production data, the split sharpened noticeably in both directions (one symbol went from a hidden breakeven result to the memory's best performer).",
+            },
         ],
     },
     {

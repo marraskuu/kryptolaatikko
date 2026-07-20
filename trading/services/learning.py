@@ -107,14 +107,30 @@ def _parse_time(iso: Any) -> datetime | None:
         return None
 
 
+# Nämä myyntisyyt ovat salkun riskienhallintaa (pakkomyynti riippumatta symbolin
+# laadusta), eivät signaali siitä onko symboli hyvä ostokohde — karhu-kassavaran
+# trimmaus ja aikastoppi myyvät "riippumatta markkinan suunnasta", ja
+# loser_release on jo estetyn kohteen purkautuminen. Jos nämä lasketaan mukaan
+# symbolimuistiin, muutaman sentin pakkomyynnit karhuregiimissä leimaavat parhaatkin
+# symbolit (esim. ETH, kaikkien aikojen paras tuottaja) "krooniseksi häviäjäksi".
+SYMBOL_MEMORY_EXCLUDED_CATEGORIES = {"bear_cash_trim", "time_stop", "loser_release"}
+
+
 def compute_symbol_memory(
     portfolio: dict[str, Any],
     now: datetime | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Per-symboli: nettotulos, voitot/tappiot, ranking-säätö ja tappio-cooldown."""
+    """Per-symboli: nettotulos, voitot/tappiot, ranking-säätö ja tappio-cooldown.
+
+    Ei laske mukaan pakkomyyntejä (karhu-trimmaus, aikastoppi, häviäjän vapautus)
+    — ne kertovat salkun riskitasosta, eivät symbolin laadusta.
+    """
     now = now or datetime.now(timezone.utc)
     sells = [
-        t for t in portfolio.get("trades", []) if t.get("type") == "sell"
+        t
+        for t in portfolio.get("trades", [])
+        if t.get("type") == "sell"
+        and _category(t.get("reason", "")) not in SYMBOL_MEMORY_EXCLUDED_CATEGORIES
     ][:SYMBOL_MEMORY_WINDOW]
 
     agg: dict[str, dict[str, Any]] = {}
