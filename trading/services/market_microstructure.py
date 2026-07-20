@@ -311,9 +311,10 @@ def _score_and_block(analysis: dict[str, Any], regime: str) -> None:
             else:
                 reasons.append(f"Crowd short {pct:.0f} %")
 
-        if regime == "bear" and long_ratio >= CROWD_LONG_RATIO:
+        if regime in ("bear", "neutral") and long_ratio >= CROWD_LONG_RATIO:
             blocked = True
-            reasons.append(f"Bear + crowd long {pct:.0f} % — osto estetty")
+            regime_label = "Bear" if regime == "bear" else "Neutraali"
+            reasons.append(f"{regime_label} + crowd long {pct:.0f} % — osto estetty")
 
     flow = analysis.get("flowImbalance")
     if flow is not None:

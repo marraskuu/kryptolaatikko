@@ -57,6 +57,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Symbol memory: forced exits excluded from block/ranking calculation",
                 "body_en": "Bear cash-reserve trims, time-stops, and loser releases are portfolio risk management, not a signal about a symbol's quality — but they were still counted in the per-symbol win/loss memory, so a handful of cent-sized forced sells during a bear regime could brand an otherwise good symbol a chronic loser. These three categories are now excluded from the symbol memory's net and block calculation — tested against production data, the split sharpened noticeably in both directions (one symbol went from a hidden breakeven result to the memory's best performer).",
             },
+            {
+                "title": "Osto estetty myös neutraalissa regiimissä kun crowd on jo pitkänä",
+                "body": "Karhuregiimissä on jo aiemmin estetty ostot kun positiomuistin mukaan enemmistö on jo pitkänä (crowd long ≥ 85 %) — data näytti saman ilmiön yhtä selvänä myös neutraalissa regiimissä (122 kauppaa, netto −34,63 €), kun taas bull-regiimissä sama tilanne on ollut kannattava (156 kauppaa, netto +33,68 €) eikä sitä siksi rajoiteta. Esto laajennettiin koskemaan neutraalia regiimiä bullia koskematta.",
+                "title_en": "Buys now blocked in neutral regime too when crowd is already long",
+                "body_en": "Buys have already been blocked in a bear regime when positioning data shows the crowd is already long (≥85%) — the data showed the same pattern just as clearly in the neutral regime (122 trades, net −€34.63), whereas the same setup has been profitable in a bull regime (156 trades, net +€33.68) and is therefore left untouched. The block now extends to the neutral regime without touching bull.",
+            },
         ],
     },
     {
