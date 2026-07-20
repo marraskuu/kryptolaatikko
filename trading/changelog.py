@@ -19,6 +19,41 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-20",
+        "entries": [
+            {
+                "title": "Vero verovuoden nettotuloksesta, ei bruttovoitoista",
+                "body": "Vero laskettiin aiemmin jokaisesta voitollisesta myynnistä erikseen nettouttamatta saman vuoden tappioita. Nyt vero lasketaan nettoluovutusvoitosta, ja käyttämätön tappio siirtyy vähennettäväksi seuraavien 5 vuoden voitoista (TVL) — myös ladattava Excel-veroraportti korjattu vastaavasti.",
+                "title_en": "Tax on the tax year's net result, not gross wins",
+                "body_en": "Tax was previously calculated per winning sale without netting the same year's losses. Tax is now calculated on net capital gains, with unused losses carried forward against the next 5 years' gains — the downloadable Excel tax report was fixed to match.",
+            },
+            {
+                "title": "Myyntisyiden kategorisointi: kolme uutta ryhmää “other”-korista",
+                "body": "Karhu-kassavaran trimmaukset, häviäjän vapautukset ja huonon asetelman myynnit erottuvat nyt omiksi kategorioikseen oppimisessa ja raporteissa sen sijaan että niputtuisivat yhteen “other”-koriin (aiemmin suurin häviäjäryhmä, win rate 16 %).",
+                "title_en": "Exit reason categories: three new groups split out of “other”",
+                "body_en": "Bear cash-reserve trims, loser releases, and bad-setup exits now show up as their own categories in learning and reports instead of being lumped into “other” (previously the biggest losing group, 16% win rate).",
+            },
+            {
+                "title": "Gemini-luottamus: kova esto tappiollisille tasoille",
+                "body": "Lievästi tappiollinen luottamustaso esti aiemmin vain puolella ostokoolla — nyt mikä tahansa negatiivinen odotusarvo estää oston kokonaan, ei vain hidasta tappiota.",
+                "title_en": "Gemini confidence: hard block for losing levels",
+                "body_en": "A mildly losing confidence level previously only halved the buy size — now any negative expected value blocks the buy entirely instead of just slowing the loss.",
+            },
+            {
+                "title": "Symbolimuisti: pysyvä nettotappio estää myös uudet ostot",
+                "body": "Esto koski aiemmin vain nopeaa myyntiä olemassa olevalle positiolle — sama kynnys (score ≤ −2.0) estää nyt myös uuden oston, kunnes symbolin nettotulos kääntyy positiiviseksi.",
+                "title_en": "Symbol memory: persistent net loss blocks new buys too",
+                "body_en": "The block previously only forced a fast exit on an existing position — the same threshold (score ≤ −2.0) now also blocks new buys until the symbol's net result turns positive.",
+            },
+            {
+                "title": "Karhu-jäädytys: kapea poikkeus parhaalle opitulle asetelmalle",
+                "body": "Varjo-oppimisen paras löydetty asetelma on ollut nimenomaan karhuregiimissä (+3,19 % / 1h), mutta jäädytys esti sen toteutumisen kokonaan. Osto sallitaan nyt kun opittu signaali on vahvasti positiivinen.",
+                "title_en": "Bear freeze: narrow exception for the best learned setup",
+                "body_en": "Shadow learning's best-found setup has specifically been in a bear regime (+3.19% / 1h), but the freeze blocked it entirely. Buys are now allowed when the learned signal is strongly positive.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-18",
         "entries": [
             {
