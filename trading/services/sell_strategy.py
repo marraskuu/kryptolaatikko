@@ -65,6 +65,7 @@ def default_watch_state() -> dict[str, Any]:
         "prevPrice": 0.0,
         "armed": False,
         "tier1Taken": False,
+        "skipPartialActive": False,
     }
 
 
@@ -329,6 +330,7 @@ def update_profit_sell(
         ),
     )
     skip_partial = bool(partial_policy.get("skip_partial"))
+    state["skipPartialActive"] = False
 
     if (
         cfg.get("partial_enabled", True)
@@ -369,19 +371,12 @@ def update_profit_sell(
             "exitSignals": partial_signals,
         }
 
-    # ≥4 h + fade: merkitse tier1Taken heti (sama kynnys kuin skip_partial),
-    # jotta Gemini-osamyynti ei pääse väliin ennen trailingia.
-    if skip_partial and not state.get("tier1Taken"):
-        state["tier1Taken"] = True
-        for sig in partial_policy.get("signals") or []:
-            if sig not in early_signals:
-                early_signals.append(sig)
-
     if profit_pct < trigger_pct:
         if state["active"] and not state["armed"]:
             tier1_taken = state.get("tier1Taken", False)
             state = default_watch_state()
             state["tier1Taken"] = tier1_taken
+        state["skipPartialActive"] = skip_partial
         state["prevPrice"] = current_price
         states[symbol] = state
         return {
@@ -393,6 +388,17 @@ def update_profit_sell(
             "state": state,
             "secondsLeft": 0,
         }
+
+    # ≥4 h + fade: tier 1 is intentionally skipped only once full-position
+    # trailing has reached its trigger. Below trigger we only use a temporary
+    # skipPartialActive guard so a transient fade cannot permanently suppress
+    # later partial/Gemini profit taking.
+    if skip_partial and not state.get("tier1Taken"):
+        state["tier1Taken"] = True
+        state["skipPartialActive"] = True
+        for sig in partial_policy.get("signals") or []:
+            if sig not in early_signals:
+                early_signals.append(sig)
 
     if not state["active"]:
         state["active"] = True

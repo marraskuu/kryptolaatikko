@@ -2,6 +2,7 @@
 
 from django.test import SimpleTestCase
 
+from trading.services.ai_trader import _gemini_partial_block_reason
 from trading.services.sell_strategy import (
     LONG_HOLD_EARLY_TRIGGER_MULT,
     LONG_HOLD_STRICT_TRIGGER_MULT,
@@ -145,8 +146,8 @@ class LongHoldPartialTakeTests(SimpleTestCase):
             or watches["tXMRUSD"].get("tier1Taken")
         )
 
-    def test_skip_partial_sets_tier1_taken_below_partial_trigger(self):
-        """Gemini-osamyynti lukitaan heti kun ≥4 h skip on aktiivinen (~1 %)."""
+    def test_skip_partial_below_trigger_does_not_poison_later_partial(self):
+        """Below trigger Gemini is guarded, but tier1 is not marked as done."""
         watches: dict = {}
         result = update_profit_sell(
             watches,
@@ -159,8 +160,24 @@ class LongHoldPartialTakeTests(SimpleTestCase):
             hold_age_hours=5.0,
         )
         self.assertNotEqual(result["status"], "tier1")
-        self.assertTrue(watches["tXMRUSD"].get("tier1Taken"))
+        self.assertFalse(watches["tXMRUSD"].get("tier1Taken"))
+        self.assertTrue(watches["tXMRUSD"].get("skipPartialActive"))
         self.assertAlmostEqual(result["profitPct"], 1.0, places=1)
+
+        recovered = update_profit_sell(
+            watches,
+            "tXMRUSD",
+            current_price=103.0,
+            avg_price=100.0,
+            now_ms=3_560_000,
+            atr_pct=None,
+            analysis={"change1hPct": 0.4, "flowBucket": "fl+"},
+            hold_age_hours=5.0,
+        )
+        self.assertEqual(recovered["status"], "tier1")
+        self.assertTrue(recovered["shouldSell"])
+        self.assertTrue(watches["tXMRUSD"].get("tier1Taken"))
+        self.assertFalse(watches["tXMRUSD"].get("skipPartialActive"))
 
     def test_normal_partial_unchanged_without_fade(self):
         watches: dict = {}
@@ -177,3 +194,20 @@ class LongHoldPartialTakeTests(SimpleTestCase):
         self.assertEqual(result["status"], "tier1")
         self.assertAlmostEqual(result["sellFraction"], 0.30, places=2)
         self.assertFalse(watches["tBTCUSD"]["armed"])
+
+
+class GeminiPartialBlockReasonTests(SimpleTestCase):
+    def test_skip_partial_active_uses_temporary_block_reason(self):
+        reason = _gemini_partial_block_reason(
+            "tXMRUSD",
+            {"tXMRUSD": {"skipPartialActive": True}},
+        )
+        self.assertIn("pitkä pito", reason)
+        self.assertNotIn("porras 1 jo tehty", reason)
+
+    def test_tier1_taken_still_blocks_as_completed_partial(self):
+        reason = _gemini_partial_block_reason(
+            "tXMRUSD",
+            {"tXMRUSD": {"tier1Taken": True}},
+        )
+        self.assertIn("porras 1 jo tehty", reason)
