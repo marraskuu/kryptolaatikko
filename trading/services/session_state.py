@@ -192,6 +192,7 @@ def build_api_payload(state: dict[str, Any]) -> dict[str, Any]:
             "taxPreviousYearLabel": tax["previousYear"],
             "taxPreviousYearRealized": tax["previousYearRealized"],
             "estimatedTax": tax["estimatedTax"],
+            "taxLossCarryforward": tax["lossCarryforward"],
             "realizedBreakdown": realized,
         },
         "marketCount": len(tickers),

@@ -63,6 +63,21 @@ def _category(reason: str) -> str:
         return "profit_take"
     if "gemini" in r:
         return "gemini_sell"
+    if "karhu-kassavara" in r:
+        return "bear_cash_trim"
+    # Symboli/kohde jo merkitty huonoksi (krooninen, cooldown, tunnettu häviäjä,
+    # estetty kohde vapautuu) — aiemmin nämä putosivat kaikki "other"-koriin
+    # yhdessä setup- ja karhu-trimmauksen kanssa, mikä peitti niiden oman
+    # expectancyn (ks. muutosloki: other oli suurin häviäjäryhmä, win rate 16 %).
+    if (
+        "krooninen häviäjä" in r
+        or "cooldownissa" in r
+        or "tunnettu häviäjä" in r
+        or "estetty kohde" in r
+    ):
+        return "loser_release"
+    if "markkina-asetelma" in r or "oma asetelma" in r:
+        return "setup_exit"
     if (
         "siirret" in r
         or "ei valinnoissa" in r

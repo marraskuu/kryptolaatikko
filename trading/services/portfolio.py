@@ -281,25 +281,41 @@ class Portfolio:
             by_year[year] = by_year.get(year, 0.0) + float(t.get("profitLoss") or 0.0)
         return by_year
 
-    def _sell_tax_by_year(self) -> dict[int, float]:
-        """30 % vero voitollisista myynneistä per vuosi (tappiot eivät vähennä tätä arviota).
+    def tax_owed_by_year(self) -> dict[int, float]:
+        """30 % vero vuoden NETTOluovutusvoitosta, tappioiden 5 v siirto-oikeudella.
 
-        Jokaisesta voitollisesta myynnistä kirjataan tax myyntihetkellä. Veroa ei
-        vähennetä salkusta — tämä on ilmoitusvelvollisuuden arvio.
+        Suomen verotuksessa (TVL, ks. vero.fi/kryptovarojen-verotus) luovutustappiot
+        vähennetään ensin saman vuoden luovutusvoitoista; ylijäävä tappio siirtyy
+        vähennettäväksi seuraavien vuosien voitoista. Vuosi jossa nettotulos on
+        tappiollinen ei siis synnytä veroa, vaikka yksittäisiä voitollisia myyntejä
+        olisi ollut sen sisällä. Veroa ei vähennetä salkusta — tämä on arvio
+        ilmoitusvelvollisuuden tueksi.
         """
-        by_year: dict[int, float] = {}
-        for t in self.trades:
-            if t.get("type") != "sell":
-                continue
-            year = _year_of(t.get("timestamp"))
-            if year is None:
-                continue
-            pl = float(t.get("profitLoss") or 0.0)
-            tax = float(t.get("tax") or 0.0)
-            if tax <= 0 and pl > 0.01:
-                tax = pl * TAX_RATE
-            by_year[year] = by_year.get(year, 0.0) + tax
-        return by_year
+        by_year = self.realized_profit_by_year()
+        tax_by_year: dict[int, float] = {}
+        carry = 0.0
+        for year in sorted(by_year):
+            net = by_year[year]
+            if net > 0:
+                usable_carry = min(carry, net)
+                carry -= usable_carry
+                tax_by_year[year] = (net - usable_carry) * TAX_RATE
+            else:
+                carry += -net
+                tax_by_year[year] = 0.0
+        return tax_by_year
+
+    def loss_carryforward(self) -> float:
+        """Käyttämätön luovutustappio, joka siirtyy vähennettäväksi tulevien vuosien voitoista."""
+        by_year = self.realized_profit_by_year()
+        carry = 0.0
+        for year in sorted(by_year):
+            net = by_year[year]
+            if net > 0:
+                carry = max(0.0, carry - net)
+            else:
+                carry += -net
+        return carry
 
     def _realized_gross_wins_by_year(self) -> dict[int, float]:
         """Voitolliset myynnit yhteensä (€) per kalenterivuosi."""
@@ -360,10 +376,11 @@ class Portfolio:
         """Verot myyntivoitoista kalenterivuosittain (1.1.–31.12.).
 
         Veroa ei vähennetä salkusta — tämä on arvio siitä, paljonko pääomatuloveroa
-        (30 %) on tulossa maksettavaksi voitollisista myynneistä kullekin vuodelle.
+        (30 %) on tulossa maksettavaksi vuoden NETTOluovutusvoitosta (voitot miinus
+        tappiot, tappioiden 5 v siirto-oikeudella — ks. tax_owed_by_year).
         """
         by_year = self.realized_profit_by_year()
-        tax_by_year = self._sell_tax_by_year()
+        tax_by_year = self.tax_owed_by_year()
         gross_wins_by_year = self._realized_gross_wins_by_year()
         current_year = datetime.now(timezone.utc).year
         previous_year = current_year - 1
@@ -391,4 +408,5 @@ class Portfolio:
             "estimatedTax": round(estimated_tax, 2),
             "unrealizedProfit": round(unrealized, 2),
             "totalTaxOwed": round(sum(tax_by_year.values()), 2),
+            "lossCarryforward": round(self.loss_carryforward(), 2),
         }

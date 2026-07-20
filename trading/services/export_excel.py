@@ -115,18 +115,35 @@ def build_tax_excel(portfolio_data: dict) -> tuple[BytesIO, str]:
 
     ws_summary = wb.create_sheet("Yhteenveto")
     total_profit = sum(_sell_profit_loss(t) for t in sells)
+    realized_by_year = portfolio.realized_profit_by_year()
+    tax_by_year = portfolio.tax_owed_by_year()
+
     ws_summary.append(["Raportin luontipäivä", _fmt_date(datetime.now(timezone.utc).isoformat())])
     ws_summary.append(["Ostoja (kpl)", len(buys)])
     ws_summary.append(["Myyntejä (kpl)", len(sells)])
-    ws_summary.append(["Voitot ja tappiot yhteensä (EUR)", _fmt_pnl(total_profit) or "0,00"])
-    ws_summary.append(
-        ["Vero myyntivoitoista 30 % (EUR, maksat itse)", round(portfolio.data["totalTaxPaid"], 2)]
-    )
+    ws_summary.append(["Voitot ja tappiot yhteensä, kaikki vuodet (EUR)", _fmt_pnl(total_profit) or "0,00"])
+    ws_summary.append(["", ""])
+    ws_summary.append(["Verovuosikohtainen erittely (pääomatulovero 30 %)", ""])
+    for year in sorted(realized_by_year):
+        net = realized_by_year[year]
+        ws_summary.append([f"{year} — nettoluovutusvoitto/-tappio (EUR)", _fmt_pnl(net) or "0,00"])
+        ws_summary.append(
+            [f"{year} — vero 30 % nettovoitosta (EUR, maksat itse)", round(tax_by_year.get(year, 0.0), 2)]
+        )
+    carry = portfolio.loss_carryforward()
+    if carry > 0.01:
+        ws_summary.append(["", ""])
+        ws_summary.append(
+            ["Käyttämätön luovutustappio, siirtyy vähennettäväksi seuraavien 5 v voitoista (EUR)", round(carry, 2)]
+        )
     ws_summary.append(["", ""])
     ws_summary.append(
         [
             "Huomautus",
-            "Simulaatio Bitfinex-kursseilla. Hinta = EUR/kpl (eurTotal ÷ kappalemäärä).",
+            "Simulaatio Bitfinex-kursseilla. Hinta = EUR/kpl (eurTotal ÷ kappalemäärä). "
+            "Vero lasketaan verovuoden NETTOluovutusvoitosta (voitot miinus tappiot) — "
+            "Suomen verotuksessa luovutustappiot vähennetään ensin saman vuoden voitoista "
+            "ja ylijäävä osa seuraavien 5 vuoden voitoista (ks. vero.fi/kryptovarojen-verotus).",
         ]
     )
 

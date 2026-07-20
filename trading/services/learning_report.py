@@ -419,6 +419,9 @@ def build_learning_report(
         ("gemini_sell", "Gemini-myynnit"),
         ("profit_take", "Voitto-otto"),
         ("stop_loss", "Stop-loss"),
+        ("loser_release", "Häviäjän vapautus"),
+        ("setup_exit", "Huono asetelma"),
+        ("bear_cash_trim", "Karhu-kassavara"),
     ):
         cat = stats.get(key) or {}
         n = int(cat.get("trades") or 0)

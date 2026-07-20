@@ -338,6 +338,8 @@ _REASON_PATTERNS: list[tuple[str, str]] = [
     (r"Voitto-otto:", "Profit-take:"),
     (r"\bVoitto-otto\b", "Profit-take"),
     (r"\bRotaatio\b", "Rotation"),
+    (r"Häviäjän vapautus", "Loser release"),
+    (r"\bHuono asetelma\b", "Bad setup"),
     (r"\bkpl\b", "pcs"),
     (r"Oppiminen kerää vielä kauppadataa", "Learning is still collecting trade data"),
     (r"Varjosalkku ([\d.]+) € vs\. live ([\d.]+) € \(ero ", r"Shadow portfolio \1 € vs live \2 € (diff "),

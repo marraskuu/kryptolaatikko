@@ -99,6 +99,9 @@ def _recommendations(
                 "gemini_sell": "Gemini-myynnit",
                 "profit_take": "Voitto-otto",
                 "stop_loss": "Stop-loss",
+                "loser_release": "Häviäjän vapautus",
+                "setup_exit": "Huono asetelma",
+                "bear_cash_trim": "Karhu-kassavara",
                 "other": "Muut myynnit",
             }.get(cat, cat)
             recs.append(
@@ -253,6 +256,9 @@ def learning_report_lines(context: dict[str, Any]) -> list[str]:
         "gemini_sell": "Gemini",
         "profit_take": "Voitto-otto",
         "stop_loss": "Stop-loss",
+        "loser_release": "Häviäjän vapautus",
+        "setup_exit": "Huono asetelma",
+        "bear_cash_trim": "Karhu-kassavara",
         "other": "Muu",
     }
     if win_cats:
