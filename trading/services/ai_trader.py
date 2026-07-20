@@ -836,6 +836,30 @@ def _tier1_taken_for_symbol(
     return bool(isinstance(state, dict) and state.get("tier1Taken"))
 
 
+def _gemini_partial_block_reason(
+    symbol: str,
+    profit_watches: dict[str, Any] | None,
+) -> str:
+    if not profit_watches:
+        return ""
+    watch = profit_watches.get(symbol) or profit_watches.get(normalize_symbol(symbol))
+    if not watch:
+        return ""
+    state = watch.get("state")
+    nested = state if isinstance(state, dict) else {}
+    if watch.get("tier1Taken") or nested.get("tier1Taken"):
+        return (
+            "Gemini osittainen myynti ohitettu — "
+            "voitto-otto porras 1 jo tehty (trailing jatkuu)"
+        )
+    if watch.get("skipPartialActive") or nested.get("skipPartialActive"):
+        return (
+            "Gemini osittainen myynti ohitettu — pitkä pito ohittaa "
+            "porras 1:n ja odottaa koko position trailingia"
+        )
+    return ""
+
+
 def entry_regime_key(regime_info: dict[str, Any] | str) -> str:
     """Osto-/Gemini-sääntöihin (ennakoitu suunta)."""
     return anticipated_regime_key(regime_info)
@@ -3091,15 +3115,14 @@ def make_trading_decisions(
                             "analysis": analysis,
                         }
                     )
-                elif _tier1_taken_for_symbol(symbol, profit_watches):
+                elif gemini_partial_block_reason := _gemini_partial_block_reason(
+                    symbol, profit_watches
+                ):
                     decisions.append(
                         {
                             "type": "hold",
                             "symbol": symbol,
-                            "reason": (
-                                "Gemini osittainen myynti ohitettu — "
-                                "voitto-otto porras 1 jo tehty (trailing jatkuu)"
-                            ),
+                            "reason": gemini_partial_block_reason,
                             "analysis": analysis,
                         }
                     )

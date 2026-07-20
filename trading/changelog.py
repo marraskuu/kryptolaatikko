@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-20",
+        "entries": [
+            {
+                "title": "Korjaus: pitkä pito ei lukitse porras 1:tä liian aikaisin",
+                "body": "≥4 h + fade estää Gemini-osamyynnin vain kyseisellä kierroksella, kun trailing-kynnys ei ole vielä täyttynyt. Porras 1 merkitään ohitetuksi vasta kun koko position trailing aktivoituu.",
+                "title_en": "Fix: long hold no longer locks tier 1 too early",
+                "body_en": "≥4 h + fade blocks Gemini partial sells only for that cycle while the trailing trigger has not been reached. Tier 1 is marked skipped only once full-position trailing activates.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-18",
         "entries": [
             {
