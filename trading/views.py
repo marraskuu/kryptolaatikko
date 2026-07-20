@@ -439,20 +439,28 @@ def robots_txt(request):
 
 @require_GET
 def sitemap_xml(request):
-    """Julkinen sivusto — etusivu ja muutosloki."""
+    """Julkinen sivusto — etusivu ja muutosloki.
+
+    Etusivun lastmod = tänään (sisältö päivittyy jatkuvasti, live-data).
+    Muutosloki-sivujen lastmod = uusimman julkaistun muutoslokipäivän
+    päivämäärä — ei "tänään" joka pyynnöllä, koska sivu ei oikeasti muutu
+    joka päivä ja väärä lastmod heikentää hakukoneiden luottamusta signaaliin.
+    """
     base = _public_site_url(request)
-    lastmod = timezone.localdate().isoformat()
+    today = timezone.localdate().isoformat()
+    changelog_entries = changelog_days_localized("fi")
+    changelog_lastmod = changelog_entries[0]["date"] if changelog_entries else today
     urls = [
-        (f"{base}/", "daily", "1.0"),
-        (f"{base}/eng/", "daily", "0.9"),
-        (f"{base}/muutokset/", "weekly", "0.6"),
-        (f"{base}/changelog/", "weekly", "0.6"),
+        (f"{base}/", "daily", "1.0", today),
+        (f"{base}/eng/", "daily", "0.9", today),
+        (f"{base}/muutokset/", "weekly", "0.6", changelog_lastmod),
+        (f"{base}/changelog/", "weekly", "0.6", changelog_lastmod),
     ]
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>\n',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n',
     ]
-    for loc, freq, priority in urls:
+    for loc, freq, priority, lastmod in urls:
         parts.append("  <url>\n")
         parts.append(f"    <loc>{loc}</loc>\n")
         parts.append(f"    <lastmod>{lastmod}</lastmod>\n")

@@ -7,6 +7,8 @@
   {% if visit_id %}<meta name="visit-id" content="{{ visit_id }}" />{% endif %}
   <title>{{ ui.title }}</title>
   <meta name="description" content="{{ ui.description }}" />
+  <link rel="icon" type="image/svg+xml" href="{% static 'trading/img/favicon.svg' %}" />
+  <link rel="apple-touch-icon" href="{% static 'trading/img/favicon.svg' %}" />
   <link rel="canonical" href="{{ canonical_url }}" />
   <link rel="alternate" hreflang="fi" href="{{ alternate_fi }}" />
   <link rel="alternate" hreflang="en" href="{{ alternate_en }}" />

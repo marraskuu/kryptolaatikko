@@ -2,6 +2,8 @@
 
 from django.test import Client, TestCase
 
+from trading.changelog import changelog_days
+
 
 class MuutoksetPageTests(TestCase):
     def setUp(self):
@@ -42,3 +44,15 @@ class MuutoksetPageTests(TestCase):
         self.assertContains(response, "/muutokset/")
         self.assertContains(response, "/changelog/")
         self.assertContains(response, "/eng/")
+
+    def test_sitemap_changelog_lastmod_matches_newest_entry(self):
+        """Muutosloki-sivujen lastmod ei ole aina "tänään", vaan uusin julkaistu päivä."""
+        newest_date = changelog_days()[0]["date"]
+        response = self.client.get("/sitemap.xml")
+        body = response.content.decode("utf-8")
+        self.assertIn(f"<lastmod>{newest_date}</lastmod>", body)
+
+    def test_pages_have_favicon_link(self):
+        for path in ("/", "/eng/", "/muutokset/", "/changelog/"):
+            response = self.client.get(path)
+            self.assertContains(response, "favicon.svg", msg_prefix=f"path={path}")
