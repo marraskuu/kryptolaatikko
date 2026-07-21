@@ -515,13 +515,13 @@ def fetch_position_sizes(symbol: str) -> dict[str, Any] | None:
     if long_val is None and short_val is None:
         return None
 
-    long_size = max(0.0, float(long_val or 0))
-    short_size = max(0.0, float(short_val or 0))
-    total = long_size + short_size
-    long_ratio = (long_size / total) if total > 0 else None
+    long_size = max(0.0, float(long_val)) if long_val is not None else None
+    short_size = max(0.0, float(short_val)) if short_val is not None else None
+    total = (long_size + short_size) if long_size is not None and short_size is not None else 0
+    long_ratio = (long_size / total) if total > 0 and long_size is not None else None
     return {
-        "positionLong": round(long_size, 4),
-        "positionShort": round(short_size, 4),
+        "positionLong": round(long_size, 4) if long_size is not None else None,
+        "positionShort": round(short_size, 4) if short_size is not None else None,
         "longShortRatio": round(long_ratio, 4) if long_ratio is not None else None,
     }
 

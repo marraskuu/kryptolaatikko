@@ -19,6 +19,23 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-21",
+        "entries": [
+            {
+                "title": "Korjaus: puuttuva Bitfinex crowd -puoli ei enää näytä 100 % pitkältä",
+                "body": "Jos Bitfinex palauttaa vain long- tai short-positiotiedon, botti jättää crowd-suhteen tuntemattomaksi eikä estä neutraalin/karhun ostoja virheellisen 100 % long -lukeman perusteella.",
+                "title_en": "Fix: missing Bitfinex crowd side no longer looks 100% long",
+                "body_en": "If Bitfinex returns only the long or short positioning side, the bot now leaves the crowd ratio unknown instead of blocking neutral/bear buys from a false 100% long reading.",
+            },
+            {
+                "title": "Korjaus: pakkomyynnit vanhentavat vanhat symbolitappiot ikkunasta",
+                "body": "Karhu-trimmit, aikastopit ja häviäjän vapautukset eivät edelleenkään pisteytä symbolia, mutta ne kuluttavat 60 myynnin muistia normaalisti — vanhat tappiot eivät jää estämään ostoa pysyvästi.",
+                "title_en": "Fix: forced exits age old symbol losses out of memory",
+                "body_en": "Bear trims, time-stops and loser releases still do not score the symbol, but they now consume the 60-sell memory window normally so old losses cannot keep blocking buys indefinitely.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-20",
         "entries": [
             {

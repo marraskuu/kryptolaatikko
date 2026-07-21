@@ -126,12 +126,14 @@ def compute_symbol_memory(
     — ne kertovat salkun riskitasosta, eivät symbolin laadusta.
     """
     now = now or datetime.now(timezone.utc)
+    recent_sells = [
+        t for t in portfolio.get("trades", []) if t.get("type") == "sell"
+    ][:SYMBOL_MEMORY_WINDOW]
     sells = [
         t
-        for t in portfolio.get("trades", [])
-        if t.get("type") == "sell"
-        and _category(t.get("reason", "")) not in SYMBOL_MEMORY_EXCLUDED_CATEGORIES
-    ][:SYMBOL_MEMORY_WINDOW]
+        for t in recent_sells
+        if _category(t.get("reason", "")) not in SYMBOL_MEMORY_EXCLUDED_CATEGORIES
+    ]
 
     agg: dict[str, dict[str, Any]] = {}
     for t in sells:

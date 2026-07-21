@@ -1,10 +1,12 @@
 """Microstructure fail-closed — ostoja ei sallita kun enrich puuttuu."""
 
+import requests
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from trading.services.ai_trader import _is_buy_blocked, enrich_analyses_for_gemini
+from trading.services.bitfinex import fetch_position_sizes
 from trading.services.engine import _refresh_analyses
 from trading.services.market_microstructure import blocks_entry, carry_micro_fields, enrich_analyses
 from trading.services.session_state import default_state
@@ -129,3 +131,40 @@ class MicrostructureGateTests(SimpleTestCase):
                 analyses[sym].get("microChecked"),
                 f"{sym} missing microChecked",
             )
+
+    @patch.dict("os.environ", {"MICROSTRUCTURE_STATS_PAUSE_SEC": "0"})
+    @patch("trading.services.bitfinex._bitfinex_fetch")
+    def test_partial_position_stats_keep_crowd_ratio_unknown(self, mock_fetch):
+        """Yhden puolen stats-katkos ei saa muuttua 100 % crowd long -estoksi."""
+        response = requests.Response()
+        response.status_code = 429
+        missing_short = requests.HTTPError(response=response)
+        mock_fetch.side_effect = [[0, 100.0], missing_short]
+
+        stats = fetch_position_sizes("tBTCUSD")
+
+        self.assertEqual(stats["positionLong"], 100.0)
+        self.assertIsNone(stats["positionShort"])
+        self.assertIsNone(stats["longShortRatio"])
+
+    @patch("trading.services.market_microstructure.BOOK_REQ_PAUSE_SEC", 0)
+    @patch(
+        "trading.services.market_microstructure._cached_position_stats",
+        return_value={"positionLong": 100.0, "positionShort": None, "longShortRatio": None},
+    )
+    @patch("trading.services.market_microstructure.fetch_trades_hist", return_value=[])
+    @patch("trading.services.market_microstructure.fetch_order_book", return_value=[])
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_neutral_enrich_does_not_block_on_partial_crowd_stats(
+        self,
+        _mock_book,
+        _mock_trades,
+        _mock_stats,
+    ):
+        tickers = {"tBTCUSD": {"last": 100.0, "volumeEur": 1_000_000.0, "changePct": 1.0}}
+        analyses = {"tBTCUSD": _buy_analysis(score=8)}
+
+        enrich_analyses(tickers, analyses, {"holdings": {}, "cash": 1000, "trades": []}, "neutral")
+
+        self.assertTrue(analyses["tBTCUSD"]["microChecked"])
+        self.assertFalse(analyses["tBTCUSD"]["microBlocked"])
