@@ -9,7 +9,7 @@ from trading.services.ai_trader import (
     _entry_ok,
     make_trading_decisions,
 )
-from trading.services.learning import compute_tuning
+from trading.services.learning import SYMBOL_MEMORY_WINDOW, compute_symbol_memory, compute_tuning
 from trading.services.portfolio import default_portfolio
 
 _MICRO_OK = {"microChecked": True, "microBlocked": False}
@@ -224,3 +224,32 @@ class SymbolMemoryNetPositiveTests(SimpleTestCase):
             tuning = compute_tuning(portfolio)
         blocked = set(tuning.get("blocked_buys") or [])
         self.assertIn("tHYPEUST", blocked)
+
+    def test_excluded_sells_still_age_old_losses_out_of_window(self):
+        """Pakkomyynnit eivät pisteytä symbolia, mutta ne kuluttavat 60 myynnin ikkunaa."""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        portfolio = default_portfolio()
+        portfolio["trades"] = [
+            {
+                "type": "sell",
+                "symbol": "tETHUSD",
+                "profitLoss": -0.05,
+                "reason": "Aikastoppi ≥4 h — jämähtänyt (-0.3 %), myydään riippumatta noususta",
+                "timestamp": (now - timedelta(minutes=i)).isoformat(),
+            }
+            for i in range(SYMBOL_MEMORY_WINDOW)
+        ] + [
+            {
+                "type": "sell",
+                "symbol": "tETHUSD",
+                "profitLoss": -4.0,
+                "timestamp": (now - timedelta(days=5, minutes=i)).isoformat(),
+            }
+            for i in range(3)
+        ]
+
+        memory = compute_symbol_memory(portfolio, now=now)
+
+        self.assertNotIn("tETHUSD", memory)
