@@ -35,10 +35,11 @@ GEMINI_RETRY_BACKOFF_SEC = 1.5
 
 
 # Halvin oletus — lite-malli riittää, kun tekninen analyysi tekee raskaan työn
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 # Tuettuja malleja — halvin ensin, ei vanhentuneita (esim. gemini-2.0-flash)
 SUPPORTED_GEMINI_MODELS = (
+    "gemini-3.5-flash-lite",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
     "gemini-3.5-flash",

@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-22",
+        "entries": [
+            {
+                "title": "Gemini 3.5 Flash Lite oletusmallina",
+                "body": "AI-analyysi ja oppimiskertomus käyttävät nyt gemini-3.5-flash-lite -mallia (aiemmin 2.5 Flash Lite).",
+                "title_en": "Gemini 3.5 Flash Lite as default model",
+                "body_en": "AI analysis and the learning narrative now use the gemini-3.5-flash-lite model (previously 2.5 Flash Lite).",
+            },
+        ],
+    },
+    {
         "date": "2026-07-20",
         "entries": [
             {
