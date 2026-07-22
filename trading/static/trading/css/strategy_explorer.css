@@ -1,0 +1,227 @@
+.explorer-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.explorer-panel[hidden] {
+  display: none;
+}
+
+.explorer-panel .panel-header {
+  padding: 0 0 4px;
+  border-bottom: none;
+}
+
+.explorer-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.explorer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.explorer-field label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.explorer-field input {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.explorer-symbol-input {
+  width: 8rem;
+  text-transform: uppercase;
+}
+
+.explorer-run-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.explorer-run-btn:hover {
+  filter: brightness(1.1);
+}
+
+.explorer-run-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.explorer-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.explorer-preset-btn {
+  background: var(--surface2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.explorer-preset-btn:hover,
+.explorer-preset-btn:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.explorer-disclaimer {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.6;
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.explorer-status {
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.explorer-status.is-error {
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.explorer-summary .stat-card .stat-value.positive { color: var(--green); }
+.explorer-summary .stat-card .stat-value.negative { color: var(--red); }
+
+.explorer-chart-wrap {
+  position: relative;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.explorer-chart {
+  width: 100%;
+  height: 260px;
+  display: block;
+  overflow: visible;
+}
+
+.explorer-chart .explorer-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.explorer-chart .explorer-axis-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.explorer-chart .explorer-area {
+  fill: var(--accent);
+  fill-opacity: 0.1;
+}
+
+.explorer-chart .explorer-area.positive { fill: var(--green); }
+.explorer-chart .explorer-area.negative { fill: var(--red); }
+
+.explorer-chart .explorer-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.explorer-chart .explorer-line.positive { stroke: var(--green); }
+.explorer-chart .explorer-line.negative { stroke: var(--red); }
+
+.explorer-chart .explorer-end-dot {
+  stroke: var(--surface2);
+  stroke-width: 2;
+}
+
+.explorer-chart .explorer-end-dot.positive { color: var(--green); }
+.explorer-chart .explorer-end-dot.negative { color: var(--red); }
+
+.explorer-chart .explorer-crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+  pointer-events: none;
+  display: none;
+}
+
+.explorer-chart .explorer-hover-dot {
+  fill: var(--text);
+  stroke: var(--surface2);
+  stroke-width: 2;
+  pointer-events: none;
+  display: none;
+}
+
+.explorer-chart-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.explorer-tooltip {
+  position: absolute;
+  top: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--text);
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.explorer-tooltip strong {
+  font-size: 0.9rem;
+}
+
+.explorer-table-wrap {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.explorer-table-wrap .positive { color: var(--green); }
+.explorer-table-wrap .negative { color: var(--red); }
+
+.explorer-empty-row td {
+  color: var(--muted);
+  text-align: center;
+  padding: 20px 8px;
+}

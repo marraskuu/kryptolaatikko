@@ -21,8 +21,18 @@ urlpatterns = [
     path("stats/logout/", views.stats_logout, name="stats_logout"),
     path("stats", views.stats_page, name="stats"),
     path("stats/", views.stats_page, name="stats_slash"),
+    path(
+        "strategy-explorer/",
+        views.strategy_explorer_page,
+        name="strategy_explorer",
+    ),
     path("api/health/", views.api_health, name="api_health"),
     path("api/state/", views.api_state, name="api_state"),
+    path(
+        "api/strategy-explorer/",
+        views.api_strategy_explorer,
+        name="api_strategy_explorer",
+    ),
     path("api/visit-record/", views.api_visit_record, name="api_visit_record"),
     path("api/visit-duration/", views.api_visit_duration, name="api_visit_duration"),
     path("api/share-click/", views.api_share_click, name="api_share_click"),

@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import logging
 import os
@@ -6,6 +7,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
@@ -20,6 +22,11 @@ from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
 from .services.state_store import load_state
+from .services.strategy_explorer import (
+    EXPLORER_MAX_DAYS,
+    normalize_base_symbol,
+    run_explorer_backtest,
+)
 from .services.visitor_analytics import (
     _client_ip,
     mark_stats_tracking_pause,
@@ -449,6 +456,7 @@ def robots_txt(request):
         "Disallow: /stats/",
         "Disallow: /api/",
         "Disallow: /admin/",
+        "Disallow: /strategy-explorer/",
         "",
         f"Sitemap: {base}/sitemap.xml",
     ]
@@ -633,3 +641,69 @@ def stats_page(request):
     response = render(request, "trading/stats.html", context)
     response["Cache-Control"] = "no-store"
     return mark_stats_tracking_pause(response)
+
+
+@require_GET
+def strategy_explorer_page(request):
+    """
+    Piilosivu (ei linkitetty navigaatiosta): valitse krypto ja aikaväli, aja
+    botin oikea osto/myynti-logiikka historiaan. Ks. services/strategy_explorer.py.
+    """
+    return render(
+        request,
+        "trading/strategy_explorer.html",
+        {"app_build": getattr(settings, "APP_BUILD", "dev")},
+    )
+
+
+@require_GET
+def api_strategy_explorer(request):
+    """
+    GET /api/strategy-explorer/?symbol=BTC&start=2026-01-01&end=2026-03-01
+
+    Ajaa yhden kryptoparin backtestin annetulle aikavälille. Tulokset
+    välimuistissa tunnin ajan symbol+aikaväli-yhdistelmää kohti, jotta
+    Bitfinexiä ei rummuteta samoilla hauilla.
+    """
+    client_ip = _client_ip(request) or "unknown"
+    if rate_limit_exceeded("strategy-explorer", client_ip, limit=10, window_sec=60):
+        return JsonResponse({"error": "rate_limit"}, status=429)
+
+    symbol = (request.GET.get("symbol") or "").strip()
+    start_str = (request.GET.get("start") or "").strip()
+    end_str = (request.GET.get("end") or "").strip()
+    if not symbol or not start_str or not end_str:
+        return JsonResponse({"error": "missing_params"}, status=400)
+
+    try:
+        start_date = dt.datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
+        end_date = dt.datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return JsonResponse({"error": "bad_date"}, status=400)
+
+    if end_date <= start_date:
+        return JsonResponse({"error": "range_order"}, status=400)
+    if (end_date - start_date).days > EXPLORER_MAX_DAYS:
+        return JsonResponse(
+            {"error": "range_too_long", "maxDays": EXPLORER_MAX_DAYS}, status=400
+        )
+
+    start_ms = int(start_date.timestamp() * 1000)
+    end_ms = int(end_date.timestamp() * 1000) + 24 * 3600 * 1000
+
+    cache_key = f"explorer:{normalize_base_symbol(symbol)}:{start_str}:{end_str}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    try:
+        result = run_explorer_backtest(symbol, start_ms, end_ms)
+    except Exception:
+        logger.exception("Strategy explorer backtest epäonnistui")
+        return JsonResponse({"error": "internal_error"}, status=500)
+
+    if "error" in result:
+        return JsonResponse(result, status=400)
+
+    cache.set(cache_key, result, 3600)
+    return JsonResponse(result)

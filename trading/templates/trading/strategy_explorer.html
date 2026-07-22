@@ -1,0 +1,123 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Strategy Explorer — hiekkalaatikko.pro</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'trading/img/favicon.svg' %}" />
+  <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
+  <link rel="stylesheet" href="{% static 'trading/css/strategy_explorer.css' %}" />
+</head>
+<body>
+  <div class="app stats-page">
+    <header class="header">
+      <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="11" y="27" width="6" height="9" rx="1.6" fill="#ffffff" fill-opacity="0.92"/>
+          <rect x="21" y="21" width="6" height="15" rx="1.6" fill="#ffffff" fill-opacity="0.92"/>
+          <rect x="31" y="15" width="6" height="21" rx="1.6" fill="#ffffff" fill-opacity="0.92"/>
+          <path d="M14 27 L24 21 L34 15 L40 9" fill="none" stroke="#4ade80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M34 9 L40 9 L40 15" fill="none" stroke="#4ade80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="header-body">
+        <div class="header-title-row">
+          <h1>Strategy Explorer</h1>
+          <div class="stats-header-actions">
+            <a class="stats-back-link" href="/" rel="nofollow noopener">← Etusivu</a>
+          </div>
+        </div>
+        <p class="subtitle">Valitse krypto ja aikaväli — aja botin oikea osto- ja myyntilogiikka historiaan</p>
+      </div>
+    </header>
+
+    <section class="panel explorer-panel">
+      <div class="panel-header">
+        <h2>Backtest</h2>
+      </div>
+      <div class="explorer-form">
+        <div class="explorer-field">
+          <label for="explorer-symbol">Krypto</label>
+          <input
+            type="text"
+            id="explorer-symbol"
+            class="explorer-symbol-input"
+            placeholder="esim. BTC"
+            value="BTC"
+            autocomplete="off"
+            autocapitalize="characters"
+            maxlength="12"
+          />
+        </div>
+        <div class="explorer-field">
+          <label for="explorer-start">Alkaen</label>
+          <input type="date" id="explorer-start" />
+        </div>
+        <div class="explorer-field">
+          <label for="explorer-end">Päättyen</label>
+          <input type="date" id="explorer-end" />
+        </div>
+        <div class="explorer-field explorer-field-run">
+          <label>&nbsp;</label>
+          <button type="button" id="explorer-run" class="explorer-run-btn">Aja backtest</button>
+        </div>
+      </div>
+      <div class="explorer-presets" role="group" aria-label="Pikavalinnat aikavälille">
+        <button type="button" class="explorer-preset-btn" data-days="30">Viim. 30 pv</button>
+        <button type="button" class="explorer-preset-btn" data-days="90">Viim. 90 pv</button>
+        <button type="button" class="explorer-preset-btn" data-days="180">Viim. 180 pv</button>
+        <button type="button" class="explorer-preset-btn" data-days="365">Viim. 365 pv</button>
+      </div>
+      <p class="explorer-disclaimer">
+        Yksinkertaistettu simulaatio: yksi krypto ja yksi positio kerrallaan, sama osto-pisteytys
+        (tekninen analyysi) ja sama voitto-myynti/stop-loss-logiikka kuin live-botilla. Oikea botti
+        hajauttaa kymmeniin pareihin, voi pitää useita positioita yhtä aikaa ja käyttää myös
+        Gemini AI:ta — tämä työkalu ei simuloi kumpaakaan.
+      </p>
+    </section>
+
+    <div class="explorer-status" id="explorer-status" hidden></div>
+
+    <section class="panel explorer-panel" id="explorer-results" hidden>
+      <div class="panel-header">
+        <h2 id="explorer-results-title">Tulos</h2>
+      </div>
+      <div class="stats-row" id="explorer-summary"></div>
+      <div class="explorer-chart-wrap">
+        <svg
+          id="explorer-chart"
+          class="explorer-chart"
+          viewBox="0 0 960 320"
+          preserveAspectRatio="none"
+          aria-label="Salkun arvon kehitys backtestissä"
+        ></svg>
+        <div class="explorer-tooltip" id="explorer-tooltip" hidden></div>
+      </div>
+      <div class="portfolio-table-wrap explorer-table-wrap">
+        <table class="portfolio-table">
+          <thead>
+            <tr>
+              <th>Osto</th>
+              <th>Osto-hinta</th>
+              <th>Myynti</th>
+              <th>Myynti-hinta</th>
+              <th>Tuotto</th>
+              <th>€</th>
+              <th>Syy</th>
+            </tr>
+          </thead>
+          <tbody id="explorer-trades-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="site-seo-footer">
+      <p><a href="/">← Krypto Simulaattori</a></p>
+    </footer>
+  </div>
+
+  <script src="{% static 'trading/js/strategy_explorer.js' %}"></script>
+</body>
+</html>
