@@ -34,7 +34,8 @@
   letter-spacing: 0.04em;
 }
 
-.explorer-field input {
+.explorer-field input,
+.explorer-field select {
   background: var(--surface2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -42,6 +43,8 @@
   padding: 9px 12px;
   font-size: 0.9rem;
   font-family: inherit;
+  height: 2.5rem;
+  box-sizing: border-box;
 }
 
 .explorer-symbol-select {
