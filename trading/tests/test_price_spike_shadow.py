@@ -7,6 +7,7 @@ from trading.services.price_spike_shadow import (
     _resolve_one,
     detect_price_spikes,
     resolve_pending_events,
+    select_top_spikes,
 )
 
 
@@ -136,3 +137,23 @@ class ResolvePendingEventsTests(SimpleTestCase):
         shadow = state["priceSpikeShadow"]
         self.assertEqual(len(shadow["pending"]), 1)
         self.assertEqual(shadow["events"], [])
+
+
+class SelectTopSpikesTests(SimpleTestCase):
+    def test_returns_all_when_under_limit(self):
+        spikes = [{"symbol": "A", "movePct": 3.0}, {"symbol": "B", "movePct": -4.0}]
+        self.assertEqual(select_top_spikes(spikes, limit=3), spikes)
+
+    def test_caps_to_limit_keeping_largest_moves(self):
+        spikes = [
+            {"symbol": "A", "movePct": 3.0},
+            {"symbol": "B", "movePct": -9.0},
+            {"symbol": "C", "movePct": 5.0},
+            {"symbol": "D", "movePct": 3.5},
+        ]
+        top = select_top_spikes(spikes, limit=2)
+        self.assertEqual(len(top), 2)
+        self.assertEqual({s["symbol"] for s in top}, {"B", "C"})
+
+    def test_empty_list_returns_empty(self):
+        self.assertEqual(select_top_spikes([], limit=3), [])

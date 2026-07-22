@@ -25,6 +25,15 @@ BOOK_IMBALANCE_MIN = 0.05   # kynnys, jolla order book katsotaan vahvistavan suu
 EVENT_LIMIT = 60
 PENDING_LIMIT = 200
 
+# Synkroninen order book -haku per piikki maksaa yhden HTTP-pyynnön (ks.
+# fetch_order_book, oletus 12 s timeout) — tämä ajetaan refresh_prices():n
+# 15 s hintasilmukassa, joka laukaisee myös oikeat stop-loss/profit-take-
+# tarkistukset. Ilman kattoa laaja volatiliteettipiikki (kymmeniä symboleita
+# ≥3 % samalla tickillä) voisi viivästyttää sitä sykliä merkittävästi — rajaa
+# siis hakuja per tick, samaan tapaan kuin market_microstructure.py:n
+# BOOK_SYMBOL_LIMIT rajaa oman kierroksensa order book -hakuja.
+BOOK_FETCH_LIMIT_PER_TICK = 3
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -87,6 +96,21 @@ def detect_price_spikes(
                 }
             )
     return spikes
+
+
+def select_top_spikes(
+    spikes: list[dict[str, Any]],
+    limit: int = BOOK_FETCH_LIMIT_PER_TICK,
+) -> list[dict[str, Any]]:
+    """Rajaa synkroniset order book -haut suurimpiin liikkeisiin per tick.
+
+    Ei I/O:ta — puhdas valinta. Loput havaitut piikit jäävät kirjaamatta tällä
+    tickillä (ei viivästytä oikeaa hintasykliä), mutta liike näkyy silti
+    seuraavalla tickillä jos se jatkuu.
+    """
+    if len(spikes) <= limit:
+        return spikes
+    return sorted(spikes, key=lambda s: -abs(s["movePct"]))[:limit]
 
 
 def _classify_book_confirmation(book: dict[str, Any] | None, move_pct: float) -> bool | None:

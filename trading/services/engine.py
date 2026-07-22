@@ -36,7 +36,12 @@ from . import market_learning
 from . import market_microstructure
 from .market_microstructure import carry_micro_fields
 from .portfolio import Portfolio
-from .price_spike_shadow import detect_price_spikes, record_spike_event, resolve_pending_events
+from .price_spike_shadow import (
+    detect_price_spikes,
+    record_spike_event,
+    resolve_pending_events,
+    select_top_spikes,
+)
 from .entry_diagnostics_shadow import (
     atr_weighted_shadow_sizes,
     kelly_expectancy_shadow_sizes,
@@ -175,35 +180,53 @@ def _log_shadow_trade(
     )
 
 
-def _attach_entry_diagnostics_shadow(
+def _attach_entry_correlation_shadow(
     meta: dict[str, Any],
     *,
     symbol: str,
-    eur_amount: float,
     analyses: dict[str, Any],
     held_symbols: list[str],
-    atr_shadow_map: dict[str, float],
-    kelly_shadow_map: dict[str, float],
 ) -> None:
-    """Lisää ostohetken varjodiagnostiikka (ideat #1/#2/#4) kauppameta-dataan.
+    """Lisää ostohetken korrelaatiodiagnostiikka (idea #1) kauppameta-dataan.
 
-    Puhtaasti additiivista: kirjoittaa vain ylimääräisiä avaimia jo koottuun
-    meta-sanakirjaan, ei koskaan muuta eur_amount-arvoa tai mitään muuta
-    kauppapäätöstä.
+    Kutsutaan ENNEN portfolio.buy():ta — riippuu vain jo omistetuista
+    positioista, ei ostettavasta eur-määrästä. Puhtaasti additiivista.
     """
     try:
         corr = max_correlation_vs_holdings(symbol, analyses, held_symbols)
         if corr:
             meta["shadowMaxHoldingCorr"] = corr["maxCorrValue"]
             meta["shadowHighCorrFlag"] = corr["highCorrFlag"]
+    except Exception:
+        logger.warning("Entry correlation shadow failed for %s", symbol, exc_info=True)
+
+
+def _attach_entry_size_shadow(
+    trade: dict[str, Any],
+    *,
+    symbol: str,
+    atr_shadow_map: dict[str, float],
+    kelly_shadow_map: dict[str, float],
+) -> None:
+    """Lisää ostohetken kokodiagnostiikka (ideat #2/#4) suoraan toteutuneeseen kauppaan.
+
+    Kutsutaan VASTA portfolio.buy():n jälkeen ja käyttää kaupan TODELLISTA
+    eurTotal-arvoa (trade["eurTotal"]) — jos Portfolio.buy() joutui
+    pienentämään ostoa käteisen riittämättömyyden vuoksi, delta lasketaan
+    silti oikeaa toteutunutta summaa vasten, ei alkuperäistä pyyntöä.
+    Kirjoittaa vain ylimääräisiä avaimia trade-sanakirjaan — ei koskaan
+    muuta eurTotal/amount-arvoa tai mitään muuta kauppatietoa.
+    """
+    try:
+        actual_eur = float(trade.get("eurTotal") or 0)
         atr_shadow = atr_shadow_map.get(symbol)
         if atr_shadow is not None:
-            meta["shadowAtrSizeDeltaEur"] = round(atr_shadow - eur_amount, 2)
+            trade["shadowAtrSizeDeltaEur"] = round(atr_shadow - actual_eur, 2)
         kelly_shadow = kelly_shadow_map.get(symbol)
         if kelly_shadow is not None:
-            meta["shadowKellySizeDeltaEur"] = round(kelly_shadow - eur_amount, 2)
+            trade["shadowKellySizeDeltaEur"] = round(kelly_shadow - actual_eur, 2)
     except Exception:
-        logger.warning("Entry diagnostics shadow failed for %s", symbol, exc_info=True)
+        logger.warning("Entry size shadow failed for %s", symbol, exc_info=True)
 
 
 def _check_profit_sells(
@@ -385,7 +408,8 @@ def refresh_prices() -> dict[str, Any]:
             except Exception:
                 logger.warning("Microstructure exit enrich failed", exc_info=True)
             try:
-                for spike in detect_price_spikes(prev_tickers, state["tickers"]):
+                spikes = detect_price_spikes(prev_tickers, state["tickers"])
+                for spike in select_top_spikes(spikes):
                     record_spike_event(state, spike)
                 resolve_pending_events(state, state["tickers"])
             except Exception:
@@ -681,14 +705,11 @@ def execute_trading_cycle() -> dict[str, Any]:
                 trade_meta = meta_from_analysis(item.get("analysis"), regime)
                 if reason_en and reason_en != reason:
                     trade_meta["reasonEn"] = reason_en
-                _attach_entry_diagnostics_shadow(
+                _attach_entry_correlation_shadow(
                     trade_meta,
                     symbol=item["symbol"],
-                    eur_amount=float(item.get("eurAmount") or 0),
                     analyses=state["analyses"],
                     held_symbols=list(portfolio.holdings.keys()),
-                    atr_shadow_map=init_atr_shadow_map,
-                    kelly_shadow_map=init_kelly_shadow_map,
                 )
                 slots.append(
                     {
@@ -710,6 +731,12 @@ def execute_trading_cycle() -> dict[str, Any]:
                     None,
                 )
                 if trade:
+                    _attach_entry_size_shadow(
+                        trade,
+                        symbol=symbol,
+                        atr_shadow_map=init_atr_shadow_map,
+                        kelly_shadow_map=init_kelly_shadow_map,
+                    )
                     _log_shadow_trade(
                         state,
                         shadow_flags,
@@ -819,14 +846,11 @@ def execute_trading_cycle() -> dict[str, Any]:
             buy_meta.update(d.get("bullSatelliteMeta") or {})
             if d.get("reasonEn"):
                 buy_meta["reasonEn"] = d["reasonEn"]
-            _attach_entry_diagnostics_shadow(
+            _attach_entry_correlation_shadow(
                 buy_meta,
                 symbol=d["symbol"],
-                eur_amount=float(d.get("eurAmount") or 0),
                 analyses=state["analyses"],
                 held_symbols=list(portfolio.holdings.keys()),
-                atr_shadow_map=atr_shadow_map,
-                kelly_shadow_map=kelly_shadow_map,
             )
             ok = portfolio.buy(
                 d["symbol"],
@@ -836,6 +860,13 @@ def execute_trading_cycle() -> dict[str, Any]:
                 meta=buy_meta,
             )
             if ok:
+                if portfolio.trades:
+                    _attach_entry_size_shadow(
+                        portfolio.trades[0],
+                        symbol=d["symbol"],
+                        atr_shadow_map=atr_shadow_map,
+                        kelly_shadow_map=kelly_shadow_map,
+                    )
                 log_ai_event(
                     state,
                     "buy",
