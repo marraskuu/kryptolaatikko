@@ -94,9 +94,6 @@
       aiTypeHold: "PIDÄ",
       aiTypeWatch: "SEURANTA",
       aiTypeInfo: "INFO",
-      aiEventsTitle: "Viimeiset {limit} tapahtumaa",
-      aiAnalyzed: "Analysoitu {n} kryptoparia · ",
-      aiAnalyzedUpdated: "Analysoitu {n} kryptoparia · Päivitetty {time}",
 
       // shadow policy
       liveTodayDash: "Live tänään —",
@@ -329,9 +326,6 @@
       aiTypeHold: "HOLD",
       aiTypeWatch: "WATCH",
       aiTypeInfo: "INFO",
-      aiEventsTitle: "Last {limit} events",
-      aiAnalyzed: "Analyzed {n} crypto pairs · ",
-      aiAnalyzedUpdated: "Analyzed {n} crypto pairs · Updated {time}",
 
       liveTodayDash: "Live today —",
       liveToday: "Live today {sign}{eur} €",

@@ -327,7 +327,6 @@ const els = {
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
   explanationTimeline: document.getElementById("explanation-timeline"),
-  timelineMeta: document.getElementById("timeline-meta"),
   learningReport: document.getElementById("learning-report"),
   learningReportMeta: document.getElementById("learning-report-meta"),
   learningReportTitle: document.getElementById("learning-report-title"),
@@ -1082,10 +1081,6 @@ function renderPortfolio() {
 function renderExplanationTimeline() {
   if (!els.explanationTimeline) return;
 
-  if (els.timelineMeta) {
-    els.timelineMeta.textContent = t("aiEventsTitle", { limit: AI_EVENT_LIMIT });
-  }
-
   if (!state.aiEvents.length) {
     els.explanationTimeline.innerHTML = `<p class="empty-log">${t("aiEmpty")}</p>`;
     return;
@@ -1813,20 +1808,6 @@ function renderAIDecision(report) {
 
   els.aiDecision.innerHTML = `
     ${headerHtml}
-    <div class="ai-reasoning">
-      ${
-        report
-          ? `<p class="ai-decision-meta">${
-              report.timestamp
-                ? t("aiAnalyzedUpdated", {
-                    n: Object.keys(state.tickers).length,
-                    time: formatTime(report.timestamp),
-                  })
-                : t("aiAnalyzed", { n: Object.keys(state.tickers).length })
-            }</p>`
-          : ""
-      }
-    </div>
   `;
 }
 
