@@ -1137,12 +1137,12 @@ h1 {
 }
 
 .panel-ai .ai-decision {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
 }
 
 .panel-ai .ai-reasoning {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1151,7 +1151,41 @@ h1 {
 
 .panel-ai .ai-decision-meta {
   flex-shrink: 0;
-  margin-top: auto;
+}
+
+.panel-ai .ai-timeline-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ai-timeline-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px 0;
+  flex-shrink: 0;
+}
+
+.ai-timeline-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ai-timeline-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.panel-ai .explanation-timeline {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .ai-placeholder {

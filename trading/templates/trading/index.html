@@ -215,6 +215,15 @@
         <div class="ai-decision" id="ai-decision">
           <p class="ai-placeholder">{{ ui.ai_placeholder }}</p>
         </div>
+        <div class="ai-timeline-wrap">
+          <div class="ai-timeline-heading-row">
+            <h3 class="ai-timeline-heading">{{ ui.timeline_h2 }}</h3>
+            <span class="ai-timeline-meta" id="timeline-meta"></span>
+          </div>
+          <div class="explanation-timeline" id="explanation-timeline">
+            <p class="empty-log">{{ ui.timeline_empty }}</p>
+          </div>
+        </div>
       </section>
 
       <section class="panel wide">
@@ -256,16 +265,6 @@
         </div>
         <div class="trade-log" id="trade-log">
           <p class="empty-log">{{ ui.trades_empty }}</p>
-        </div>
-      </section>
-
-      <section class="panel wide timeline-panel">
-        <div class="panel-header">
-          <h2>{{ ui.timeline_h2 }}</h2>
-          <span class="badge" id="timeline-meta"></span>
-        </div>
-        <div class="explanation-timeline" id="explanation-timeline">
-          <p class="empty-log">{{ ui.timeline_empty }}</p>
         </div>
       </section>
 
