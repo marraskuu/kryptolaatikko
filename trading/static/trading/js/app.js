@@ -1,5 +1,5 @@
 const POLL_INTERVAL = 5000;
-const AI_EVENT_LIMIT = 20;
+const AI_EVENT_LIMIT = 40;
 const INITIAL_CAPITAL = 1000;
 
 let state = {
@@ -326,6 +326,8 @@ const els = {
   portfolioBody: document.getElementById("portfolio-body"),
   portfolioLivePnl: document.getElementById("portfolio-live-pnl"),
   tradeLog: document.getElementById("trade-log"),
+  explanationTimeline: document.getElementById("explanation-timeline"),
+  timelineMeta: document.getElementById("timeline-meta"),
   learningReport: document.getElementById("learning-report"),
   learningReportMeta: document.getElementById("learning-report-meta"),
   learningReportTitle: document.getElementById("learning-report-title"),
@@ -460,6 +462,7 @@ function renderAll(lastUpdate) {
   renderMarketList();
   renderPortfolio();
   renderTradeLog();
+  renderExplanationTimeline();
   renderLearningReport();
   if (narrativeModalOpen) renderGeminiNarrativeModal();
   renderAIDecision(state.lastAIReport);
@@ -1076,9 +1079,16 @@ function renderPortfolio() {
   els.portfolioBody.innerHTML = rows.join("");
 }
 
-function renderAIEventLog() {
+function renderExplanationTimeline() {
+  if (!els.explanationTimeline) return;
+
+  if (els.timelineMeta) {
+    els.timelineMeta.textContent = t("aiEventsTitle", { limit: AI_EVENT_LIMIT });
+  }
+
   if (!state.aiEvents.length) {
-    return `<p class="ai-placeholder">${t("aiEmpty")}</p>`;
+    els.explanationTimeline.innerHTML = `<p class="empty-log">${t("aiEmpty")}</p>`;
+    return;
   }
 
   const typeLabels = {
@@ -1089,7 +1099,7 @@ function renderAIEventLog() {
     info: t("aiTypeInfo"),
   };
 
-  return state.aiEvents
+  els.explanationTimeline.innerHTML = state.aiEvents
     .slice(0, AI_EVENT_LIMIT)
     .map(
       (ev) => `
@@ -1804,10 +1814,6 @@ function renderAIDecision(report) {
   els.aiDecision.innerHTML = `
     ${headerHtml}
     <div class="ai-reasoning">
-      <div class="ai-section ai-event-section">
-        <h4 class="ai-section-title">${t("aiEventsTitle", { limit: AI_EVENT_LIMIT })}</h4>
-        <div class="ai-event-log">${renderAIEventLog()}</div>
-      </div>
       ${
         report
           ? `<p class="ai-decision-meta">${

@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-22",
         "entries": [
             {
+                "title": "Uusi \"Botin päätökset\" -aikajana",
+                "body": "Botin viimeisimmät päätökset (ostot, myynnit, hold-päätökset, seurannat, Gemini-skannaukset) näkyvät nyt omana, isompana ja selattavana aikajanana Kauppahistorian ja Oppimisraportin välissä — läpinäkyvämpi ja opettavaisempi kuin pelkkä kauppalista. AI-päätökset-paneeli näyttää jatkossa vain viimeisimmän kierroksen otsikon.",
+                "title_en": "New \"Bot decisions\" timeline",
+                "body_en": "The bot's most recent decisions (buys, sells, holds, watches, Gemini scans) now appear as their own larger, browsable timeline between Trade history and the Learning report — more transparent and informative than a plain trade list. The AI decisions panel now shows only the latest cycle's headline.",
+            },
+            {
                 "title": "Viisi uutta varjoseurantaa oppimisraporttiin",
                 "body": "Oppimisraportissa näkyy nyt kolme uutta testidata-korttia: ostohetken korrelaatio- ja kokodiagnostiikka, hintapiikin järkevyystarkistus order bookia vasten sekä rullaava monipäiväinen drawdown-mittari varjopolitiikassa. Kerätään dataa taustalla — ei vielä vaikuta oikeisiin kauppoihin.",
                 "title_en": "Five new shadow-tracking diagnostics in the learning report",

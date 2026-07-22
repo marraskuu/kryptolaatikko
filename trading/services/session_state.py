@@ -6,7 +6,7 @@ from .ai_trader import effective_max_positions
 from .gemini import get_status as gemini_status_snapshot
 from .portfolio import Portfolio, default_portfolio
 
-AI_EVENT_LIMIT = 20
+AI_EVENT_LIMIT = 40
 PRICE_INTERVAL_MS = 15_000
 TRADE_INTERVAL_MS = 60_000
 
