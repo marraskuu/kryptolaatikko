@@ -6,11 +6,10 @@ PAGE_UI: dict[str, dict[str, str]] = {
     "fi": {
         "html_lang": "fi",
         "og_locale": "fi_FI",
-        "title": "Live-kryptobotti — simuloitu kaupankäynti Bitfinexillä | hiekkalaatikko.pro",
+        "title": "Krypto Simulaattori — ilmainen live-kryptobotti | hiekkalaatikko.pro",
         "description": (
-            "Seuraa live-kryptobottia 24/7: 1000 € virtuaalisalkku, Bitfinex-kurssit, "
-            "tekninen analyysi ja Gemini AI. Ilmainen kryptosimulaattori — ei oikeaa rahaa, "
-            "ei sijoitusneuvontaa."
+            "Ilmainen krypto simulaattori ja paperikaupankäynti: live-kryptobotti käy kauppaa "
+            "Bitfinex-kursseilla 1000 € virtuaalisalkulla. Tekninen analyysi + Gemini AI."
         ),
         "og_title": "Live-kryptobotti — simuloitu kaupankäynti Bitfinexillä",
         "og_description": (
@@ -131,11 +130,10 @@ PAGE_UI: dict[str, dict[str, str]] = {
     "en": {
         "html_lang": "en",
         "og_locale": "en_US",
-        "title": "Live crypto bot — simulated Bitfinex trading | hiekkalaatikko.pro",
+        "title": "Crypto Simulator — free live crypto bot | hiekkalaatikko.pro",
         "description": (
-            "Follow a live crypto bot 24/7: €1000 paper portfolio, Bitfinex prices, "
-            "technical analysis and Gemini AI. Free crypto simulator — no real money, "
-            "no investment advice."
+            "Free crypto simulator for paper trading: a live bot trades Bitfinex prices "
+            "with a €1000 virtual portfolio. Technical analysis + Gemini AI, no real money."
         ),
         "og_title": "Live crypto bot — simulated Bitfinex trading",
         "og_description": (
@@ -258,10 +256,10 @@ CHANGELOG_UI: dict[str, dict[str, str]] = {
     "fi": {
         "html_lang": "fi",
         "og_locale": "fi_FI",
-        "title": "Muutokset ja päivitykset — hiekkalaatikko.pro",
+        "title": "Muutokset ja päivitykset — Krypto Simulaattori | hiekkalaatikko.pro",
         "description": (
-            "Kaikki hiekkalaatikko.pro -kryptosimulaattorin julkaistut muutokset, "
-            "uudet ominaisuudet ja korjaukset päivämäärittäin."
+            "Krypto Simulaattori -kryptobotin muutosloki: uudet ominaisuudet, tekninen "
+            "analyysi ja Gemini AI -päivitykset sekä korjaukset päivämäärittäin."
         ),
         "og_title": "Muutokset ja päivitykset — hiekkalaatikko.pro",
         "og_description": (
@@ -285,10 +283,10 @@ CHANGELOG_UI: dict[str, dict[str, str]] = {
     "en": {
         "html_lang": "en",
         "og_locale": "en_US",
-        "title": "Changelog — hiekkalaatikko.pro",
+        "title": "Changelog — Crypto Simulator | hiekkalaatikko.pro",
         "description": (
-            "All published changes, new features and fixes for the hiekkalaatikko.pro "
-            "crypto simulator, by date."
+            "Crypto Simulator changelog: new features, technical analysis and Gemini AI "
+            "updates, and fixes for the live trading bot, by date."
         ),
         "og_title": "Changelog — hiekkalaatikko.pro",
         "og_description": (

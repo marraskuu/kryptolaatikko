@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.templatetags.static import static
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
@@ -166,6 +167,7 @@ def _render_home(request, *, lang: str):
             "canonical_url": canonical_url,
             "alternate_fi": f"{base}/",
             "alternate_en": f"{base}/eng/",
+            "og_image": f"{base}{static('trading/img/og-image.jpg')}",
             "json_ld": _site_json_ld(canonical_url, lang=lang),
             "ui": ui,
             "share": _share_links(canonical_url, ui["og_title"]),
@@ -218,6 +220,7 @@ def _render_changelog(request, *, lang: str):
             "canonical_url": canonical_url,
             "alternate_fi": f"{base}/muutokset/",
             "alternate_en": f"{base}/changelog/",
+            "og_image": f"{base}{static('trading/img/og-image.jpg')}",
             "app_build": settings.APP_BUILD,
             "ui": ui,
         },

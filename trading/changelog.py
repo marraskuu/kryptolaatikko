@@ -39,6 +39,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Gemini 3.5 Flash Lite as default model",
                 "body_en": "AI analysis and the learning narrative now use the gemini-3.5-flash-lite model (previously 2.5 Flash Lite).",
             },
+            {
+                "title": "Somejakokuva sekä hakukoneotsikoiden ja -kuvausten viilaus",
+                "body": "Linkin jakaminen WhatsAppissa, Facebookissa, X:ssä ja LinkedInissä näyttää nyt kunnollisen esikatselukuvan (og:image). Lisäksi etusivun ja Muutokset-sivun otsikot ja kuvaukset hiottu hakukoneita varten: brändinimi \"Krypto Simulaattori\" mukaan otsikkoon ja hakusanoja (mm. \"paperikaupankäynti\") kuvauksiin.",
+                "title_en": "Social share preview image, plus SEO title/description tuning",
+                "body_en": "Sharing the link on WhatsApp, Facebook, X and LinkedIn now shows a proper preview image (og:image). Also refined the home page and Changelog page titles/descriptions for search engines: the \"Crypto Simulator\" brand name now appears in the title, and descriptions include keywords like \"paper trading\".",
+            },
         ],
     },
     {
