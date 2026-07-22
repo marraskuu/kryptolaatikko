@@ -2463,7 +2463,10 @@ body.modal-open {
   gap: 8px;
 }
 
-.share-icon-btn {
+/* .share-icons -esivanhempi nostaa spesifisyyden yli .site-seo-footer a:n
+   (color: var(--accent)) — muuten ikonin oma valkoinen väri (SVG:n
+   currentColor) hävisi footerin yleiselle linkkiväri-säännölle. */
+.share-icons .share-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
