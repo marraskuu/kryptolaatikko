@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-07-22",
         "entries": [
             {
+                "title": "Viisi uutta varjoseurantaa oppimisraporttiin",
+                "body": "Oppimisraportissa näkyy nyt kolme uutta testidata-korttia: ostohetken korrelaatio- ja kokodiagnostiikka, hintapiikin järkevyystarkistus order bookia vasten sekä rullaava monipäiväinen drawdown-mittari varjopolitiikassa. Kerätään dataa taustalla — ei vielä vaikuta oikeisiin kauppoihin.",
+                "title_en": "Five new shadow-tracking diagnostics in the learning report",
+                "body_en": "The learning report now shows three new \"test data\" cards: entry-time correlation and sizing diagnostics, a price-spike sanity check against the order book, and a rolling multi-day drawdown flag in the shadow policy. These collect data in the background — they don't affect real trades yet.",
+            },
+            {
                 "title": "Gemini 3.5 Flash Lite oletusmallina",
                 "body": "AI-analyysi ja oppimiskertomus käyttävät nyt gemini-3.5-flash-lite -mallia (aiemmin 2.5 Flash Lite).",
                 "title_en": "Gemini 3.5 Flash Lite as default model",
