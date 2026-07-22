@@ -36,6 +36,12 @@ from . import market_learning
 from . import market_microstructure
 from .market_microstructure import carry_micro_fields
 from .portfolio import Portfolio
+from .price_spike_shadow import detect_price_spikes, record_spike_event, resolve_pending_events
+from .entry_diagnostics_shadow import (
+    atr_weighted_shadow_sizes,
+    kelly_expectancy_shadow_sizes,
+    max_correlation_vs_holdings,
+)
 from .sell_strategy import update_profit_sell
 from .session_state import (
     build_api_payload,
@@ -167,6 +173,37 @@ def _log_shadow_trade(
         price=price,
         amount=amount,
     )
+
+
+def _attach_entry_diagnostics_shadow(
+    meta: dict[str, Any],
+    *,
+    symbol: str,
+    eur_amount: float,
+    analyses: dict[str, Any],
+    held_symbols: list[str],
+    atr_shadow_map: dict[str, float],
+    kelly_shadow_map: dict[str, float],
+) -> None:
+    """Lisää ostohetken varjodiagnostiikka (ideat #1/#2/#4) kauppameta-dataan.
+
+    Puhtaasti additiivista: kirjoittaa vain ylimääräisiä avaimia jo koottuun
+    meta-sanakirjaan, ei koskaan muuta eur_amount-arvoa tai mitään muuta
+    kauppapäätöstä.
+    """
+    try:
+        corr = max_correlation_vs_holdings(symbol, analyses, held_symbols)
+        if corr:
+            meta["shadowMaxHoldingCorr"] = corr["maxCorrValue"]
+            meta["shadowHighCorrFlag"] = corr["highCorrFlag"]
+        atr_shadow = atr_shadow_map.get(symbol)
+        if atr_shadow is not None:
+            meta["shadowAtrSizeDeltaEur"] = round(atr_shadow - eur_amount, 2)
+        kelly_shadow = kelly_shadow_map.get(symbol)
+        if kelly_shadow is not None:
+            meta["shadowKellySizeDeltaEur"] = round(kelly_shadow - eur_amount, 2)
+    except Exception:
+        logger.warning("Entry diagnostics shadow failed for %s", symbol, exc_info=True)
 
 
 def _check_profit_sells(
@@ -313,6 +350,7 @@ def _try_clear_price_error(state: dict[str, Any]) -> bool:
 
 def refresh_prices() -> dict[str, Any]:
     state = load_state()
+    prev_tickers = state.get("tickers") or {}
     try:
         tickers, _meta = fetch_all_markets()
         if not tickers:
@@ -346,6 +384,12 @@ def refresh_prices() -> dict[str, Any]:
                 state["microstructureExit"] = micro_exit
             except Exception:
                 logger.warning("Microstructure exit enrich failed", exc_info=True)
+            try:
+                for spike in detect_price_spikes(prev_tickers, state["tickers"]):
+                    record_spike_event(state, spike)
+                resolve_pending_events(state, state["tickers"])
+            except Exception:
+                logger.warning("Price spike shadow failed", exc_info=True)
             shadow_flags = record_cycle(
                 state,
                 total_value=total_value,
@@ -606,6 +650,14 @@ def execute_trading_cycle() -> dict[str, Any]:
         gemini_active = decision_result.get("geminiActive", False)
         if initial_allocation:
             slots = []
+            init_batch = [
+                {"symbol": it["symbol"], "eurAmount": it.get("eurAmount"), "analysis": it.get("analysis")}
+                for it in initial_allocation
+            ]
+            init_atr_shadow_map = atr_weighted_shadow_sizes(init_batch)
+            init_kelly_shadow_map = kelly_expectancy_shadow_sizes(
+                init_batch, learning.get("gemini_confidence_stats")
+            )
             for i, item in enumerate(initial_allocation):
                 reason = format_initial_buy_reason(
                     item["analysis"],
@@ -629,6 +681,15 @@ def execute_trading_cycle() -> dict[str, Any]:
                 trade_meta = meta_from_analysis(item.get("analysis"), regime)
                 if reason_en and reason_en != reason:
                     trade_meta["reasonEn"] = reason_en
+                _attach_entry_diagnostics_shadow(
+                    trade_meta,
+                    symbol=item["symbol"],
+                    eur_amount=float(item.get("eurAmount") or 0),
+                    analyses=state["analyses"],
+                    held_symbols=list(portfolio.holdings.keys()),
+                    atr_shadow_map=init_atr_shadow_map,
+                    kelly_shadow_map=init_kelly_shadow_map,
+                )
                 slots.append(
                     {
                         "symbol": item["symbol"],
@@ -743,12 +804,30 @@ def execute_trading_cycle() -> dict[str, Any]:
                 }
             )
 
-        for d in [x for x in decisions if x["type"] == "buy"]:
+        buy_decisions = [x for x in decisions if x["type"] == "buy"]
+        buy_batch = [
+            {"symbol": d["symbol"], "eurAmount": d.get("eurAmount"), "analysis": d.get("analysis")}
+            for d in buy_decisions
+        ]
+        atr_shadow_map = atr_weighted_shadow_sizes(buy_batch)
+        kelly_shadow_map = kelly_expectancy_shadow_sizes(
+            buy_batch, learning.get("gemini_confidence_stats")
+        )
+        for d in buy_decisions:
             analysis = d.get("analysis") or {}
             buy_meta = meta_from_analysis(analysis, regime)
             buy_meta.update(d.get("bullSatelliteMeta") or {})
             if d.get("reasonEn"):
                 buy_meta["reasonEn"] = d["reasonEn"]
+            _attach_entry_diagnostics_shadow(
+                buy_meta,
+                symbol=d["symbol"],
+                eur_amount=float(d.get("eurAmount") or 0),
+                analyses=state["analyses"],
+                held_symbols=list(portfolio.holdings.keys()),
+                atr_shadow_map=atr_shadow_map,
+                kelly_shadow_map=kelly_shadow_map,
+            )
             ok = portfolio.buy(
                 d["symbol"],
                 d["eurAmount"],

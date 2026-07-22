@@ -150,6 +150,10 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "flowBucket",
         "geminiConfidence",
         "geminiPick",
+        "shadowMaxHoldingCorr",
+        "shadowHighCorrFlag",
+        "shadowAtrSizeDeltaEur",
+        "shadowKellySizeDeltaEur",
     )
     meta = {k: trade[k] for k in keys if trade.get(k) is not None}
     if "geminiConfidence" not in meta and "gemini" in (trade.get("reason") or "").lower():

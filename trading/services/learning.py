@@ -240,6 +240,9 @@ def _sells_with_entry_context(trades: list[dict[str, Any]]) -> list[dict[str, An
                 "entry_score": entry_meta.get("score"),
                 "entry_mtf": entry_meta.get("mtfAlign"),
                 "entry_gemini_confidence": entry_meta.get("geminiConfidence"),
+                "entry_shadow_high_corr_flag": entry_meta.get("shadowHighCorrFlag"),
+                "entry_shadow_atr_size_delta_eur": entry_meta.get("shadowAtrSizeDeltaEur"),
+                "entry_shadow_kelly_size_delta_eur": entry_meta.get("shadowKellySizeDeltaEur"),
             }
         )
     return linked
@@ -683,6 +686,68 @@ def _compute_gemini_confidence_tuning(
     }, notes
 
 
+def _compute_entry_diagnostics_shadow_tuning(linked: list[dict[str, Any]]) -> dict[str, Any]:
+    """Bucketoi toteutunut lopputulos ostohetken varjodiagnostiikkaa vasten
+    (ideat #1 korrelaatio, #2 ATR-koko, #4 Kelly-koko).
+
+    Kolme itsenäistä lohkoa, jotta jokaista voi lukea/arvioida toisista
+    riippumatta. Pelkkä raportointi — tulosta EI koskaan sekoiteta
+    blocked_buys-, gemini_confidence_scales- tai entry_score_min-kenttiin.
+    """
+    corr_buckets = {
+        "high_corr": {"n": 0, "net": 0.0, "wins": 0},
+        "low_corr": {"n": 0, "net": 0.0, "wins": 0},
+    }
+    atr_buckets = {
+        "atr_undersized": {"n": 0, "net": 0.0, "wins": 0},
+        "atr_oversized": {"n": 0, "net": 0.0, "wins": 0},
+    }
+    kelly_buckets = {
+        "kelly_undersized": {"n": 0, "net": 0.0, "wins": 0},
+        "kelly_oversized": {"n": 0, "net": 0.0, "wins": 0},
+    }
+
+    for item in linked:
+        sell = item.get("sell") or {}
+        net = _net_eur(sell)
+        win = 1 if net > 0.01 else 0
+
+        corr_flag = item.get("entry_shadow_high_corr_flag")
+        if corr_flag is not None:
+            bucket = corr_buckets["high_corr" if corr_flag else "low_corr"]
+            bucket["n"] += 1
+            bucket["net"] += net
+            bucket["wins"] += win
+
+        # delta = varjo-ehdotus - toteutunut eur_amount. delta > 0 => oikea koko
+        # oli pienempi kuin varjoehdotus (undersized suhteessa siihen).
+        atr_delta = item.get("entry_shadow_atr_size_delta_eur")
+        if atr_delta is not None:
+            bucket = atr_buckets["atr_undersized" if atr_delta > 0 else "atr_oversized"]
+            bucket["n"] += 1
+            bucket["net"] += net
+            bucket["wins"] += win
+
+        kelly_delta = item.get("entry_shadow_kelly_size_delta_eur")
+        if kelly_delta is not None:
+            bucket = kelly_buckets["kelly_undersized" if kelly_delta > 0 else "kelly_oversized"]
+            bucket["n"] += 1
+            bucket["net"] += net
+            bucket["wins"] += win
+
+    def _finalize(buckets: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        return {
+            key: _stat_block(int(b["n"]), b["net"], int(b["wins"]))
+            for key, b in buckets.items()
+        }
+
+    return {
+        "correlation_shadow": _finalize(corr_buckets),
+        "atr_size_shadow": _finalize(atr_buckets),
+        "kelly_size_shadow": _finalize(kelly_buckets),
+    }
+
+
 def _compute_regime_tuning(
     sells: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, float]]]]:
@@ -872,6 +937,8 @@ def compute_tuning(
     if conf_tuning["gemini_confidence_tagged"] >= MIN_GEMINI_CONF_TAGGED:
         gemini_sell_min_confidence = conf_tuning["gemini_sell_min_confidence"]
 
+    entry_diagnostics_shadow = _compute_entry_diagnostics_shadow_tuning(linked)
+
     from .setup_historical_backfill import get_setup_backfill_status, load_setup_stats
 
     setup_history = load_setup_stats()
@@ -995,4 +1062,5 @@ def compute_tuning(
         "gemini_pick_stats": pick_tuning.get("gemini_pick_stats"),
         "profit_take_tuning": profit_take_tuning,
         "stop_tuning": stop_tuning,
+        "entry_diagnostics_shadow": entry_diagnostics_shadow,
     }

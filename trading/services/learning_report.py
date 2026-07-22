@@ -445,6 +445,32 @@ def build_learning_report(
                 }
             )
 
+        from .price_spike_shadow import learning_report_lines as spike_lines
+
+        spike_report_lines = spike_lines(bot_state)
+        if spike_report_lines:
+            sections.append(
+                {
+                    "id": "price_spike_shadow",
+                    "icon": "⚡",
+                    "title": "Hintapiikin järkevyystarkistus (testidata)",
+                    "lines": spike_report_lines,
+                }
+            )
+
+        from .entry_diagnostics_shadow import learning_report_lines as entry_diag_lines
+
+        entry_diag_report_lines = entry_diag_lines(bot_state)
+        if entry_diag_report_lines:
+            sections.append(
+                {
+                    "id": "entry_diagnostics_shadow",
+                    "icon": "🧭",
+                    "title": "Ostohetken varjodiagnostiikka (testidata)",
+                    "lines": entry_diag_report_lines,
+                }
+            )
+
         from .market_microstructure import build_gemini_context, learning_report_lines as micro_lines
 
         micro_ctx = build_gemini_context(
@@ -626,6 +652,8 @@ def build_learning_report(
     roadmap = _roadmap_progress(learning, ml, portfolio=portfolio, bot_state=bot_state)
 
     shadow_policy = None
+    price_spike_learning = None
+    entry_diagnostics_learning = None
     microstructure_learning = None
     exit_peak_learning = None
     sell_outcome_learning = None
@@ -635,6 +663,12 @@ def build_learning_report(
         from .daily_policy_shadow import build_gemini_context
 
         shadow_policy = build_gemini_context(bot_state)
+        from .price_spike_shadow import build_gemini_context as build_spike_context
+
+        price_spike_learning = build_spike_context(bot_state)
+        from .entry_diagnostics_shadow import build_gemini_context as build_entry_diag_context
+
+        entry_diagnostics_learning = build_entry_diag_context(bot_state)
         from .market_microstructure import build_gemini_context as build_micro_context
 
         microstructure_learning = build_micro_context(
@@ -688,6 +722,8 @@ def build_learning_report(
         "roadmap": roadmap,
         "snapshot": snapshot,
         "shadowPolicy": shadow_policy,
+        "priceSpikeLearning": price_spike_learning,
+        "entryDiagnosticsLearning": entry_diagnostics_learning,
         "microstructureLearning": microstructure_learning,
         "exitPeakLearning": exit_peak_learning,
         "sellOutcomeLearning": sell_outcome_learning,

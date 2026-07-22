@@ -28,6 +28,13 @@ EVENT_LIMIT = 60
 DAY_LIMIT = 45
 OPEN_BLOCKED_BUY_LIMIT = 40
 
+# Rullaava monipäiväinen drawdown-katkaisu (idea #3) — pelkkä diagnostiikka,
+# EI vaikuta would_block_buy/would_block_discretionary_sell-logiikkaan eikä
+# varjosalkun peilaukseen. Kerää dataa erillään päivästopista, jotta ideat
+# pysyvät myöhemmin itsenäisesti arvioitavina.
+ROLLING_DRAWDOWN_WINDOW_DAYS = 3
+ROLLING_DRAWDOWN_STOP_PCT = -2.0
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -40,7 +47,7 @@ def day_key_utc(dt: datetime | None = None) -> str:
 
 def default_shadow_state() -> dict[str, Any]:
     return {
-        "version": 3,
+        "version": 4,
         "dayKey": None,
         "dayStartValue": None,
         "dayStartAt": None,
@@ -89,6 +96,11 @@ def _get_shadow(state: dict[str, Any]) -> dict[str, Any]:
         shadow.pop("shadowPortfolio", None)
         shadow.pop("portfolioComparison", None)
         state["dailyPolicyShadow"] = shadow
+        version = 3
+    if version < 4:
+        shadow.setdefault("today", {}).setdefault("cyclesRollingDrawdown", 0)
+        shadow["version"] = 4
+        state["dailyPolicyShadow"] = shadow
     return shadow
 
 
@@ -107,6 +119,8 @@ def evaluate_policy(
     day_pnl_pct: float,
     regime: str,
     learning: dict[str, Any] | None,
+    *,
+    rolling_pnl_pct: float | None = None,
 ) -> dict[str, Any]:
     learning = learning or {}
     n, win_rate = _aggregate_win_rate(learning)
@@ -131,7 +145,7 @@ def evaluate_policy(
         and day_pnl_pct >= -0.3
     )
 
-    return {
+    result = {
         "dayPnlPct": round(day_pnl_pct, 3),
         "dailyStopActive": daily_stop,
         "profitLockTier": profit_tier,
@@ -139,6 +153,36 @@ def evaluate_policy(
         "winRate": round(win_rate, 3),
         "overallExp": round(overall_exp, 3),
     }
+    if rolling_pnl_pct is not None:
+        # Pelkkä diagnostiikka (idea #3) — ei syötetä would_block_buy/
+        # would_block_discretionary_sell-funktioihin eikä varjosalkun peilaukseen,
+        # jotta rullaavan drawdownin vaikutus pysyy erotettavissa päivästopista.
+        result["rollingPnlPct"] = round(rolling_pnl_pct, 3)
+        result["rollingDrawdownActive"] = rolling_pnl_pct <= ROLLING_DRAWDOWN_STOP_PCT
+    return result
+
+
+def _rolling_window_start_value(
+    shadow: dict[str, Any],
+    window_days: int = ROLLING_DRAWDOWN_WINDOW_DAYS,
+) -> float | None:
+    """N päivän rullaavan ikkunan alkuarvo (mukaan lukien kesken oleva päivä).
+
+    shadow["days"] on uusin ensin (indeksi 0 = eilinen). Ikkuna tarvitsee
+    window_days - 1 päättynyttä päivää; palauttaa None jos historiaa ei
+    vielä ole tarpeeksi (ei siis vielä aktivoidu, ei virheellinen 0 %).
+    """
+    if window_days <= 1:
+        start = shadow.get("dayStartValue")
+        return float(start) if start is not None else None
+
+    needed_closed_days = window_days - 1
+    days = shadow.get("days") or []
+    if len(days) < needed_closed_days:
+        return None
+
+    start = days[needed_closed_days - 1].get("startValue")
+    return float(start) if start is not None else None
 
 
 def shadow_profit_take_config(
@@ -359,6 +403,7 @@ def _roll_day_if_needed(shadow: dict[str, Any], state: dict[str, Any], total_val
         "cyclesProfitSoft": 0,
         "cyclesProfitFirm": 0,
         "cyclesAggressive": 0,
+        "cyclesRollingDrawdown": 0,
         "buysWouldBlockToday": 0,
         "sellsWouldBlockToday": 0,
         "tradesMirroredToday": 0,
@@ -380,7 +425,13 @@ def record_cycle(
 
     day_start = float(shadow.get("dayStartValue") or total_value)
     pnl_eur, pnl_pct = _day_pnl(total_value, day_start)
-    flags = evaluate_policy(pnl_pct, regime, learning)
+
+    rolling_start = _rolling_window_start_value(shadow)
+    rolling_pnl_pct = None
+    if rolling_start and rolling_start > 0:
+        rolling_pnl_pct = ((total_value - rolling_start) / rolling_start) * 100
+
+    flags = evaluate_policy(pnl_pct, regime, learning, rolling_pnl_pct=rolling_pnl_pct)
 
     today = shadow["today"]
     today["realPnlEur"] = pnl_eur
@@ -398,6 +449,8 @@ def record_cycle(
         today["cyclesProfitFirm"] = int(today.get("cyclesProfitFirm") or 0) + 1
     if flags["aggressiveEligible"]:
         today["cyclesAggressive"] = int(today.get("cyclesAggressive") or 0) + 1
+    if flags.get("rollingDrawdownActive"):
+        today["cyclesRollingDrawdown"] = int(today.get("cyclesRollingDrawdown") or 0) + 1
 
     _update_blocked_buy_mtm(shadow, state, total_value)
     sync_shadow_valuation(state, total_value)
@@ -722,6 +775,8 @@ def build_api_summary(state: dict[str, Any]) -> dict[str, Any]:
             "dailyStopPct": DAILY_STOP_PCT,
             "profitLockSoftPct": PROFIT_LOCK_SOFT_PCT,
             "profitLockFirmPct": PROFIT_LOCK_FIRM_PCT,
+            "rollingDrawdownWindowDays": ROLLING_DRAWDOWN_WINDOW_DAYS,
+            "rollingDrawdownStopPct": ROLLING_DRAWDOWN_STOP_PCT,
         },
     }
 
@@ -792,6 +847,13 @@ def learning_report_lines(state: dict[str, Any]) -> list[str]:
         f"Varjopolitiikka: {summary.get('tradesLogged')} kauppaa, "
         f"arvioitu ero {net:+.2f} €"
     )
+    policy = api.get("policy") or {}
+    if policy.get("rollingPnlPct") is not None:
+        active_note = " (aktiivinen)" if policy.get("rollingDrawdownActive") else ""
+        lines.append(
+            f"Rullaava {ROLLING_DRAWDOWN_WINDOW_DAYS} pv drawdown: "
+            f"{policy['rollingPnlPct']:+.2f} %{active_note}"
+        )
     if int(summary.get("buysWouldBlock") or 0):
         lines.append(
             f"Estetyt ostot: {summary.get('buysWouldBlock')} "
