@@ -33,6 +33,11 @@ urlpatterns = [
         views.api_strategy_explorer,
         name="api_strategy_explorer",
     ),
+    path(
+        "api/strategy-explorer/symbols/",
+        views.api_strategy_explorer_symbols,
+        name="api_strategy_explorer_symbols",
+    ),
     path("api/visit-record/", views.api_visit_record, name="api_visit_record"),
     path("api/visit-duration/", views.api_visit_duration, name="api_visit_duration"),
     path("api/share-click/", views.api_share_click, name="api_share_click"),

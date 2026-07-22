@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import secrets
+from typing import Any
 from urllib.parse import quote
 
 from django.conf import settings
@@ -18,6 +19,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from .changelog import changelog_days_localized
 from .i18n_ui import CHANGELOG_UI, PAGE_UI
 from .security_utils import admin_task_key, rate_limit_exceeded, read_admin_key_from_request, safe_next_path
+from .services.bitfinex import get_crypto_label, is_stablecoin
 from .services.export_excel import build_tax_excel
 from .services.health_check import db_diagnostics, run_health_check
 from .services.session_state import build_api_payload
@@ -654,6 +656,36 @@ def strategy_explorer_page(request):
         "trading/strategy_explorer.html",
         {"app_build": getattr(settings, "APP_BUILD", "dev")},
     )
+
+
+@require_GET
+def api_strategy_explorer_symbols(request):
+    """
+    GET /api/strategy-explorer/symbols/
+
+    Tradattavat kryptot (ilman stablecoineja), volyymijärjestyksessä —
+    valintalistaa varten. Käyttää bot-loopin jo hakemaa tickers-tilaa,
+    ei uutta Bitfinex-kutsua.
+    """
+    state = load_state()
+    tickers = state.get("tickers") or {}
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    ranked = sorted(
+        tickers.items(), key=lambda kv: kv[1].get("volumeEur", 0) or 0, reverse=True
+    )
+    for symbol, ticker in ranked:
+        if is_stablecoin(symbol):
+            continue
+        base = get_crypto_label(symbol)
+        if not base or base in seen:
+            continue
+        seen.add(base)
+        items.append({"base": base, "volumeEur": ticker.get("volumeEur", 0) or 0})
+
+    response = JsonResponse({"symbols": items})
+    response["Cache-Control"] = "public, max-age=60"
+    return response
 
 
 @require_GET

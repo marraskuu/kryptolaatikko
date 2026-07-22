@@ -32,6 +32,29 @@
 
   setDefaultRange(90);
   els.end.max = isoDate(new Date());
+  loadSymbols();
+
+  async function loadSymbols() {
+    try {
+      const res = await fetch("/api/strategy-explorer/symbols/");
+      const data = await res.json();
+      const symbols = data.symbols || [];
+      if (!symbols.length) return;
+
+      const previous = els.symbol.value || "BTC";
+      els.symbol.innerHTML = "";
+      for (const item of symbols) {
+        const opt = document.createElement("option");
+        opt.value = item.base;
+        opt.textContent = item.base;
+        els.symbol.appendChild(opt);
+      }
+      const hasPrevious = symbols.some((item) => item.base === previous);
+      els.symbol.value = hasPrevious ? previous : symbols[0].base;
+    } catch (err) {
+      // Pidetään HTML:n BTC-oletusvaihtoehto, jos lista ei latautunut.
+    }
+  }
 
   els.presets.forEach((btn) => {
     btn.addEventListener("click", () => {

@@ -44,9 +44,16 @@
   font-family: inherit;
 }
 
-.explorer-symbol-input {
-  width: 8rem;
-  text-transform: uppercase;
+.explorer-symbol-select {
+  width: 10rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%238b9cb3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+  cursor: pointer;
 }
 
 .explorer-run-btn {
