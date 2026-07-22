@@ -2470,17 +2470,31 @@ body.modal-open {
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  color: var(--muted);
-  background: rgba(148, 163, 184, 0.08);
-  border: 1px solid transparent;
+  color: #fff;
   text-decoration: none;
-  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  opacity: 0.9;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .share-icon-btn:hover {
-  color: var(--text);
-  background: rgba(148, 163, 184, 0.16);
-  border-color: rgba(148, 163, 184, 0.3);
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.share-icon-btn--whatsapp {
+  background: #25d366;
+}
+
+.share-icon-btn--facebook {
+  background: #1877f2;
+}
+
+.share-icon-btn--x {
+  background: #000000;
+}
+
+.share-icon-btn--linkedin {
+  background: #0a66c2;
 }
 
 /* Muutosloki /muutokset */
