@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import secrets
+from urllib.parse import quote
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -136,6 +137,18 @@ def _llms_txt_body(base_url: str) -> str:
     )
 
 
+def _share_links(url: str, title: str) -> dict[str, str]:
+    """Somejako-osoitteet footerin ikoneille — ei vaadi some-alustan omaa SDK:ta."""
+    encoded_url = quote(url, safe="")
+    encoded_text = quote(title, safe="")
+    return {
+        "whatsapp": f"https://wa.me/?text={encoded_text}%20{encoded_url}",
+        "facebook": f"https://www.facebook.com/sharer/sharer.php?u={encoded_url}",
+        "x": f"https://twitter.com/intent/tweet?url={encoded_url}&text={encoded_text}",
+        "linkedin": f"https://www.linkedin.com/sharing/share-offsite/?url={encoded_url}",
+    }
+
+
 def _render_home(request, *, lang: str):
     visit_id = None
     try:
@@ -144,6 +157,7 @@ def _render_home(request, *, lang: str):
         logger.exception("Käyntitallennus epäonnistui")
     base = _public_site_url(request)
     canonical_url = f"{base}/eng/" if lang == "en" else f"{base}/"
+    ui = PAGE_UI[lang]
     return render(
         request,
         "trading/index.html",
@@ -153,7 +167,8 @@ def _render_home(request, *, lang: str):
             "alternate_fi": f"{base}/",
             "alternate_en": f"{base}/eng/",
             "json_ld": _site_json_ld(canonical_url, lang=lang),
-            "ui": PAGE_UI[lang],
+            "ui": ui,
+            "share": _share_links(canonical_url, ui["og_title"]),
         },
     )
 

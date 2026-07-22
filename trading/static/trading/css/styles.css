@@ -2445,6 +2445,44 @@ body.modal-open {
   text-decoration: underline;
 }
 
+.site-footer-share {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.share-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.share-icons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid transparent;
+  text-decoration: none;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.share-icon-btn:hover {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
 /* Muutosloki /muutokset */
 .changelog-page .header-title-row {
   align-items: flex-start;
