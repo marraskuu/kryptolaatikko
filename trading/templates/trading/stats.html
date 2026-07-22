@@ -90,6 +90,23 @@
           <span class="stat-change neutral">{{ unknownCountryVisits }} ilman maatietoa</span>
           {% endif %}
         </div>
+        <div class="stat-card stat-card-share">
+          <span class="stat-label">Somejaot</span>
+          <div class="stat-card-split">
+            <div class="stat-card-split-main">
+              <span class="stat-value">{{ shareStats.total }}</span>
+              <span class="stat-change neutral stat-subline">viimeiset {{ days }} pv</span>
+            </div>
+            <div class="stat-card-breakdown stat-card-breakdown-stack" aria-label="Somejaot alustoittain">
+              {% for row in shareStats.byPlatform %}
+              <div class="stat-card-breakdown-item">
+                <span class="stat-card-breakdown-label">{{ row.label }}</span>
+                <span class="stat-card-breakdown-value">{{ row.count }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
         <div class="stat-card">
           <span class="stat-label">Päivitetty</span>
           <span class="stat-value stat-value-sm">{{ generatedAt|date:"d.m.Y H:i" }}</span>

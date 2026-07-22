@@ -545,6 +545,28 @@ def api_visit_duration(request):
     return HttpResponse(status=404)
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_share_click(request):
+    """Kirjaa klikkaus footerin somejakoikonista (WhatsApp/Facebook/X/LinkedIn)."""
+    client_ip = _client_ip(request) or "unknown"
+    if rate_limit_exceeded("share-click", client_ip, limit=20, window_sec=60):
+        return HttpResponse(status=429)
+
+    try:
+        payload = json.loads(request.body or b"{}")
+    except (ValueError, TypeError):
+        payload = {}
+    platform = str(payload.get("platform") or request.POST.get("platform") or "").strip()
+    lang = str(payload.get("lang") or request.POST.get("lang") or "")
+
+    from .services.visitor_analytics import record_share_click
+
+    if record_share_click(platform, lang):
+        return HttpResponse(status=204)
+    return HttpResponse(status=400)
+
+
 def stats_login(request):
     """Kirjautuminen /stats-sivulle (Django superuser)."""
     if request.user.is_authenticated and request.user.is_superuser:
@@ -595,11 +617,12 @@ def stats_page(request):
     except ValueError:
         days = 30
 
-    from .services.visitor_analytics import get_stats_page_data
+    from .services.visitor_analytics import get_share_click_stats, get_stats_page_data
 
     stats = get_stats_page_data(days=days)
     context = {
         **stats,
+        "shareStats": get_share_click_stats(days=days),
         "days": days,
         "app_build": getattr(settings, "APP_BUILD", "dev"),
         "stats_user": request.user.username,

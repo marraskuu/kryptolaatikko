@@ -45,3 +45,26 @@ class PageVisit(models.Model):
 
     def __str__(self) -> str:
         return f"{self.visited_at:%Y-%m-%d %H:%M} {self.referer_source}"
+
+
+class ShareClick(models.Model):
+    """Klikkaus footerin somejakoikonista (WhatsApp/Facebook/X/LinkedIn)."""
+
+    PLATFORM_CHOICES = [
+        ("whatsapp", "WhatsApp"),
+        ("facebook", "Facebook"),
+        ("x", "X"),
+        ("linkedin", "LinkedIn"),
+    ]
+
+    clicked_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    platform = models.CharField(max_length=16, choices=PLATFORM_CHOICES, db_index=True)
+    lang = models.CharField(max_length=2, blank=True, default="")
+
+    class Meta:
+        verbose_name = "Somejakoklikkaus"
+        verbose_name_plural = "Somejakoklikkaukset"
+        ordering = ["-clicked_at"]
+
+    def __str__(self) -> str:
+        return f"{self.platform} {self.clicked_at:%Y-%m-%d %H:%M}"

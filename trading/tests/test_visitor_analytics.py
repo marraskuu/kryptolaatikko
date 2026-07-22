@@ -1,15 +1,18 @@
 """Kävijäseurannan suodattimet ja luotettava tallennus."""
 
+import json
 from unittest.mock import patch
 
-from django.test import RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase
 
-from trading.models import PageVisit
+from trading.models import PageVisit, ShareClick
 from trading.services.visitor_analytics import (
     STATS_TRACKING_PAUSE_COOKIE,
     _normalize_client_ip,
+    get_share_click_stats,
     is_bot_user_agent,
     record_page_visit,
+    record_share_click,
     should_record_page_visit,
 )
 
@@ -99,3 +102,60 @@ class BotUserAgentTests(TestCase):
 
     def test_googlebot_detected(self):
         self.assertTrue(is_bot_user_agent("Mozilla/5.0 (compatible; Googlebot/2.1)"))
+
+
+class ShareClickTests(TestCase):
+    def test_record_share_click_creates_row(self):
+        ok = record_share_click("whatsapp", "fi")
+        self.assertTrue(ok)
+        self.assertEqual(ShareClick.objects.count(), 1)
+        click = ShareClick.objects.first()
+        self.assertEqual(click.platform, "whatsapp")
+        self.assertEqual(click.lang, "fi")
+
+    def test_record_share_click_rejects_unknown_platform(self):
+        ok = record_share_click("instagram", "fi")
+        self.assertFalse(ok)
+        self.assertEqual(ShareClick.objects.count(), 0)
+
+    def test_get_share_click_stats_breaks_down_by_platform(self):
+        record_share_click("whatsapp")
+        record_share_click("whatsapp")
+        record_share_click("x")
+
+        stats = get_share_click_stats(days=30)
+
+        self.assertEqual(stats["total"], 3)
+        by_platform = {row["platform"]: row["count"] for row in stats["byPlatform"]}
+        self.assertEqual(by_platform["whatsapp"], 2)
+        self.assertEqual(by_platform["x"], 1)
+        self.assertEqual(by_platform["facebook"], 0)
+        self.assertEqual(by_platform["linkedin"], 0)
+
+
+class ApiShareClickViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_valid_platform_returns_204_and_saves_row(self):
+        response = self.client.post(
+            "/api/share-click/",
+            data=json.dumps({"platform": "linkedin", "lang": "en"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(ShareClick.objects.count(), 1)
+        self.assertEqual(ShareClick.objects.first().platform, "linkedin")
+
+    def test_unknown_platform_returns_400(self):
+        response = self.client.post(
+            "/api/share-click/",
+            data=json.dumps({"platform": "myspace"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(ShareClick.objects.count(), 0)
+
+    def test_get_not_allowed(self):
+        response = self.client.get("/api/share-click/")
+        self.assertEqual(response.status_code, 405)

@@ -94,6 +94,14 @@ _STATS_PATH_PREFIX = "/stats"
 STATS_TRACKING_PAUSE_COOKIE = "stats_tracking_pause"
 STATS_TRACKING_PAUSE_SEC = 180
 
+SHARE_PLATFORMS = ("whatsapp", "facebook", "x", "linkedin")
+SHARE_PLATFORM_LABELS = {
+    "whatsapp": "WhatsApp",
+    "facebook": "Facebook",
+    "x": "X",
+    "linkedin": "LinkedIn",
+}
+
 
 def _public_visits_qs():
     from trading.models import PageVisit
@@ -543,6 +551,48 @@ def _enrich_visit_row(row: dict[str, Any]) -> dict[str, Any]:
         out["client_ip"] = f"hash {out['ip_hash'][:10]}…"
     out["duration_label"] = format_duration_label(out.get("duration_sec"))
     return out
+
+
+def record_share_click(platform: str, lang: str = "") -> bool:
+    """Kirjaa klikkaus footerin somejakoikonista. Palauttaa False tuntemattomalle alustalle."""
+    platform = (platform or "").strip().lower()
+    if platform not in SHARE_PLATFORMS:
+        return False
+
+    from trading.models import ShareClick
+
+    try:
+        ShareClick.objects.create(platform=platform, lang=(lang or "").strip()[:2])
+    except Exception:
+        logger.exception("ShareClick create failed")
+        return False
+    return True
+
+
+def get_share_click_stats(*, days: int = 30) -> dict[str, Any]:
+    """Somejako-klikkaukset alustoittain /stats-sivulle."""
+    from trading.models import ShareClick
+
+    days = max(1, min(int(days), 365))
+    since = timezone.now() - timedelta(days=days)
+    qs = ShareClick.objects.filter(clicked_at__gte=since)
+
+    counts = {row["platform"]: row["count"] for row in qs.values("platform").annotate(count=Count("id"))}
+    by_platform = [
+        {
+            "platform": platform,
+            "label": SHARE_PLATFORM_LABELS[platform],
+            "count": counts.get(platform, 0),
+        }
+        for platform in SHARE_PLATFORMS
+    ]
+    last_click_at = qs.order_by("-clicked_at").values_list("clicked_at", flat=True).first()
+
+    return {
+        "total": sum(counts.values()),
+        "byPlatform": by_platform,
+        "lastClickAt": last_click_at,
+    }
 
 
 def get_stats_page_data(*, days: int = 30) -> dict[str, Any]:
