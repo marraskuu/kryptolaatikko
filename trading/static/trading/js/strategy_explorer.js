@@ -1,6 +1,69 @@
 (function () {
   "use strict";
 
+  const UI_LANG = document.documentElement.lang === "en" ? "en" : "fi";
+  const LOCALE = UI_LANG === "en" ? "en-US" : "fi-FI";
+
+  const STRINGS = {
+    fi: {
+      needSymbol: "Anna kryptosymboli, esim. BTC.",
+      needDates: "Valitse alkamis- ja päättymispäivä.",
+      running: "Ajetaan backtestiä — haetaan kynttilähistoriaa Bitfinexiltä…",
+      failed: "Backtest epäonnistui — yritä hetken päästä uudelleen.",
+      errInvalidSymbol: "Tuntematon symboli — kokeile esim. BTC, ETH tai SOL.",
+      errNoCandles: "Kynttilähistoriaa ei löytynyt tälle symbolille/aikavälille.",
+      errMissingParams: "Symboli ja aikaväli puuttuvat.",
+      errBadDate: "Virheellinen päivämäärä.",
+      errRangeOrder: "Alkamispäivän pitää olla ennen päättymispäivää.",
+      errRangeTooLong: "Aikaväli liian pitkä (max {maxDays} päivää).",
+      errRateLimit: "Liian monta hakua — odota hetki ja yritä uudelleen.",
+      resultsTitle: "Tulos — {base} · {start}–{end}",
+      summaryReturn: "Tuotto",
+      summaryEndBalance: "Loppusaldo",
+      summaryTradeCount: "Kauppoja",
+      summaryWinRate: "Voitto-%",
+      chartEmpty: "Ei kauppoja tällä aikavälillä.",
+      tradesEmpty: "Ei kauppoja tällä aikavälillä — pisteytys ei ylittänyt osto-kynnystä.",
+      reasonProfitTake: "Voitto-myynti",
+      reasonStop: "Stop-loss",
+      reasonTimeLimit: "Aikaraja",
+      reasonDataEnd: "Data loppui",
+    },
+    en: {
+      needSymbol: "Enter a crypto symbol, e.g. BTC.",
+      needDates: "Pick a start and end date.",
+      running: "Running backtest — fetching candle history from Bitfinex…",
+      failed: "Backtest failed — try again in a moment.",
+      errInvalidSymbol: "Unknown symbol — try e.g. BTC, ETH or SOL.",
+      errNoCandles: "No candle history found for this symbol/date range.",
+      errMissingParams: "Symbol and date range are missing.",
+      errBadDate: "Invalid date.",
+      errRangeOrder: "The start date must be before the end date.",
+      errRangeTooLong: "Date range too long (max {maxDays} days).",
+      errRateLimit: "Too many requests — wait a moment and try again.",
+      resultsTitle: "Result — {base} · {start}–{end}",
+      summaryReturn: "Return",
+      summaryEndBalance: "Ending balance",
+      summaryTradeCount: "Trades",
+      summaryWinRate: "Win rate",
+      chartEmpty: "No trades in this period.",
+      tradesEmpty: "No trades in this period — score never crossed the buy threshold.",
+      reasonProfitTake: "Profit take",
+      reasonStop: "Stop-loss",
+      reasonTimeLimit: "Time limit",
+      reasonDataEnd: "Data ended",
+    },
+  };
+
+  function t(key, vars) {
+    let str = (STRINGS[UI_LANG] || STRINGS.fi)[key];
+    if (str == null) return key;
+    if (vars) {
+      str = str.replace(/\{(\w+)\}/g, (_, name) => (vars[name] != null ? String(vars[name]) : ""));
+    }
+    return str;
+  }
+
   const SVG_NS = "http://www.w3.org/2000/svg";
   const PLOT = { x0: 56, x1: 946, y0: 14, y1: 290, width: 960, height: 320 };
 
@@ -67,7 +130,7 @@
 
   function formatEur(value) {
     return (
-      Number(value).toLocaleString("fi-FI", {
+      Number(value).toLocaleString(LOCALE, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }) + " €"
@@ -76,11 +139,11 @@
 
   function formatPct(value) {
     const sign = value > 0 ? "+" : "";
-    return sign + Number(value).toLocaleString("fi-FI", { maximumFractionDigits: 2 }) + " %";
+    return sign + Number(value).toLocaleString(LOCALE, { maximumFractionDigits: 2 }) + " %";
   }
 
   function formatDateTime(ms) {
-    return new Date(ms).toLocaleString("fi-FI", {
+    return new Date(ms).toLocaleString(LOCALE, {
       day: "numeric",
       month: "numeric",
       year: "numeric",
@@ -90,7 +153,7 @@
   }
 
   function formatDate(ms) {
-    return new Date(ms).toLocaleDateString("fi-FI", {
+    return new Date(ms).toLocaleDateString(LOCALE, {
       day: "numeric",
       month: "numeric",
       year: "numeric",
@@ -98,10 +161,10 @@
   }
 
   const REASON_LABELS = {
-    profit_take: "Voitto-myynti",
-    stop: "Stop-loss",
-    time_limit: "Aikaraja",
-    data_end: "Data loppui",
+    profit_take: t("reasonProfitTake"),
+    stop: t("reasonStop"),
+    time_limit: t("reasonTimeLimit"),
+    data_end: t("reasonDataEnd"),
   };
 
   function setStatus(message, isError) {
@@ -121,17 +184,17 @@
     const end = els.end.value;
 
     if (!symbol) {
-      setStatus("Anna kryptosymboli, esim. BTC.", true);
+      setStatus(t("needSymbol"), true);
       return;
     }
     if (!start || !end) {
-      setStatus("Valitse alkamis- ja päättymispäivä.", true);
+      setStatus(t("needDates"), true);
       return;
     }
 
     els.run.disabled = true;
     els.results.hidden = true;
-    setStatus("Ajetaan backtestiä — haetaan kynttilähistoriaa Bitfinexiltä…", false);
+    setStatus(t("running"), false);
 
     try {
       const params = new URLSearchParams({ symbol, start, end });
@@ -146,7 +209,7 @@
       setStatus("", false);
       renderResults(data);
     } catch (err) {
-      setStatus("Backtest epäonnistui — yritä hetken päästä uudelleen.", true);
+      setStatus(t("failed"), true);
     } finally {
       els.run.disabled = false;
     }
@@ -155,27 +218,31 @@
   function errorMessage(code, data) {
     switch (code) {
       case "invalid_symbol":
-        return "Tuntematon symboli — kokeile esim. BTC, ETH tai SOL.";
+        return t("errInvalidSymbol");
       case "no_candles":
-        return "Kynttilähistoriaa ei löytynyt tälle symbolille/aikavälille.";
+        return t("errNoCandles");
       case "missing_params":
-        return "Symboli ja aikaväli puuttuvat.";
+        return t("errMissingParams");
       case "bad_date":
-        return "Virheellinen päivämäärä.";
+        return t("errBadDate");
       case "range_order":
-        return "Alkamispäivän pitää olla ennen päättymispäivää.";
+        return t("errRangeOrder");
       case "range_too_long":
-        return `Aikaväli liian pitkä (max ${data.maxDays || 400} päivää).`;
+        return t("errRangeTooLong", { maxDays: data.maxDays || 400 });
       case "rate_limit":
-        return "Liian monta hakua — odota hetki ja yritä uudelleen.";
+        return t("errRateLimit");
       default:
-        return "Backtest epäonnistui — yritä hetken päästä uudelleen.";
+        return t("failed");
     }
   }
 
   function renderResults(data) {
     els.results.hidden = false;
-    els.resultsTitle.textContent = `Tulos — ${data.base} · ${formatDate(data.startMs)}–${formatDate(data.endMs)}`;
+    els.resultsTitle.textContent = t("resultsTitle", {
+      base: data.base,
+      start: formatDate(data.startMs),
+      end: formatDate(data.endMs),
+    });
     renderSummary(data);
     renderChart(data.equityCurve, data.returnPct >= 0);
     renderTrades(data.trades);
@@ -185,19 +252,19 @@
     const positive = data.returnPct >= 0;
     const cards = [
       {
-        label: "Tuotto",
+        label: t("summaryReturn"),
         value: formatPct(data.returnPct),
         cls: positive ? "positive" : "negative",
       },
       {
-        label: "Loppusaldo",
+        label: t("summaryEndBalance"),
         value: formatEur(data.endBalance),
         cls: positive ? "positive" : "negative",
       },
-      { label: "Kauppoja", value: String(data.tradeCount), cls: "" },
+      { label: t("summaryTradeCount"), value: String(data.tradeCount), cls: "" },
       {
-        label: "Voitto-%",
-        value: data.winRate == null ? "—" : data.winRate.toLocaleString("fi-FI") + " %",
+        label: t("summaryWinRate"),
+        value: data.winRate == null ? "—" : data.winRate.toLocaleString(LOCALE) + " %",
         cls: "",
       },
     ];
@@ -262,7 +329,7 @@
       text.setAttribute("y", PLOT.height / 2);
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("class", "explorer-axis-label");
-      text.textContent = "Ei kauppoja tällä aikavälillä.";
+      text.textContent = t("chartEmpty");
       svg.appendChild(text);
       return;
     }
@@ -298,7 +365,7 @@
       label.setAttribute("x", PLOT.x0 - 8);
       label.setAttribute("y", y + 4);
       label.setAttribute("text-anchor", "end");
-      label.textContent = Math.round(tick).toLocaleString("fi-FI") + " €";
+      label.textContent = Math.round(tick).toLocaleString(LOCALE) + " €";
       gGrid.appendChild(label);
     });
     svg.appendChild(gGrid);
@@ -431,7 +498,7 @@
       tr.className = "explorer-empty-row";
       const td = document.createElement("td");
       td.colSpan = 7;
-      td.textContent = "Ei kauppoja tällä aikavälillä — pisteytys ei ylittänyt osto-kynnystä.";
+      td.textContent = t("tradesEmpty");
       tr.appendChild(td);
       els.tradesBody.appendChild(tr);
       return;

@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .changelog import changelog_days_localized
-from .i18n_ui import CHANGELOG_UI, PAGE_UI
+from .i18n_ui import CHANGELOG_UI, EXPLORER_UI, NAV_UI, PAGE_UI
 from .security_utils import admin_task_key, rate_limit_exceeded, read_admin_key_from_request, safe_next_path
 from .services.bitfinex import get_crypto_label, is_stablecoin
 from .services.export_excel import build_tax_excel
@@ -159,6 +159,21 @@ def _share_links(url: str, title: str) -> dict[str, str]:
     }
 
 
+def _topbar_context(request, *, lang: str, current: str) -> dict[str, Any]:
+    """Hampurilaisvalikko + jakonapit -yläpalkin konteksti (kaikki julkiset sivut).
+
+    Jakonapit jakavat aina etusivun — ei sitä sivua, jolla kävijä sattuu olemaan
+    — koska etusivu on se, mitä halutaan levittää somessa."""
+    nav = dict(NAV_UI[lang])
+    nav["current"] = current
+    base = _public_site_url(request)
+    home_title = PAGE_UI[lang]["og_title"]
+    return {
+        "nav": nav,
+        "share": _share_links(f"{base}{nav['home_href']}", home_title),
+    }
+
+
 def _render_home(request, *, lang: str):
     visit_id = None
     try:
@@ -179,7 +194,7 @@ def _render_home(request, *, lang: str):
             "og_image": f"{base}{static('trading/img/og-image.jpg')}",
             "json_ld": _site_json_ld(canonical_url, lang=lang),
             "ui": ui,
-            "share": _share_links(canonical_url, ui["og_title"]),
+            **_topbar_context(request, lang=lang, current="home"),
         },
     )
 
@@ -232,6 +247,7 @@ def _render_changelog(request, *, lang: str):
             "og_image": f"{base}{static('trading/img/og-image.jpg')}",
             "app_build": settings.APP_BUILD,
             "ui": ui,
+            **_topbar_context(request, lang=lang, current="changelog"),
         },
     )
 
@@ -458,7 +474,6 @@ def robots_txt(request):
         "Disallow: /stats/",
         "Disallow: /api/",
         "Disallow: /admin/",
-        "Disallow: /strategy-explorer/",
         "",
         f"Sitemap: {base}/sitemap.xml",
     ]
@@ -467,12 +482,13 @@ def robots_txt(request):
 
 @require_GET
 def sitemap_xml(request):
-    """Julkinen sivusto — etusivu ja muutosloki.
+    """Julkinen sivusto — etusivu, muutosloki ja Strategy Explorer.
 
     Etusivun lastmod = tänään (sisältö päivittyy jatkuvasti, live-data).
-    Muutosloki-sivujen lastmod = uusimman julkaistun muutoslokipäivän
-    päivämäärä — ei "tänään" joka pyynnöllä, koska sivu ei oikeasti muutu
-    joka päivä ja väärä lastmod heikentää hakukoneiden luottamusta signaaliin.
+    Muutosloki- ja Strategy Explorer -sivujen lastmod = uusimman julkaistun
+    muutoslokipäivän päivämäärä — ei "tänään" joka pyynnöllä, koska sivut eivät
+    oikeasti muutu joka päivä ja väärä lastmod heikentää hakukoneiden
+    luottamusta signaaliin.
     """
     base = _public_site_url(request)
     today = timezone.localdate().isoformat()
@@ -483,6 +499,8 @@ def sitemap_xml(request):
         (f"{base}/eng/", "daily", "0.9", today),
         (f"{base}/muutokset/", "weekly", "0.6", changelog_lastmod),
         (f"{base}/changelog/", "weekly", "0.6", changelog_lastmod),
+        (f"{base}/strategy-explorer/", "weekly", "0.6", changelog_lastmod),
+        (f"{base}/strategy-explorer/en/", "weekly", "0.5", changelog_lastmod),
     ]
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>\n',
@@ -645,17 +663,37 @@ def stats_page(request):
     return mark_stats_tracking_pause(response)
 
 
-@require_GET
-def strategy_explorer_page(request):
+def _render_strategy_explorer(request, *, lang: str):
     """
-    Piilosivu (ei linkitetty navigaatiosta): valitse krypto ja aikaväli, aja
-    botin oikea osto/myynti-logiikka historiaan. Ks. services/strategy_explorer.py.
+    Valitse krypto ja aikaväli, aja botin oikea osto/myynti-logiikka
+    historiaan. Ks. services/strategy_explorer.py.
     """
+    base = _public_site_url(request)
+    ui = EXPLORER_UI[lang]
+    canonical_url = f"{base}{ui['lang_en_href' if lang == 'en' else 'lang_fi_href']}"
     return render(
         request,
         "trading/strategy_explorer.html",
-        {"app_build": getattr(settings, "APP_BUILD", "dev")},
+        {
+            "app_build": getattr(settings, "APP_BUILD", "dev"),
+            "canonical_url": canonical_url,
+            "alternate_fi": f"{base}/strategy-explorer/",
+            "alternate_en": f"{base}/strategy-explorer/en/",
+            "og_image": f"{base}{static('trading/img/og-image.jpg')}",
+            "ui": ui,
+            **_topbar_context(request, lang=lang, current="explorer"),
+        },
     )
+
+
+@require_GET
+def strategy_explorer_page(request):
+    return _render_strategy_explorer(request, lang="fi")
+
+
+@require_GET
+def strategy_explorer_page_en(request):
+    return _render_strategy_explorer(request, lang="en")
 
 
 @require_GET

@@ -49,6 +49,86 @@ body::before {
   padding: 24px;
 }
 
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.top-bar-left {
+  position: relative;
+}
+
+.hamburger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hamburger-btn:hover,
+.hamburger-btn[aria-expanded="true"] {
+  background: var(--surface2);
+  border-color: var(--accent);
+}
+
+.top-bar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.top-bar-menu[hidden] {
+  display: none;
+}
+
+.top-bar-menu-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.top-bar-menu-link:hover {
+  background: var(--surface2);
+}
+
+.top-bar-menu-link.is-active {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+.top-bar-share {
+  gap: 8px;
+}
+
 .header {
   display: flex;
   align-items: flex-start;

@@ -1,17 +1,35 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="fi">
+<html lang="{{ ui.html_lang }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="robots" content="noindex, nofollow" />
-  <title>Strategy Explorer — hiekkalaatikko.pro</title>
+  <title>{{ ui.title }}</title>
+  <meta name="description" content="{{ ui.description }}" />
   <link rel="icon" type="image/svg+xml" href="{% static 'trading/img/favicon.svg' %}" />
+  <link rel="canonical" href="{{ canonical_url }}" />
+  <link rel="alternate" hreflang="fi" href="{{ alternate_fi }}" />
+  <link rel="alternate" hreflang="en" href="{{ alternate_en }}" />
+  <link rel="alternate" hreflang="x-default" href="{{ alternate_fi }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="{{ ui.og_locale }}" />
+  <meta property="og:url" content="{{ canonical_url }}" />
+  <meta property="og:site_name" content="hiekkalaatikko.pro" />
+  <meta property="og:title" content="{{ ui.og_title }}" />
+  <meta property="og:description" content="{{ ui.og_description }}" />
+  <meta property="og:image" content="{{ og_image }}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ ui.og_title }}" />
+  <meta name="twitter:description" content="{{ ui.og_description }}" />
+  <meta name="twitter:image" content="{{ og_image }}" />
   <link rel="stylesheet" href="{% static 'trading/css/styles.css' %}" />
   <link rel="stylesheet" href="{% static 'trading/css/strategy_explorer.css' %}" />
 </head>
 <body>
   <div class="app stats-page">
+    {% include "trading/_topbar.html" %}
     <header class="header">
       <div class="logo">
         <svg class="logo-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -24,58 +42,84 @@
       </div>
       <div class="header-body">
         <div class="header-title-row">
-          <h1>Strategy Explorer</h1>
+          <h1>{{ ui.h1 }}</h1>
           <div class="stats-header-actions">
-            <a class="stats-back-link" href="/" rel="nofollow noopener">← Etusivu</a>
+            <nav class="lang-flags" aria-label="Language">
+              <a
+                class="lang-flag{% if ui.lang == 'fi' %} is-active{% endif %}"
+                href="{{ ui.lang_fi_href }}"
+                title="{{ ui.lang_fi_title }}"
+                hreflang="fi"
+                {% if ui.lang == 'fi' %}aria-current="page"{% endif %}
+              >
+                <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                  <rect width="36" height="24" fill="#fff"/>
+                  <rect y="9" width="36" height="6" fill="#003580"/>
+                  <rect x="10" width="6" height="24" fill="#003580"/>
+                </svg>
+                <span class="visually-hidden">{{ ui.lang_fi_title }}</span>
+              </a>
+              <a
+                class="lang-flag{% if ui.lang == 'en' %} is-active{% endif %}"
+                href="{{ ui.lang_en_href }}"
+                title="{{ ui.lang_en_title }}"
+                hreflang="en"
+                {% if ui.lang == 'en' %}aria-current="page"{% endif %}
+              >
+                <svg class="lang-flag-svg" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+                  <rect width="36" height="24" fill="#012169"/>
+                  <path d="M0 0 L36 24 M36 0 L0 24" stroke="#fff" stroke-width="5"/>
+                  <path d="M0 0 L36 24 M36 0 L0 24" stroke="#C8102E" stroke-width="2.5"/>
+                  <path d="M18 0 V24 M0 12 H36" stroke="#fff" stroke-width="8"/>
+                  <path d="M18 0 V24 M0 12 H36" stroke="#C8102E" stroke-width="4.5"/>
+                </svg>
+                <span class="visually-hidden">{{ ui.lang_en_title }}</span>
+              </a>
+            </nav>
           </div>
         </div>
-        <p class="subtitle">Valitse krypto ja aikaväli — aja botin oikea osto- ja myyntilogiikka historiaan</p>
+        <p class="subtitle">{{ ui.subtitle }}</p>
       </div>
     </header>
 
     <section class="panel explorer-panel">
       <div class="panel-header">
-        <h2>Backtest</h2>
+        <h2>{{ ui.panel_backtest }}</h2>
       </div>
       <div class="explorer-form">
         <div class="explorer-field">
-          <label for="explorer-symbol">Krypto</label>
+          <label for="explorer-symbol">{{ ui.label_crypto }}</label>
           <select id="explorer-symbol" class="explorer-symbol-select">
             <option value="BTC">BTC</option>
           </select>
         </div>
         <div class="explorer-field">
-          <label for="explorer-start">Alkaen</label>
+          <label for="explorer-start">{{ ui.label_start }}</label>
           <input type="date" id="explorer-start" />
         </div>
         <div class="explorer-field">
-          <label for="explorer-end">Päättyen</label>
+          <label for="explorer-end">{{ ui.label_end }}</label>
           <input type="date" id="explorer-end" />
         </div>
         <div class="explorer-field explorer-field-run">
           <label>&nbsp;</label>
-          <button type="button" id="explorer-run" class="explorer-run-btn">Aja backtest</button>
+          <button type="button" id="explorer-run" class="explorer-run-btn">{{ ui.run_btn }}</button>
         </div>
       </div>
-      <div class="explorer-presets" role="group" aria-label="Pikavalinnat aikavälille">
-        <button type="button" class="explorer-preset-btn" data-days="30">Viim. 30 pv</button>
-        <button type="button" class="explorer-preset-btn" data-days="90">Viim. 90 pv</button>
-        <button type="button" class="explorer-preset-btn" data-days="180">Viim. 180 pv</button>
-        <button type="button" class="explorer-preset-btn" data-days="365">Viim. 365 pv</button>
+      <div class="explorer-presets" role="group" aria-label="{{ ui.presets_aria }}">
+        <button type="button" class="explorer-preset-btn" data-days="30">{{ ui.preset_30 }}</button>
+        <button type="button" class="explorer-preset-btn" data-days="90">{{ ui.preset_90 }}</button>
+        <button type="button" class="explorer-preset-btn" data-days="180">{{ ui.preset_180 }}</button>
+        <button type="button" class="explorer-preset-btn" data-days="365">{{ ui.preset_365 }}</button>
       </div>
-      <p class="explorer-disclaimer">
-        Yksinkertaistettu simulaatio: yksi krypto ja yksi positio kerrallaan, sama osto-pisteytys
-        (tekninen analyysi) ja sama voitto-myynti/stop-loss-logiikka kuin live-botilla. Oikea botti
-        hajauttaa kymmeniin pareihin, voi pitää useita positioita yhtä aikaa ja käyttää myös
-        Gemini AI:ta — tämä työkalu ei simuloi kumpaakaan.
-      </p>
+      <p class="explorer-disclaimer">{{ ui.disclaimer }}</p>
     </section>
 
     <div class="explorer-status" id="explorer-status" hidden></div>
 
     <section class="panel explorer-panel" id="explorer-results" hidden>
       <div class="panel-header">
-        <h2 id="explorer-results-title">Tulos</h2>
+        <h2 id="explorer-results-title">{{ ui.results_default }}</h2>
       </div>
       <div class="stats-row" id="explorer-summary"></div>
       <div class="explorer-chart-wrap">
@@ -84,7 +128,7 @@
           class="explorer-chart"
           viewBox="0 0 960 320"
           preserveAspectRatio="none"
-          aria-label="Salkun arvon kehitys backtestissä"
+          aria-label="{{ ui.chart_aria }}"
         ></svg>
         <div class="explorer-tooltip" id="explorer-tooltip" hidden></div>
       </div>
@@ -92,13 +136,13 @@
         <table class="portfolio-table">
           <thead>
             <tr>
-              <th>Osto</th>
-              <th>Osto-hinta</th>
-              <th>Myynti</th>
-              <th>Myynti-hinta</th>
-              <th>Tuotto</th>
-              <th>€</th>
-              <th>Syy</th>
+              <th>{{ ui.th_buy }}</th>
+              <th>{{ ui.th_buy_price }}</th>
+              <th>{{ ui.th_sell }}</th>
+              <th>{{ ui.th_sell_price }}</th>
+              <th>{{ ui.th_return }}</th>
+              <th>{{ ui.th_eur }}</th>
+              <th>{{ ui.th_reason }}</th>
             </tr>
           </thead>
           <tbody id="explorer-trades-body"></tbody>
@@ -107,10 +151,11 @@
     </section>
 
     <footer class="site-seo-footer">
-      <p><a href="/">← Krypto Simulaattori</a></p>
+      <p><a href="{{ ui.footer_back_href }}">{{ ui.footer_back }}</a></p>
     </footer>
   </div>
 
-  <script src="{% static 'trading/js/strategy_explorer.js' %}"></script>
+  <script src="{% static 'trading/js/topbar.js' %}?v=1"></script>
+  <script src="{% static 'trading/js/strategy_explorer.js' %}?v=2"></script>
 </body>
 </html>

@@ -2,6 +2,41 @@
 
 from __future__ import annotations
 
+# Yläpalkin (hampurilaisvalikko + jakonapit) tekstit — jaettu index/muutokset/
+# strategy-explorer -sivujen kesken, ks. templates/trading/_topbar.html.
+NAV_UI: dict[str, dict[str, str]] = {
+    "fi": {
+        "home_href": "/",
+        "home_label": "Etusivu",
+        "changelog_href": "/muutokset/",
+        "changelog_label": "Muutokset",
+        "explorer_href": "/strategy-explorer/",
+        "explorer_label": "Strategy Explorer",
+        "menu_aria": "Valikko",
+        "nav_aria": "Sivuston navigaatio",
+        "share_nav_aria": "Jaa somessa",
+        "share_whatsapp": "Jaa WhatsAppissa",
+        "share_facebook": "Jaa Facebookissa",
+        "share_x": "Jaa X:ssä",
+        "share_linkedin": "Jaa LinkedInissä",
+    },
+    "en": {
+        "home_href": "/eng/",
+        "home_label": "Home",
+        "changelog_href": "/changelog/",
+        "changelog_label": "Changelog",
+        "explorer_href": "/strategy-explorer/en/",
+        "explorer_label": "Strategy Explorer",
+        "menu_aria": "Menu",
+        "nav_aria": "Site navigation",
+        "share_nav_aria": "Share on social media",
+        "share_whatsapp": "Share on WhatsApp",
+        "share_facebook": "Share on Facebook",
+        "share_x": "Share on X",
+        "share_linkedin": "Share on LinkedIn",
+    },
+}
+
 PAGE_UI: dict[str, dict[str, str]] = {
     "fi": {
         "html_lang": "fi",
@@ -115,12 +150,6 @@ PAGE_UI: dict[str, dict[str, str]] = {
         "footer_nav_aria": "Sivuston linkit",
         "footer_changelog": "Muutokset ja päivitykset",
         "footer_changelog_href": "/muutokset/",
-        "share_label": "Jaa sivu:",
-        "share_nav_aria": "Jaa somessa",
-        "share_whatsapp": "Jaa WhatsAppissa",
-        "share_facebook": "Jaa Facebookissa",
-        "share_x": "Jaa X:ssä",
-        "share_linkedin": "Jaa LinkedInissä",
         "modal_title": "Geminin kertomukset",
         "modal_close": "Sulje",
         "modal_search": "Hae päivämäärällä tai tekstillä…",
@@ -236,12 +265,6 @@ PAGE_UI: dict[str, dict[str, str]] = {
         "footer_nav_aria": "Site links",
         "footer_changelog": "Changelog",
         "footer_changelog_href": "/changelog/",
-        "share_label": "Share this page:",
-        "share_nav_aria": "Share on social media",
-        "share_whatsapp": "Share on WhatsApp",
-        "share_facebook": "Share on Facebook",
-        "share_x": "Share on X",
-        "share_linkedin": "Share on LinkedIn",
         "modal_title": "Gemini narratives",
         "modal_close": "Close",
         "modal_search": "Search by date or text…",
@@ -304,5 +327,108 @@ CHANGELOG_UI: dict[str, dict[str, str]] = {
         "lang_en_href": "/changelog/",
         "lang_fi_title": "Suomi",
         "lang_en_title": "English",
+    },
+}
+
+
+EXPLORER_UI: dict[str, dict[str, str]] = {
+    "fi": {
+        "html_lang": "fi",
+        "og_locale": "fi_FI",
+        "title": "Strategy Explorer — backtestaa kryptobotin strategiaa | hiekkalaatikko.pro",
+        "description": (
+            "Aja hiekkalaatikko.pro:n live-kryptobotin oikea osto- ja myyntilogiikka minkä "
+            "tahansa Bitfinex-kryptovaluutan historiaan. Valitse krypto ja aikaväli, näe "
+            "tuotto, kaupat ja equity-käyrä."
+        ),
+        "og_title": "Strategy Explorer — backtestaa kryptobotin strategiaa",
+        "og_description": (
+            "Aja botin oikea tekninen analyysi ja voitto-myynti/stop-loss-logiikka historiaan "
+            "valitsemallesi kryptolle ja aikavälille."
+        ),
+        "h1": "Strategy Explorer",
+        "subtitle": "Valitse krypto ja aikaväli — aja botin oikea osto- ja myyntilogiikka historiaan",
+        "lang": "fi",
+        "lang_fi_href": "/strategy-explorer/",
+        "lang_en_href": "/strategy-explorer/en/",
+        "lang_fi_title": "Suomi",
+        "lang_en_title": "English",
+        "panel_backtest": "Backtest",
+        "label_crypto": "Krypto",
+        "label_start": "Alkaen",
+        "label_end": "Päättyen",
+        "run_btn": "Aja backtest",
+        "presets_aria": "Pikavalinnat aikavälille",
+        "preset_30": "Viim. 30 pv",
+        "preset_90": "Viim. 90 pv",
+        "preset_180": "Viim. 180 pv",
+        "preset_365": "Viim. 365 pv",
+        "disclaimer": (
+            "Yksinkertaistettu simulaatio: yksi krypto ja yksi positio kerrallaan, sama "
+            "osto-pisteytys (tekninen analyysi) ja sama voitto-myynti/stop-loss-logiikka kuin "
+            "live-botilla. Oikea botti hajauttaa kymmeniin pareihin, voi pitää useita "
+            "positioita yhtä aikaa ja käyttää myös Gemini AI:ta — tämä työkalu ei simuloi "
+            "kumpaakaan."
+        ),
+        "results_default": "Tulos",
+        "chart_aria": "Salkun arvon kehitys backtestissä",
+        "th_buy": "Osto",
+        "th_buy_price": "Osto-hinta",
+        "th_sell": "Myynti",
+        "th_sell_price": "Myynti-hinta",
+        "th_return": "Tuotto",
+        "th_eur": "€",
+        "th_reason": "Syy",
+        "footer_back": "← Krypto Simulaattori",
+        "footer_back_href": "/",
+    },
+    "en": {
+        "html_lang": "en",
+        "og_locale": "en_US",
+        "title": "Strategy Explorer — backtest the crypto bot's strategy | hiekkalaatikko.pro",
+        "description": (
+            "Run hiekkalaatikko.pro's live crypto bot's real buy/sell logic against the "
+            "history of any Bitfinex cryptocurrency. Pick a crypto and date range, see the "
+            "return, trades and equity curve."
+        ),
+        "og_title": "Strategy Explorer — backtest the crypto bot's strategy",
+        "og_description": (
+            "Run the bot's real technical analysis and profit-take/stop-loss logic against "
+            "history for a crypto and date range you choose."
+        ),
+        "h1": "Strategy Explorer",
+        "subtitle": "Pick a crypto and date range — run the bot's real buy/sell logic against history",
+        "lang": "en",
+        "lang_fi_href": "/strategy-explorer/",
+        "lang_en_href": "/strategy-explorer/en/",
+        "lang_fi_title": "Suomi",
+        "lang_en_title": "English",
+        "panel_backtest": "Backtest",
+        "label_crypto": "Crypto",
+        "label_start": "Start",
+        "label_end": "End",
+        "run_btn": "Run backtest",
+        "presets_aria": "Date range shortcuts",
+        "preset_30": "Last 30 d",
+        "preset_90": "Last 90 d",
+        "preset_180": "Last 180 d",
+        "preset_365": "Last 365 d",
+        "disclaimer": (
+            "Simplified simulation: one crypto and one position at a time, the same entry "
+            "scoring (technical analysis) and the same profit-take/stop-loss logic as the "
+            "live bot. The real bot spreads across dozens of pairs, can hold several "
+            "positions at once, and also uses Gemini AI — this tool simulates neither."
+        ),
+        "results_default": "Result",
+        "chart_aria": "Portfolio value over the backtest",
+        "th_buy": "Buy",
+        "th_buy_price": "Buy price",
+        "th_sell": "Sell",
+        "th_sell_price": "Sell price",
+        "th_return": "Return",
+        "th_eur": "€",
+        "th_reason": "Reason",
+        "footer_back": "← Crypto Simulator",
+        "footer_back_href": "/eng/",
     },
 }

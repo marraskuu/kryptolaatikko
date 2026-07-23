@@ -27,6 +27,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Fixed candle-history fetch for 4+ letter cryptos",
                 "body_en": "Cryptos with a ticker other than 3 letters (e.g. AAVE, LINK) weren't fetching any candle, order-book, or trade history from Bitfinex at all — the API requires a colon form for these (tAAVE:USD). Fixed everywhere, including in Strategy Explorer.",
             },
+            {
+                "title": "Strategy Explorer nyt osa navigaatiota, myös englanniksi",
+                "body": "Uusi hampurilaisvalikko ja jakonapit sivujen yläreunassa (etusivu, muutosloki, Strategy Explorer). Strategy Explorerista julkaistiin englanninkielinen versio (/strategy-explorer/en/), ja sivu on nyt hakukoneiden löydettävissä.",
+                "title_en": "Strategy Explorer now in the main navigation, and in English",
+                "body_en": "A new hamburger menu and share buttons at the top of every page (home, changelog, Strategy Explorer). An English version of Strategy Explorer was published (/strategy-explorer/en/), and the page is now discoverable by search engines.",
+            },
         ],
     },
     {

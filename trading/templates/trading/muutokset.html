@@ -29,6 +29,7 @@
 </head>
 <body>
   <div class="app changelog-page">
+    {% include "trading/_topbar.html" %}
     <header class="header">
       <div class="logo">
         <svg class="logo-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -43,7 +44,6 @@
         <div class="header-title-row">
           <h1>{{ ui.h1 }}</h1>
           <div class="stats-header-actions">
-            <a class="stats-back-link" href="{{ ui.back_href }}">{{ ui.back }}</a>
             <nav class="lang-flags" aria-label="Language">
               <a
                 class="lang-flag{% if ui.lang == 'fi' %} is-active{% endif %}"
@@ -108,5 +108,7 @@
       </p>
     </footer>
   </div>
+
+  <script src="{% static 'trading/js/topbar.js' %}?v=1"></script>
 </body>
 </html>

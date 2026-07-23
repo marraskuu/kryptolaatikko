@@ -26,6 +26,11 @@ urlpatterns = [
         views.strategy_explorer_page,
         name="strategy_explorer",
     ),
+    path(
+        "strategy-explorer/en/",
+        views.strategy_explorer_page_en,
+        name="strategy_explorer_en",
+    ),
     path("api/health/", views.api_health, name="api_health"),
     path("api/state/", views.api_state, name="api_state"),
     path(
