@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-23",
+        "entries": [
+            {
+                "title": "Korjattu kynttilähistorian haku 4+ kirjaimisille kryptoille",
+                "body": "Kryptot, joiden lyhenne on eri kuin 3 merkkiä (esim. AAVE, LINK), eivät hakeneet lainkaan kynttilä-, tilauskirja- tai kauppahistoriaa Bitfinexiltä — API vaatii näille kaksoispisteellisen muodon (tAAVE:USD). Korjattu kaikkialla, myös Strategy Explorerissa.",
+                "title_en": "Fixed candle-history fetch for 4+ letter cryptos",
+                "body_en": "Cryptos with a ticker other than 3 letters (e.g. AAVE, LINK) weren't fetching any candle, order-book, or trade history from Bitfinex at all — the API requires a colon form for these (tAAVE:USD). Fixed everywhere, including in Strategy Explorer.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-22",
         "entries": [
             {

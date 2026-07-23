@@ -147,11 +147,15 @@ def _raw_ticker_from_row(symbol: str, row: list) -> dict[str, Any]:
     }
 
 
-def _api_ticker_path(symbol: str) -> str:
-    """Bitfinex yksittäinen ticker vaatii usein kolonin (tLINK:USD)."""
+def _api_symbol_path(symbol: str) -> str:
+    """Bitfinexin API vaatii kolonin, kun base EI ole täsmälleen 3 merkkiä
+    (esim. tAAVE:USD, tLINK:USD) — 3-merkkiset basicit (tBTCUSD, tETHUSD)
+    puolestaan vaativat ETTEI kolonia ole, muuten API vastaa 500 invalid
+    symbol. Tätä käytetään kaikissa endpointeissa (ticker, candles, book,
+    trades, stats), joissa symboli on osa URL-polkua."""
     symbol = normalize_symbol(symbol)
     parsed = parse_pair_symbol(symbol)
-    if parsed:
+    if parsed and len(parsed["base"]) != 3:
         return f"t{parsed['base']}:{parsed['quote']}"
     return symbol
 
@@ -205,7 +209,7 @@ def fetch_ticker(symbol: str) -> dict[str, Any] | None:
 
     for candidate in candidates:
         try:
-            row = _bitfinex_fetch(f"/ticker/{_api_ticker_path(candidate)}")
+            row = _bitfinex_fetch(f"/ticker/{_api_symbol_path(candidate)}")
         except requests.RequestException:
             continue
         if not isinstance(row, list) or len(row) < 8:
@@ -370,7 +374,7 @@ def fetch_candles(
         return []
 
     capped = max(1, min(int(limit), CANDLES_MAX_LIMIT))
-    path = f"/candles/trade:{timeframe}:{symbol}/hist"
+    path = f"/candles/trade:{timeframe}:{_api_symbol_path(symbol)}/hist"
     params = [f"limit={capped}"]
     if start is not None:
         params.append(f"start={int(start)}")
@@ -422,7 +426,7 @@ def fetch_order_book(
     if not is_valid_trading_symbol(symbol):
         return None
     book_len = length if length in VALID_BOOK_LENS else BOOK_DEFAULT_LEN
-    path = f"/book/{symbol}/{precision}?len={book_len}"
+    path = f"/book/{_api_symbol_path(symbol)}/{precision}?len={book_len}"
     try:
         data = _bitfinex_fetch(path)
     except requests.HTTPError as exc:
@@ -495,7 +499,7 @@ def fetch_position_sizes(symbol: str) -> dict[str, Any] | None:
     for i, side in enumerate(("long", "short")):
         if i > 0 and pause > 0:
             time.sleep(pause)
-        path = f"/stats1/pos.size:1m:{symbol}:{side}/last"
+        path = f"/stats1/pos.size:1m:{_api_symbol_path(symbol)}:{side}/last"
         try:
             row = _bitfinex_fetch(path)
         except requests.HTTPError as exc:
@@ -540,7 +544,7 @@ def fetch_trades_hist(
     if not is_valid_trading_symbol(symbol):
         return None
     trade_limit = max(1, min(TRADES_MAX_LIMIT, int(limit)))
-    path = f"/trades/{symbol}/hist?limit={trade_limit}"
+    path = f"/trades/{_api_symbol_path(symbol)}/hist?limit={trade_limit}"
     try:
         data = _bitfinex_fetch(path)
     except requests.HTTPError as exc:
