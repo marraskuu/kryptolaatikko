@@ -27,6 +27,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Experimental scikit-learn model on top of setup history data",
                 "body_en": "Historical backfill (setup_historical_backfill.py) now also collects row-level feature samples alongside the bucketed stats, and a model can be trained on them (new manage.py train_setup_model / /api/admin/train-model/) to predict trade win probability. Offline training pipeline only for now — the model doesn't yet affect live buy/sell decisions.",
             },
+            {
+                "title": "Isompi automaattinen historiabackfill (viikoittain)",
+                "body": "Viikoittainen taustabackfill hakee nyt 40 kryptoa aiemman 20:n sijaan ja 10 000 kynttilää per krypto (n. 416 vrk, aiemmin 5 000 ≈ 208 vrk) — enemmän dataa sekä varjo-oppimiselle että uudelle scikit-learn-mallille joka viikko ilman erillistä käynnistystä.",
+                "title_en": "Bigger automatic weekly history backfill",
+                "body_en": "The weekly background backfill now fetches 40 cryptos instead of 20, and 10,000 candles per crypto (~416 days, up from 5,000 ≈ 208 days) — more data for both shadow learning and the new scikit-learn model every week with no manual trigger needed.",
+            },
         ],
     },
     {
