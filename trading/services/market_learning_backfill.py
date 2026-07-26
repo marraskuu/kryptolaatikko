@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any
 
-from .ai_trader import _mtf_alignment, analyze_market, calc_period_change_pct
+from .ai_trader import _mtf_alignment, analyze_market, calc_atr_pct, calc_period_change_pct
 from .bitfinex import fetch_all_markets, fetch_candle_history, is_stablecoin
 from .market_learning import (
     HORIZONS,
@@ -103,6 +103,7 @@ def _analysis_at(
     )
     analysis["volumeEur"] = volume_eur
     analysis["currentPrice"] = closes[-1]
+    analysis["atrPct"] = calc_atr_pct(window)
     analysis["quick"] = False
     return analysis
 

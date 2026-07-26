@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-26",
+        "entries": [
+            {
+                "title": "Kokeellinen scikit-learn-malli setup-historiadatan päälle",
+                "body": "Historiallinen backfill (setup_historical_backfill.py) kerää nyt rivikohtaisia feature-näytteitä bucketoidun tilaston rinnalla, ja niistä voi kouluttaa mallin (uusi manage.py train_setup_model / /api/admin/train-model/) ennustamaan kaupan onnistumistodennäköisyyttä. Vain offline-koulutusputki tässä vaiheessa — malli ei vielä vaikuta live-osto/myyntipäätöksiin.",
+                "title_en": "Experimental scikit-learn model on top of setup history data",
+                "body_en": "Historical backfill (setup_historical_backfill.py) now also collects row-level feature samples alongside the bucketed stats, and a model can be trained on them (new manage.py train_setup_model / /api/admin/train-model/) to predict trade win probability. Offline training pipeline only for now — the model doesn't yet affect live buy/sell decisions.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-23",
         "entries": [
             {

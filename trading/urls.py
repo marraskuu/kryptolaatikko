@@ -53,6 +53,11 @@ urlpatterns = [
         name="api_historical_backfill",
     ),
     path(
+        "api/admin/train-model/",
+        views.api_train_setup_model,
+        name="api_train_setup_model",
+    ),
+    path(
         "api/admin/visitor-stats/",
         views.api_visitor_stats,
         name="api_visitor_stats",

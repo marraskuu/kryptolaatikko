@@ -443,6 +443,35 @@ def api_historical_backfill(request):
 
 @csrf_exempt
 @require_GET
+def api_train_setup_model(request):
+    """
+    Kouluttaa scikit-learn-mallin setup_historical_backfill-näytteistä.
+
+    GET /api/admin/train-model/?key=...&min_samples=200
+    Avain: X-Admin-Task-Key-header (suositus) tai ?key=. Synkroninen (koulutus on nopea).
+    Ei vaikuta live-kauppoihin — malli tallennetaan BotState pk=5:een tulevaa käyttöä varten.
+    """
+    if not _check_admin_key(request):
+        return JsonResponse({"error": "unauthorized"}, status=403)
+
+    from .services.setup_model import train_setup_model
+
+    try:
+        min_samples = int(request.GET.get("min_samples", "200"))
+    except ValueError:
+        min_samples = 200
+
+    try:
+        result = train_setup_model(min_samples=min_samples)
+    except Exception as exc:
+        logger.exception("Setup-mallin koulutus epäonnistui")
+        return JsonResponse({"error": str(exc)}, status=500)
+
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_GET
 def api_visitor_stats(request):
     """
     Kävijätilastot (Django PageVisit).

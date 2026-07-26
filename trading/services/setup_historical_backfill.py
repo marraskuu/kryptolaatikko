@@ -51,6 +51,7 @@ SETUP_BACKFILL_INTERVAL_SEC = int(
 SETUP_MIN_ENTRY_SCORE = int(os.environ.get("SETUP_MIN_ENTRY_SCORE", "2"))
 SETUP_MAX_HOLD_HOURS = int(os.environ.get("SETUP_MAX_HOLD_HOURS", "72"))
 SETUP_NOMINAL_EUR = float(os.environ.get("SETUP_NOMINAL_EUR", "100"))
+SETUP_MODEL_MAX_SAMPLES = int(os.environ.get("SETUP_MODEL_MAX_SAMPLES", "10000"))
 
 _DEFAULT: dict[str, Any] = {"stats": {}, "lastBackfillAt": 0}
 
@@ -74,6 +75,11 @@ def _save(data: dict[str, Any]) -> None:
 def load_setup_stats() -> dict[str, dict[str, float]]:
     """Setup-kohtaiset historiatilastot: {setup: {n, net, wins}}."""
     return dict(_load().get("stats") or {})
+
+
+def load_setup_samples() -> list[dict[str, Any]]:
+    """Rivikohtaiset feature+label-näytteet scikit-learn-koulutusta varten."""
+    return list(_load().get("samples") or [])
 
 
 def _regime_str(regime: str) -> str:
@@ -164,6 +170,33 @@ def simulate_round_trip_pct(
     return blended - ROUND_TRIP_COST_PCT
 
 
+def _sample_from_analysis(
+    analysis: dict[str, Any], regime: str, ret_pct: float
+) -> dict[str, Any]:
+    """Rivikohtainen feature+label-näyte scikit-learn-koulutusta varten (ei bucketoitu)."""
+    ema9 = analysis.get("ema9")
+    ema21 = analysis.get("ema21")
+    ema_spread_pct = (
+        (float(ema9) - float(ema21)) / float(ema21) * 100.0
+        if ema9 is not None and ema21 not in (None, 0)
+        else None
+    )
+    return {
+        "rsi": analysis.get("rsi"),
+        "emaSpreadPct": ema_spread_pct,
+        "momentum": analysis.get("momentum"),
+        "score": analysis.get("score"),
+        "changePct": analysis.get("changePct"),
+        "change1hPct": analysis.get("change1hPct", 0.0),
+        "change4hPct": analysis.get("change4hPct", 0.0),
+        "mtfAlign": analysis.get("mtfAlign"),
+        "atrPct": analysis.get("atrPct"),
+        "volumeEur": analysis.get("volumeEur"),
+        "regime": _regime_str(regime),
+        "retPct": ret_pct,
+    }
+
+
 def _record_stat(stats: dict[str, Any], setup: str, ret_pct: float) -> None:
     b = stats.setdefault(setup, {"n": 0.0, "net": 0.0, "wins": 0.0})
     eur = SETUP_NOMINAL_EUR * ret_pct / 100.0
@@ -177,6 +210,7 @@ def backfill_setup_symbol(
     candles: list[dict[str, Any]],
     btc_candles: list[dict[str, Any]],
     stats: dict[str, Any],
+    samples: list[dict[str, Any]] | None = None,
 ) -> int:
     if len(candles) < BACKFILL_MIN_WINDOW + 4:
         return 0
@@ -207,6 +241,8 @@ def backfill_setup_symbol(
 
         setup = setup_key_for_analysis(analysis, regime)
         _record_stat(stats, setup, ret)
+        if samples is not None:
+            samples.append(_sample_from_analysis(analysis, regime, ret))
         added += 1
 
     return added
@@ -220,6 +256,7 @@ def run_setup_historical_backfill(
     limit = candle_limit or BACKFILL_CANDLE_LIMIT
     store = _load()
     stats: dict[str, Any] = dict(store.get("stats") or {})
+    samples: list[dict[str, Any]] = list(store.get("samples") or [])
 
     tickers, _ = fetch_all_markets()
     if not symbols:
@@ -248,7 +285,7 @@ def run_setup_historical_backfill(
             if not candles:
                 errors.append(f"{sym}: ei kynttilöitä")
                 continue
-            n = backfill_setup_symbol(candles, btc_candles, stats)
+            n = backfill_setup_symbol(candles, btc_candles, stats, samples)
             per_symbol[sym] = n
             logger.info("Setup history backfill %s: %d round-trips", sym, n)
         except Exception as exc:
@@ -257,6 +294,7 @@ def run_setup_historical_backfill(
 
     now_ms = int(time.time() * 1000)
     store["stats"] = stats
+    store["samples"] = samples[-SETUP_MODEL_MAX_SAMPLES:]
     store["lastBackfillAt"] = now_ms
     setups_ready = sum(1 for b in stats.values() if b.get("n", 0) >= 4)
     store["lastSummary"] = {
@@ -265,6 +303,7 @@ def run_setup_historical_backfill(
         "roundTrips": sum(per_symbol.values()),
         "setupsTracked": len(stats),
         "setupsReady": setups_ready,
+        "samplesTracked": len(store["samples"]),
         "candleLimit": limit,
         "perSymbol": per_symbol,
         "errors": errors[:10],
