@@ -43,7 +43,10 @@ from .price_spike_shadow import (
     select_top_spikes,
 )
 from .entry_diagnostics_shadow import (
+    ENTRY_SIZE_ATR_BLEND_WEIGHT,
+    ENTRY_SIZE_KELLY_BLEND_WEIGHT,
     atr_weighted_shadow_sizes,
+    blended_entry_size_eur,
     kelly_expectancy_shadow_sizes,
     max_correlation_vs_holdings,
 )
@@ -227,6 +230,37 @@ def _attach_entry_size_shadow(
             trade["shadowKellySizeDeltaEur"] = round(kelly_shadow - actual_eur, 2)
     except Exception:
         logger.warning("Entry size shadow failed for %s", symbol, exc_info=True)
+
+
+def _apply_entry_size_blend(
+    buy_decisions: list[dict[str, Any]],
+    *,
+    atr_shadow_map: dict[str, float],
+    kelly_shadow_map: dict[str, float],
+    kelly_weight: float = ENTRY_SIZE_KELLY_BLEND_WEIGHT,
+    atr_weight: float = ENTRY_SIZE_ATR_BLEND_WEIGHT,
+) -> None:
+    """Sekoittaa Kelly/ATR-varjokoon oikeaan eur_amount:iin ennen portfolio.buy():ta.
+
+    No-op kun molemmat painot ovat 0.0 (oletus) — turvallinen mekanismi-only-tila.
+    Mutatoi buy_decisions-listan dictit paikallaan.
+    """
+    if kelly_weight <= 0 and atr_weight <= 0:
+        return
+    for d in buy_decisions:
+        analysis = d.get("analysis") or {}
+        price = float(analysis.get("currentPrice") or 0)
+        if price <= 0:
+            continue
+        d["eurAmount"] = blended_entry_size_eur(
+            d["symbol"],
+            d.get("eurAmount") or 0,
+            atr_shadow_map=atr_shadow_map,
+            kelly_shadow_map=kelly_shadow_map,
+            kelly_weight=kelly_weight,
+            atr_weight=atr_weight,
+        )
+        d["amount"] = d["eurAmount"] / price
 
 
 def _check_profit_sells(
@@ -839,6 +873,9 @@ def execute_trading_cycle() -> dict[str, Any]:
         atr_shadow_map = atr_weighted_shadow_sizes(buy_batch)
         kelly_shadow_map = kelly_expectancy_shadow_sizes(
             buy_batch, learning.get("gemini_confidence_stats")
+        )
+        _apply_entry_size_blend(
+            buy_decisions, atr_shadow_map=atr_shadow_map, kelly_shadow_map=kelly_shadow_map
         )
         for d in buy_decisions:
             analysis = d.get("analysis") or {}

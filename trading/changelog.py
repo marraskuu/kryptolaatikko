@@ -39,6 +39,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Bear-freeze exception threshold made env-configurable",
                 "body_en": "BEAR_FREEZE_EXCEPTION_MIN_ADJUST (the threshold letting an exceptionally strong shadow-learned setup through the bear-market buy freeze) was hardcoded at 3.0. Made env-configurable, default loosened to 2.0. In practice only affects the Gemini-active buy path — the technical (non-Gemini) path can't pass through in bear regime regardless of this threshold, since its own mtf condition is unreachable (documented as a known limitation, not fixed here).",
             },
+            {
+                "title": "Kelly/ATR-varjokoon kytkentä ostohetken kokoon (pois päältä oletuksena)",
+                "body": "entry_diagnostics_shadow.py laski jo Kelly-expectancy- ja ATR-painotetun ostokoon jokaiselle kaupalle, mutta tulosta ei koskaan käytetty. Uusi ENTRY_SIZE_KELLY_BLEND_WEIGHT/ENTRY_SIZE_ATR_BLEND_WEIGHT sekoittaa nämä oikeaan eur_amount:iin — voittajat isommiksi, häviäjät pienemmiksi. Oletus 0.0 (ei vaikutusta) kunnes varjodata osoittaa riittävästi näytteitä; sekoitus säilyttää aina kokonaispanostuksen, ei koskaan ohita entry-portteja.",
+                "title_en": "Wire Kelly/ATR shadow sizing into entry size (off by default)",
+                "body_en": "entry_diagnostics_shadow.py already computed a Kelly-expectancy and ATR-weighted buy size for every trade, but never used the result. New ENTRY_SIZE_KELLY_BLEND_WEIGHT/ENTRY_SIZE_ATR_BLEND_WEIGHT blends these into the real eur_amount — sizing winners bigger, losers smaller. Defaults to 0.0 (no effect) until the shadow data shows enough samples; the blend always preserves total capital deployed and never bypasses any entry gate.",
+            },
         ],
     },
     {

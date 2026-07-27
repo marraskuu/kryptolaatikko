@@ -6,23 +6,71 @@ EIVÄT KOSKAAN muuta eur_amount-arvoa tai mitään ai_trader.py:n valinta-/
 pisteytyslogiikkaa. Bucketointi toteutunutta lopputulosta vasten tehdään
 myyntihetkellä trading/services/learning.py:ssä (_compute_entry_diagnostics_
 shadow_tuning), samaan tapaan kuin Gemini-confidence-kalibrointi.
+
+Poikkeus: blended_entry_size_eur() ON tarkoitettu käytettäväksi oikean
+eur_amount:n laskennassa (opt-in, ks. ENTRY_SIZE_*_BLEND_WEIGHT) — kaikki
+muu tässä moduulissa pysyy puhtaana varjodiagnostiikkana.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from .ai_trader import CORR_THRESHOLD, _analysis_for, _atr_pct, _pearson
+from .ai_trader import CORR_THRESHOLD, MIN_TRADE_EUR, _analysis_for, _atr_pct, _pearson
 
 __all__ = [
     "max_correlation_vs_holdings",
     "atr_weighted_shadow_sizes",
     "kelly_expectancy_shadow_sizes",
+    "blended_entry_size_eur",
     "build_gemini_context",
     "learning_report_lines",
 ]
 
 MIN_SAMPLES_REPORT = 8
+
+# Kelly/ATR-varjokoon sekoitusosuus oikeaan eur_amount:iin — 0.0 = ei vaikutusta
+# (oletus, mekanismi laskeva mutta käytöksetön). Käyttäjä säätää myöhemmin
+# manuaalisesti kun learning_report_lines() osoittaa riittävästi näytteitä.
+ENTRY_SIZE_KELLY_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_KELLY_BLEND_WEIGHT", "0.0"))
+ENTRY_SIZE_ATR_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_ATR_BLEND_WEIGHT", "0.0"))
+
+
+def blended_entry_size_eur(
+    symbol: str,
+    original_eur: float,
+    *,
+    atr_shadow_map: dict[str, float],
+    kelly_shadow_map: dict[str, float],
+    kelly_weight: float,
+    atr_weight: float,
+    min_trade_eur: float = MIN_TRADE_EUR,
+) -> float:
+    """Sekoittaa jo lasketun eur_amount:n kohti Kelly- tai ATR-varjokokoa.
+
+    Kelly ensisijainen (jos painotettu ja symboli mukana kartassa), muuten ATR,
+    muuten alkuperäinen muuttumattomana. Molemmat varjokartat säilyttävät katetun
+    joukon EUR-summan (ks. atr_weighted_shadow_sizes/kelly_expectancy_shadow_sizes),
+    joten sekoitus voi vain siirtää pääomaa jo valittujen ehdokkaiden välillä —
+    ei koskaan kokonaispanostusta eikä ohita mitään entry-porttia.
+    Jos blendattu tulos alittaisi min_trade_eur:n, palautetaan alkuperäinen
+    (ei koskaan luoda ali-minimi-tilausta äänettömästi).
+    """
+    original_eur = float(original_eur)
+    if kelly_weight > 0 and symbol in kelly_shadow_map:
+        target = float(kelly_shadow_map[symbol])
+    elif atr_weight > 0 and symbol in atr_shadow_map:
+        target = float(atr_shadow_map[symbol])
+    else:
+        return original_eur
+
+    weight = kelly_weight if symbol in kelly_shadow_map and kelly_weight > 0 else atr_weight
+    weight = max(0.0, min(1.0, weight))
+    blended = original_eur + (target - original_eur) * weight
+    if blended < min_trade_eur:
+        return original_eur
+    return round(blended, 2)
 
 
 def max_correlation_vs_holdings(
