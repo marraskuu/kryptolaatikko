@@ -49,10 +49,21 @@ STOP_CAP_PCT = -8.0          # legacy-viite neutraalille
 DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
 
 # Regiimi + ATR stop-loss — bull: anna hengittää, bear: leikkaa nopeammin.
+# Katot (cap) olivat aiemmin -9.0/-8.0/-5.5 — selvästi löysempiä kuin voitonoton
+# triggerit (+1.2-5.0 %, sell_strategy.py). Tiukennettu 2026-07-27 pahimman
+# yksittäisen tappion rajoittamiseksi; env-säädettävissä nopeaa rollbackia varten.
+STOP_CAP_BULL_PCT = float(os.environ.get("STOP_CAP_BULL_PCT", "-7.0"))
+STOP_CAP_NEUTRAL_PCT = float(os.environ.get("STOP_CAP_NEUTRAL_PCT", "-6.5"))
+STOP_CAP_BEAR_PCT = float(os.environ.get("STOP_CAP_BEAR_PCT", "-5.0"))
+# Absoluuttinen backstop dynamic_stop_pct():lle — riippumaton regiimistä/oppimisen
+# hienosäädöstä, viimeinen suoja yllättävän auto-tuning-arvon tai tuntemattoman
+# regiime-merkkijonon varalta.
+STOP_LOSS_ABS_MAX_PCT = float(os.environ.get("STOP_LOSS_ABS_MAX_PCT", "-7.5"))
+
 REGIME_STOP_PROFILES: dict[str, dict[str, float]] = {
-    "bull": {"atr_mult": 1.75, "floor": -2.25, "cap": -9.0},
-    "neutral": {"atr_mult": 1.5, "floor": -1.5, "cap": -8.0},
-    "bear": {"atr_mult": 1.15, "floor": -1.15, "cap": -5.5},
+    "bull": {"atr_mult": 1.75, "floor": -2.25, "cap": STOP_CAP_BULL_PCT},
+    "neutral": {"atr_mult": 1.5, "floor": -1.5, "cap": STOP_CAP_NEUTRAL_PCT},
+    "bear": {"atr_mult": 1.15, "floor": -1.15, "cap": STOP_CAP_BEAR_PCT},
 }
 # Tasapainotus (yli tavoitteen): regiimi + ennakointivaihe.
 REBALANCE_MIN_PROFIT_PCT: dict[str, float] = {
@@ -473,7 +484,9 @@ def dynamic_stop_pct(
     cap = profile["cap"] * tuning["cap_scale"]
 
     stop = -atr_mult * _atr_pct(analysis)
-    return max(cap, min(floor, stop))
+    clamped = max(cap, min(floor, stop))
+    # Absoluuttinen backstop riippumatta regiimistä/tuningista (ks. STOP_LOSS_ABS_MAX_PCT).
+    return max(STOP_LOSS_ABS_MAX_PCT, clamped)
 
 
 def format_stop_loss_reason(

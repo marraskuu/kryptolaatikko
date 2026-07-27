@@ -27,6 +27,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Fix silent rate-limit failure in setup history backfill",
                 "body_en": "The weekly history backfill fetches candles in two back-to-back phases (market + setup) for the same ~40 cryptos — the setup phase started right after the market phase, so Bitfinex's candle endpoint rate limit (429) often hit the entire setup phase, silently returning empty data every week. fetch_candles now retries with a backoff delay after a 429 instead of giving up immediately.",
             },
+            {
+                "title": "Tiukempi stop-loss-katto isoimpien tappioiden rajoittamiseksi",
+                "body": "Stop-loss-katto (suurin sallittu tappio ennen pakkomyyntiä) oli selvästi löysempi kuin voitonoton triggerit — jopa -9 % (bull) / -8 % (neutral) / -5,5 % (bear), kun voitonotto liikkuu vain +1,2–5 %:n haarukassa. Katot tiukennettiin (-7,0 / -6,5 / -5,0 %) ja lisäksi otettiin käyttöön absoluuttinen -7,5 %:n varajarru joka pätee riippumatta regiimistä tai oppimisen hienosäädöstä. Kaikki arvot env-säädettäviä.",
+                "title_en": "Tighter stop-loss cap to limit worst-case losses",
+                "body_en": "The stop-loss cap (largest loss tolerated before a forced sell) was noticeably looser than the profit-take triggers — up to -9% (bull) / -8% (neutral) / -5.5% (bear), while profit-taking only ranges +1.2–5%. Caps were tightened (-7.0 / -6.5 / -5.0%), plus a new absolute -7.5% backstop that applies regardless of regime or learning-based tuning. All values are env-configurable.",
+            },
         ],
     },
     {
