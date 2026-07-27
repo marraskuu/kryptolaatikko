@@ -45,6 +45,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Wire Kelly/ATR shadow sizing into entry size (off by default)",
                 "body_en": "entry_diagnostics_shadow.py already computed a Kelly-expectancy and ATR-weighted buy size for every trade, but never used the result. New ENTRY_SIZE_KELLY_BLEND_WEIGHT/ENTRY_SIZE_ATR_BLEND_WEIGHT blends these into the real eur_amount — sizing winners bigger, losers smaller. Defaults to 0.0 (no effect) until the shadow data shows enough samples; the blend always preserves total capital deployed and never bypasses any entry gate.",
             },
+            {
+                "title": "Koulutetun scikit-learn-mallin kytkentä live-pisteytykseen (lipulla, pois päältä)",
+                "body": "setup_model.py:n voittotodennäköisyysmalli (manage.py train_setup_model, BotState pk=5) oli koulutettu mutta täysin kytkemättä live-päätöksiin. Nyt SETUP_MODEL_LIVE_ENABLED=1 kytkee sen pisteytykseen condAdjust:n rinnalle uutena modelAdjust-terminä (maltillinen paino, ei vaikutusta jos holdout-AUC on liian matala). Pois päältä oletuksena — riskialtein neljästä tämän päivän muutoksesta, vaatii mallin koulutuksen ensin. Korjattiin myös piilevä feature-skeemavirhe: live-analyysillä ei ollut koskaan emaSpreadPct-avainta, joten malli olisi saanut sen aina tyhjänä ilman korjausta.",
+                "title_en": "Wire trained scikit-learn model into live scoring (flagged, off by default)",
+                "body_en": "setup_model.py's win-probability model (manage.py train_setup_model, BotState pk=5) was trained but completely disconnected from live decisions. SETUP_MODEL_LIVE_ENABLED=1 now wires it into scoring alongside condAdjust as a new modelAdjust term (modest weight, no effect if holdout AUC is too low). Off by default — the riskiest of today's four changes, requires training the model first. Also fixed a latent feature-schema bug: live analysis never had an emaSpreadPct key, so the model would always have received it blank without this fix.",
+            },
         ],
     },
     {

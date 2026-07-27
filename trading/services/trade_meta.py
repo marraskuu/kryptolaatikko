@@ -68,6 +68,8 @@ def meta_from_analysis(
             meta["mtfAlign"] = int(analysis["mtfAlign"])
         if analysis.get("condAdjust") is not None:
             meta["condAdjust"] = round(float(analysis["condAdjust"]), 2)
+        if analysis.get("modelWinProb") is not None:
+            meta["modelWinProb"] = round(float(analysis["modelWinProb"]), 3)
         for key in ("change1hPct", "change4hPct", "changePct"):
             if analysis.get(key) is not None:
                 meta[key] = round(float(analysis[key]), 2)
@@ -137,6 +139,7 @@ def entry_meta_from_trade(trade: dict[str, Any]) -> dict[str, Any]:
         "mtfAlign",
         "atrPct",
         "condAdjust",
+        "modelWinProb",
         "change1hPct",
         "change4hPct",
         "bookImbalance",

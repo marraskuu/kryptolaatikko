@@ -16,6 +16,7 @@ import base64
 import io
 import logging
 import math
+import os
 import time
 from typing import Any
 
@@ -43,6 +44,18 @@ FEATURE_NAMES: list[str] = [
     "regime_bull",
     "regime_bear",
 ]
+
+# Live-kytkentä pois päältä oletuksena — riskialtein neljästä 2026-07-27 muutoksesta
+# (poikkeaa tietoisesti muiden lippujen oletus-päällä-käytännöstä), vaatii ensin
+# manage.py train_setup_model:in ajamisen.
+SETUP_MODEL_LIVE_ENABLED = os.environ.get("SETUP_MODEL_LIVE_ENABLED", "0").strip().lower() not in (
+    "0", "false", "no",
+)
+SETUP_MODEL_ADJUST_WEIGHT = float(os.environ.get("SETUP_MODEL_ADJUST_WEIGHT", "6.0"))
+# Neljäsosa market_learning.MAX_SCORE_ADJUST:sta (4.0) — tarkoituksella maltillinen
+# kunnes mallin live-kalibrointi on vahvistettu.
+SETUP_MODEL_MAX_ADJUST = float(os.environ.get("SETUP_MODEL_MAX_ADJUST", "1.0"))
+SETUP_MODEL_MIN_AUC = float(os.environ.get("SETUP_MODEL_MIN_AUC", "0.55"))
 
 _DEFAULT: dict[str, Any] = {"model": None, "meta": None}
 
@@ -75,13 +88,31 @@ def _to_float(value: Any) -> float:
         return float("nan")
 
 
+def _ema_spread_pct(row: dict[str, Any]) -> float:
+    """Sama kaava kuin setup_historical_backfill._sample_from_analysis().
+
+    Koulutusnäytteillä on jo oma emaSpreadPct-avain (käytetään suoraan) — tämä
+    fallback on live-analyysejä varten, joissa on vain ema9/ema21.
+    """
+    if "emaSpreadPct" in row:
+        return _to_float(row.get("emaSpreadPct"))
+    ema9 = row.get("ema9")
+    ema21 = row.get("ema21")
+    if ema9 is None or ema21 in (None, 0):
+        return float("nan")
+    try:
+        return (float(ema9) - float(ema21)) / float(ema21) * 100.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        return float("nan")
+
+
 def _row_to_features(row: dict[str, Any]) -> dict[str, float]:
     volume_eur = _to_float(row.get("volumeEur"))
     volume_eur_log = math.log1p(volume_eur) if volume_eur > 0 else float("nan")
     regime = row.get("regime") or "neutral"
     return {
         "rsi": _to_float(row.get("rsi")),
-        "emaSpreadPct": _to_float(row.get("emaSpreadPct")),
+        "emaSpreadPct": _ema_spread_pct(row),
         "momentum": _to_float(row.get("momentum")),
         "score": _to_float(row.get("score")),
         "changePct": _to_float(row.get("changePct")),
@@ -222,6 +253,55 @@ def predict_win_probability(analysis: dict[str, Any], regime: str) -> float | No
     except Exception:
         logger.exception("Setup-mallin ennuste epäonnistui")
         return None
+
+
+def condition_adjust_from_model(
+    analysis: dict[str, Any],
+    regime: str,
+    *,
+    weight: float = SETUP_MODEL_ADJUST_WEIGHT,
+    max_adjust: float = SETUP_MODEL_MAX_ADJUST,
+    min_auc: float = SETUP_MODEL_MIN_AUC,
+) -> tuple[float, float | None]:
+    """Mallin score-säätö market_learning.condition_adjust():n rinnalle.
+
+    Palauttaa (adjust, win_probability). adjust=0.0 jos malli puuttuu, sen
+    holdout-AUC on alle min_auc:n (tuskin-parempi-kuin-arvaus-malli ei saa
+    vaikuttaa pisteytykseen), tai ennuste ei onnistu (esim. RSI puuttuu).
+    """
+    loaded = load_model()
+    if loaded is None:
+        return 0.0, None
+    _, meta = loaded
+    holdout_auc = meta.get("holdoutAuc")
+    if holdout_auc is not None and float(holdout_auc) < min_auc:
+        return 0.0, None
+
+    prob = predict_win_probability(analysis, regime)
+    if prob is None:
+        return 0.0, None
+
+    adj = (prob - 0.5) * weight
+    adj = max(-max_adjust, min(max_adjust, adj))
+    return adj, prob
+
+
+def apply(analyses: dict[str, dict[str, Any]], regime: Any) -> None:
+    """Asettaa analysis['modelAdjust']/['modelWinProb'] jokaiselle symbolille.
+
+    Peilaa market_learning.apply():n muotoa. Per-symboli-poikkeukset eivät
+    kaada koko sykliä — kutsujan (engine.py) tulee silti kääriä oma
+    try/except tämän kutsun ympärille samaan tapaan kuin market_learning.apply.
+    """
+    for analysis in analyses.values():
+        try:
+            adj, prob = condition_adjust_from_model(analysis, regime)
+        except Exception:
+            logger.warning("Setup model condition_adjust failed", exc_info=True)
+            adj, prob = 0.0, None
+        analysis["modelAdjust"] = round(adj, 2)
+        if prob is not None:
+            analysis["modelWinProb"] = round(prob, 3)
 
 
 def get_setup_model_status() -> dict[str, Any]:

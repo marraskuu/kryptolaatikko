@@ -2503,6 +2503,7 @@ def make_trading_decisions(
             "rank": analysis["score"]
             + _mem_adjust(symbol)
             + float(analysis.get("condAdjust") or 0)
+            + float(analysis.get("modelAdjust") or 0)
             + float(analysis.get("microAdjust") or 0)
             + _setup_adjust(analysis)
             + volume_rank_adjust(analysis),

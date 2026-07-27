@@ -34,6 +34,7 @@ from .trade_meta import meta_from_analysis
 from . import exit_learning
 from . import market_learning
 from . import market_microstructure
+from . import setup_model
 from .market_microstructure import carry_micro_fields
 from .portfolio import Portfolio
 from .price_spike_shadow import (
@@ -591,6 +592,12 @@ def execute_trading_cycle() -> dict[str, Any]:
             market_learning.apply(state["analyses"], regime, ml_stats)
         except Exception:
             logger.warning("Market learning apply failed", exc_info=True)
+
+        if setup_model.SETUP_MODEL_LIVE_ENABLED:
+            try:
+                setup_model.apply(state["analyses"], regime)
+            except Exception:
+                logger.warning("Setup model apply failed", exc_info=True)
 
         if gemini_configured() and due_for_gemini:
             gemini_insights, gemini_status = advise_portfolio(
