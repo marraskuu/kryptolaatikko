@@ -33,6 +33,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Tighter stop-loss cap to limit worst-case losses",
                 "body_en": "The stop-loss cap (largest loss tolerated before a forced sell) was noticeably looser than the profit-take triggers — up to -9% (bull) / -8% (neutral) / -5.5% (bear), while profit-taking only ranges +1.2–5%. Caps were tightened (-7.0 / -6.5 / -5.0%), plus a new absolute -7.5% backstop that applies regardless of regime or learning-based tuning. All values are env-configurable.",
             },
+            {
+                "title": "Karhu-jäädytyksen poikkeuskynnys env-säädettäväksi",
+                "body": "BEAR_FREEZE_EXCEPTION_MIN_ADJUST (kynnys joka päästää poikkeuksellisen vahvan varjo-oppimis-asetelman läpi karhu-jäädytyksestä) oli kovakoodattu 3.0. Tehtiin env-säädettäväksi, oletus löysempi 2.0. Vaikuttaa käytännössä vain Gemini-aktiiviseen ostopolkuun — tekninen (ei-Gemini) polku ei pääse karhuregiimissä läpi tästä kynnyksestä riippumatta, koska sen oma mtf-ehto on saavuttamaton (dokumentoitu tunnettuna rajoituksena, ei korjattu tässä).",
+                "title_en": "Bear-freeze exception threshold made env-configurable",
+                "body_en": "BEAR_FREEZE_EXCEPTION_MIN_ADJUST (the threshold letting an exceptionally strong shadow-learned setup through the bear-market buy freeze) was hardcoded at 3.0. Made env-configurable, default loosened to 2.0. In practice only affects the Gemini-active buy path — the technical (non-Gemini) path can't pass through in bear regime regardless of this threshold, since its own mtf condition is unreachable (documented as a known limitation, not fixed here).",
+            },
         ],
     },
     {

@@ -34,7 +34,13 @@ BEAR_BUY_FREEZE = os.environ.get("BEAR_BUY_FREEZE", "1").lower() not in (
 # nimenomaan karhuregiimissä (exp1h +3,19 %, n=33) — jäädytys on estänyt sen
 # koskaan toteutumasta. Päästä läpi vain kun condAdjust on lähellä maksimia
 # (vahva, riittävällä otoksella opittu positiivinen edge tälle tarkalle asetelmalle).
-BEAR_FREEZE_EXCEPTION_MIN_ADJUST = 3.0
+# HUOM: vaikuttaa käytännössä vain Gemini-aktiiviseen ostopolkuun (_is_buy_blocked) —
+# tekninen (ei-Gemini) polku (_entry_ok) ei pääse bear-regiimissä läpi tästä
+# kynnyksestä riippumatta, koska sen oma mtf>=2-ehto on saavuttamaton
+# (_mtf_alignment palauttaa vain -1/0/1). Ei korjattu tässä tietoisesti.
+BEAR_FREEZE_EXCEPTION_MIN_ADJUST = float(
+    os.environ.get("BEAR_FREEZE_EXCEPTION_MIN_ADJUST", "2.0")
+)
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
