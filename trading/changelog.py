@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-27",
+        "entries": [
+            {
+                "title": "Korjaa setup-historiabackfillin hiljainen epäonnistuminen rate limitistä",
+                "body": "Viikoittainen historiabackfill hakee kynttilät kahdessa peräkkäisessä vaiheessa (market + setup) samalle ~40 kryptolle — setup-vaihe alkoi heti market-vaiheen perään, jolloin Bitfinexin candle-rajapinnan pyyntöraja (429) osui usein koko setup-vaiheeseen ja se palautti hiljaa tyhjän datan joka viikko. fetch_candles yrittää nyt uudelleen viivästyksellä 429-vastauksen jälkeen sen sijaan että antaisi periksi heti.",
+                "title_en": "Fix silent rate-limit failure in setup history backfill",
+                "body_en": "The weekly history backfill fetches candles in two back-to-back phases (market + setup) for the same ~40 cryptos — the setup phase started right after the market phase, so Bitfinex's candle endpoint rate limit (429) often hit the entire setup phase, silently returning empty data every week. fetch_candles now retries with a backoff delay after a 429 instead of giving up immediately.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-26",
         "entries": [
             {

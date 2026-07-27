@@ -10,6 +10,8 @@ BITFINEX_TIMEOUT = int(os.environ.get("BITFINEX_TIMEOUT", "12"))
 BITFINEX_TICKER_TIMEOUT = int(os.environ.get("BITFINEX_TICKER_TIMEOUT", "25"))
 CANDLES_MAX_LIMIT = 10_000
 CANDLE_DEEP_LIMIT = int(os.environ.get("CANDLE_DEEP_LIMIT", "200"))
+CANDLES_RATE_LIMIT_RETRIES = int(os.environ.get("CANDLES_RATE_LIMIT_RETRIES", "3"))
+CANDLES_RATE_LIMIT_BACKOFF_SEC = float(os.environ.get("CANDLES_RATE_LIMIT_BACKOFF_SEC", "20"))
 
 logger = logging.getLogger(__name__)
 
@@ -382,18 +384,30 @@ def fetch_candles(
         params.append(f"end={int(end)}")
     query = "&".join(params)
 
-    try:
-        # HUOM: EI sort=1 — Bitfinexillä sort=1 + limit palauttaa VANHIMMAT kynttilät
-        # (kolikon koko historian alusta, esim. 2016), ei tuoreimpia. Oletus (uusin
-        # ensin) antaa viimeiset `limit` kynttilää; järjestetään alla vanhin→uusin.
-        data = _bitfinex_fetch(f"{path}?{query}")
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code in (404, 429):
+    for attempt in range(CANDLES_RATE_LIMIT_RETRIES + 1):
+        try:
+            # HUOM: EI sort=1 — Bitfinexillä sort=1 + limit palauttaa VANHIMMAT kynttilät
+            # (kolikon koko historian alusta, esim. 2016), ei tuoreimpia. Oletus (uusin
+            # ensin) antaa viimeiset `limit` kynttilää; järjestetään alla vanhin→uusin.
+            data = _bitfinex_fetch(f"{path}?{query}")
+            break
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 429 and attempt < CANDLES_RATE_LIMIT_RETRIES:
+                wait_sec = CANDLES_RATE_LIMIT_BACKOFF_SEC * (attempt + 1)
+                logger.warning(
+                    "Candles rate-limited for %s (429), retry %d/%d in %.0fs",
+                    symbol, attempt + 1, CANDLES_RATE_LIMIT_RETRIES, wait_sec,
+                )
+                time.sleep(wait_sec)
+                continue
+            if status in (404, 429):
+                return []
+            raise
+        except requests.RequestException as exc:
+            logger.warning("Candles fetch failed for %s: %s", symbol, exc)
             return []
-        raise
-    except requests.RequestException as exc:
-        logger.warning("Candles fetch failed for %s: %s", symbol, exc)
-        return []
+
     if not isinstance(data, list):
         raise RuntimeError("Unexpected API response")
 
