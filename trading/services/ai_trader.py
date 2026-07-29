@@ -795,7 +795,7 @@ def _apply_bear_cash_reserve_trim(
         return
 
     preferred = preferred_symbols or set()
-    candidates: list[tuple[tuple[int, float, float], str, float, float, dict[str, Any]]] = []
+    candidates: list[tuple[tuple[int, int, float, float], str, float, float, dict[str, Any]]] = []
     for symbol, holding in holdings.items():
         if is_stablecoin(symbol):
             continue
@@ -814,8 +814,13 @@ def _apply_bear_cash_reserve_trim(
         norm = normalize_symbol(symbol)
         trim_priority = 1 if norm in preferred or symbol in preferred else 0
         score = float(analysis.get("score") or 0)
+        avg_price = float(holding.get("avgPrice") or 0)
+        # Trim käteisvaraukseen ensin voitolla/tasan olevista positioista — vältä
+        # tarpeetonta tappion realisointia kun vaihtoehto on olemassa (bear_cash_trim
+        # oli win rate 8 % koska valinta oli P/L-sokea, ks. sellOutcomeLearning).
+        loss_rank = 1 if (avg_price > 0 and price < avg_price) else 0
         candidates.append(
-            ((trim_priority, score, -value), symbol, amount, price, analysis)
+            ((trim_priority, loss_rank, score, -value), symbol, amount, price, analysis)
         )
 
     candidates.sort(key=lambda item: item[0])

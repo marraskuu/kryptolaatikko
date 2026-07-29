@@ -19,6 +19,23 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-07-29",
+        "entries": [
+            {
+                "title": "Päivästopin ja voittolukon varjopolitiikka kytketty oikeisiin kauppoihin",
+                "body": "daily_policy_shadow.py on 40 päivän ajan mitannut rinnalla ajettavaa varjopolitiikkaa vaikuttamatta oikeisiin kauppoihin: kiinteän voittolukon aikana tiukempi voitto-otto olisi tuottanut ~+461 €/40pv, ja harkinnanvaraisten myyntien (rotaatio, karhu-kassatrimmaus, \"other\") esto päivästopin/voittolukon aikana ~+165 €/40pv — molemmat johdonmukaisesti positiivisia koko mittausjakson ajan. Molemmat kytketty nyt oikeisiin kauppoihin (DAILY_POLICY_LIVE_ENABLED, päällä oletuksena). Pakolliset myynnit (stop-loss, aikastoppi, voitto-otto) eivät ole harkinnanvaraisia eivätkä esto koske niitä.",
+                "title_en": "Daily-stop / profit-lock shadow policy wired into live trades",
+                "body_en": "daily_policy_shadow.py has spent 40 days measuring a shadow policy alongside live trading without affecting real trades: tighter profit-taking during a firm profit lock was estimated at ~+€461/40d, and blocking discretionary sells (rotation, bear cash-reserve trims, \"other\") during a daily stop/profit lock at ~+€165/40d — both consistently positive across the whole measurement window. Both are now wired into live trading (DAILY_POLICY_LIVE_ENABLED, on by default). Mandatory sells (stop-loss, time-stop, profit-take) aren't discretionary and are unaffected by the block.",
+            },
+            {
+                "title": "Karhu-kassavaratrimmaus välttää tappiollisia positioita kun vaihtoehto on olemassa",
+                "body": "Karhu-regiimin kassavaratavoitteen trimmaus valitsi aiemmin position pelkän teknisen scoren perusteella, P/L-sokeasti — oppimisdata näytti tämän kategorian win raten olevan vain 8 % (12 tappiota 13 kaupasta). Trimmaus suosii nyt voitolla/tasan olevia positioita ja koskee tappiollista positiota vain jos muuta vaihtoehtoa ei ole.",
+                "title_en": "Bear cash-reserve trim avoids losing positions when an alternative exists",
+                "body_en": "The bear-regime cash-target trim previously picked a position purely by technical score, blind to profit/loss — learning data showed this category's win rate was just 8% (12 losses out of 13 trades). The trim now prefers profitable/breakeven positions and only touches a losing one when no alternative is available.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-27",
         "entries": [
             {

@@ -24,11 +24,13 @@ from .bitfinex import CANDLE_DEEP_LIMIT
 from .gemini import advise_portfolio, get_status as gemini_status_snapshot, is_configured as gemini_configured
 from .learning import compute_tuning
 from .daily_policy_shadow import (
+    is_discretionary_sell,
     mirror_live_trade,
     record_cycle,
     record_executed_trade,
     record_profit_take_shadow,
     shadow_profit_take_config,
+    would_block_discretionary_sell,
 )
 from .trade_meta import meta_from_analysis
 from . import exit_learning
@@ -69,6 +71,18 @@ CYCLE_LOCK_STALE_SEC = int(os.environ.get("CYCLE_LOCK_STALE_SEC", "180"))
 # Gemini-kutsuväli sekunteina — kytketty irti 60 s kaupankäyntikierroksesta
 # kustannusten hillitsemiseksi. Tekninen analyysi pyörii joka kierroksella.
 GEMINI_INTERVAL_SEC = int(os.environ.get("GEMINI_INTERVAL_SEC", "600"))
+
+# Varjopolitiikka (daily_policy_shadow.py) on 40 päivän ajan mitannut counterfactualia
+# ilman että se vaikutti oikeisiin kauppoihin: voitto-oton tiukennus päivälukossa
+# ~+461 €/40pv ja harkinnanvaraisten myyntien (rotaatio, karhu-kassatrimmaus, "other")
+# esto päivästopin/lukon aikana ~+165 €/40pv — molemmat johdonmukaisesti positiivisia.
+# Kytketty oikeisiin kauppoihin 2026-07-29 liiallisten tappioiden korjaamiseksi.
+DAILY_POLICY_LIVE_ENABLED = os.environ.get("DAILY_POLICY_LIVE_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 
 
 def _now_iso() -> str:
@@ -273,7 +287,13 @@ def _check_profit_sells(
     regime_info = state.get("regime") or {}
     regime = regime_info.get("regime", "neutral")
     pt_cfg = _profit_take_config(state, regime)
-    shadow_cfg = shadow_profit_take_config(pt_cfg, shadow_flags or {})
+    locked_cfg = shadow_profit_take_config(pt_cfg, shadow_flags or {})
+    policy_tier = (shadow_flags or {}).get("profitLockTier", "none")
+    # Varjopolitiikka mittasi 40 pv ajan: päivälukon aikana tiukempi voitto-otto
+    # tuotti johdonmukaisesti lisää (~+461 €/40pv) — käytetään nyt oikeasti live-
+    # myynteihin lukon ollessa päällä, ei enää pelkkänä diagnostiikkana.
+    live_cfg = locked_cfg if (DAILY_POLICY_LIVE_ENABLED and policy_tier != "none") else pt_cfg
+    shadow_cfg = pt_cfg if live_cfg is locked_cfg else locked_cfg
     for symbol, holding in list(portfolio.holdings.items()):
         ticker = state["tickers"].get(symbol)
         if not ticker:
@@ -296,7 +316,7 @@ def _check_profit_sells(
             ticker["last"],
             holding["avgPrice"],
             atr_pct=atr_pct,
-            profit_take_config=pt_cfg,
+            profit_take_config=live_cfg,
             analysis=analysis,
             exit_learned=exit_learned,
             hold_age_hours=hold_age_h,
@@ -385,6 +405,26 @@ def _check_profit_sells(
 
     state["portfolio"] = portfolio.to_dict()
     return executed
+
+
+def _apply_daily_policy_sell_gate(
+    decisions: list[dict[str, Any]],
+    shadow_flags: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Estä harkinnanvaraiset myynnit (rotaatio, karhu-kassatrimmaus, "other") päivästopin
+    tai kiinteän voittolukon aikana — varjopolitiikka mittasi tämän ~+165 €/40pv edun.
+    Stop-loss/aikastoppi/voitto-otto ym. pakolliset myynnit eivät ole harkinnanvaraisia
+    (is_discretionary_sell) ja kulkevat läpi normaalisti."""
+    if not shadow_flags:
+        return decisions
+    blocked, _reason = would_block_discretionary_sell(shadow_flags)
+    if not blocked:
+        return decisions
+    return [
+        d
+        for d in decisions
+        if not (d.get("type") == "sell" and is_discretionary_sell(d.get("reason") or ""))
+    ]
 
 
 def _try_clear_price_error(state: dict[str, Any]) -> bool:
@@ -703,6 +743,8 @@ def execute_trading_cycle() -> dict[str, Any]:
             profit_watches=state.get("watches"),
         )
         decisions = decision_result["decisions"]
+        if DAILY_POLICY_LIVE_ENABLED:
+            decisions = _apply_daily_policy_sell_gate(decisions, shadow_flags)
         state["activeSymbols"] = decision_result.get("topSymbols", [])
 
         executed_buys: list[dict[str, Any]] = []
