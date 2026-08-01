@@ -21,6 +21,15 @@ ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
 # "ei valinnoissa" -trimmaus vain voitolla — tappiorotaatio on ollut −78 € / 37 pv.
 ROTATION_OUT_MIN_PROFIT_PCT = 0.5
+# Estä välitön takaisinosto samaan symboliin tappiollisen myynnin jälkeen (stop-loss,
+# huono asetelma, krooninen häviäjä, ...) — Keskittymistila ja idle-cash-polku ohittavat
+# muuten 30 min churn-cooldownin kokonaan, mikä salli esim. XMR:n oston/myynnin 5x
+# <24 h:ssa täydellä salkkukoolla (2026-07-30/31, netto selvästi negatiivinen).
+# Ei koske voitollisia myyntejä (trailing/voitto-otto) — niiden jälkeinen nopea
+# takaisinosto samaan nousevaan kohteeseen on ollut toimiva kuvio.
+SYMBOL_REBUY_COOLDOWN_SEC = float(
+    os.environ.get("SYMBOL_REBUY_COOLDOWN_SEC", str(MIN_ROTATION_INTERVAL_SEC))
+)
 # Kun suurin osa pääomasta on käteisenä, sijoita aggressiivisesti (ei 30 min taukoa).
 IDLE_CASH_DEPLOY_PCT = 0.35
 IDLE_CASH_MIN_EUR = 150
@@ -1595,6 +1604,33 @@ def in_churn_cooldown(portfolio_data: dict[str, Any]) -> bool:
     return elapsed < MIN_ROTATION_INTERVAL_SEC
 
 
+def _recently_lost_symbols(
+    portfolio_data: dict[str, Any], cooldown_sec: float = SYMBOL_REBUY_COOLDOWN_SEC
+) -> set[str]:
+    """Symbolit joilla oli tappiollinen myynti viimeisen cooldownin sisällä.
+
+    Toisin kuin in_churn_cooldown (globaali, ei laske stop-lossia), tämä on
+    per-symboli eikä katso trade-tyyppiä — koskee myös stop-lossia, jotta samaa
+    kohdetta ei osteta heti takaisin täydellä koolla. Voitollisia myyntejä ei
+    estetä (trades on tuoreimmasta vanhimpaan, joten voidaan katkaista ensimmäiseen
+    cooldownin ulkopuolelle jäävään kauppaan).
+    """
+    if cooldown_sec <= 0:
+        return set()
+    now = datetime.now(timezone.utc)
+    out: set[str] = set()
+    for trade in portfolio_data.get("trades", []):
+        try:
+            ts = _parse_trade_time(trade["timestamp"])
+        except (ValueError, TypeError, KeyError):
+            continue
+        if (now - ts).total_seconds() >= cooldown_sec:
+            break
+        if trade.get("type") == "sell" and (trade.get("profitLoss") or 0) < 0:
+            out.add(normalize_symbol(trade["symbol"]))
+    return out
+
+
 def _is_idle_cash(cash: float, total_value: float) -> bool:
     if cash < IDLE_CASH_MIN_EUR:
         return False
@@ -2469,6 +2505,11 @@ def make_trading_decisions(
     # D: symbolimuisti — opi omista onnistumisista/epäonnistumisista per kolikko
     symbol_memory = learning.get("symbol_memory") or {}
     blocked_buys = {normalize_symbol(s) for s in (learning.get("blocked_buys") or [])}
+    # Estä välitön takaisinosto tuoreen tappiollisen myynnin kohteeseen — koskee myös
+    # Keskittymistilaa ja tyhjän salkun idle-cash-pudotusta (ks. recently_lost alla),
+    # jotka muuten ohittaisivat tämän kokonaan omilla kevennetyillä esto-joukoillaan.
+    recently_lost = _recently_lost_symbols(portfolio_data)
+    blocked_buys |= recently_lost
     blocked_setups = set(learning.get("blocked_setups") or [])
     entry_score_min = int(learning.get("entry_score_min", 1))
     position_cap = effective_max_positions(learning, regime_info or regime)
@@ -2630,7 +2671,7 @@ def make_trading_decisions(
             allow_idle: bool = False,
         ) -> bool:
             effective_blocked = (
-                _hard_blocked_buys(symbol_memory)
+                _hard_blocked_buys(symbol_memory) | recently_lost
                 if allow_idle and idle_cash
                 else blocked_buys
             )
@@ -2648,7 +2689,7 @@ def make_trading_decisions(
             )
 
         def _relaxed_idle_ranked() -> list[dict[str, Any]]:
-            relaxed_buys = _hard_blocked_buys(symbol_memory)
+            relaxed_buys = _hard_blocked_buys(symbol_memory) | recently_lost
 
             def _relaxed_blocked(sym: str, analysis: dict[str, Any] | None) -> bool:
                 return _is_buy_blocked(

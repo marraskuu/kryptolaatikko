@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-01",
+        "entries": [
+            {
+                "title": "Estetty välitön takaisinosto tuoreen tappiollisen myynnin kohteeseen",
+                "body": "Kauppahistoriasta löytyi toistuva kuvio: Keskittymistila (Geminin vahva vakaumus) ja tyhjän salkun idle-cash-pudotus ohittivat molemmat kokonaan normaalin 30 min churn-cooldownin, jolloin sama symboli voitiin ostaa täydellä salkkukoolla heti uudelleen välittömästi stop-lossin tai huonon asetelman myynnin jälkeen — esim. tXMRUST osti/myi itsensä 5 kertaa alle 24 tunnissa (30.–31.7.), netto selvästi tappiollinen. Uusi per-symboli-esto (SYMBOL_REBUY_COOLDOWN_SEC, oletus 30 min) estää saman kohteen takaisinoston tuoreen tappiollisen myynnin jälkeen kaikissa ostopoluissa — voitolliset myynnit (trailing/voitto-otto) eivät laukaise estoa.",
+                "title_en": "Blocked immediate rebuy of a symbol right after a losing exit",
+                "body_en": "The trade log showed a recurring pattern: both concentration mode (Gemini strong-conviction) and the empty-portfolio idle-cash deploy completely bypassed the normal 30-minute churn cooldown, letting the bot immediately rebuy the same symbol at full portfolio size right after a stop-loss or bad-setup exit — e.g. tXMRUST was bought/sold 5 times in under 24 hours (Jul 30-31), net clearly negative. A new per-symbol block (SYMBOL_REBUY_COOLDOWN_SEC, default 30 min) now prevents rebuying a symbol shortly after a losing exit across all buy paths — profitable exits (trailing/profit-take) don't trigger the block.",
+            },
+        ],
+    },
+    {
         "date": "2026-07-29",
         "entries": [
             {
