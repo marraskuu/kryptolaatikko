@@ -47,7 +47,7 @@ def day_key_utc(dt: datetime | None = None) -> str:
 
 def default_shadow_state() -> dict[str, Any]:
     return {
-        "version": 4,
+        "version": 5,
         "dayKey": None,
         "dayStartValue": None,
         "dayStartAt": None,
@@ -61,6 +61,8 @@ def default_shadow_state() -> dict[str, Any]:
             "buyBlockEur": 0.0,
             "sellBlockCounterfactualEur": 0.0,
             "blockedBuyOpenEur": 0.0,
+            "blockedBuyUnrealizedEur": 0.0,
+            "blockedBuyRealizedCounterfactualEur": 0.0,
             "blockedBuyCounterfactualEur": 0.0,
             "profitTakeShadowSignals": 0,
             "profitTakeShadowEurEst": 0.0,
@@ -100,6 +102,16 @@ def _get_shadow(state: dict[str, Any]) -> dict[str, Any]:
     if version < 4:
         shadow.setdefault("today", {}).setdefault("cyclesRollingDrawdown", 0)
         shadow["version"] = 4
+        state["dailyPolicyShadow"] = shadow
+        version = 4
+    if version < 5:
+        # v4: blockedBuyCounterfactualEur oli pelkkä hetkikuva avoimien (<=40) estettyjen
+        # ostojen mark-to-marketista — suljetut/ikkunasta pudonneet kohteet katosivat
+        # jäljettömästi. v5 lukitsee ne kumulatiiviseen blockedBuyRealizedCounterfactualEur:iin.
+        summary = shadow.setdefault("summary", {})
+        summary.setdefault("blockedBuyUnrealizedEur", summary.get("blockedBuyCounterfactualEur") or 0.0)
+        summary.setdefault("blockedBuyRealizedCounterfactualEur", 0.0)
+        shadow["version"] = 5
         state["dailyPolicyShadow"] = shadow
     return shadow
 
@@ -457,6 +469,20 @@ def record_cycle(
     return flags
 
 
+def _finalize_blocked_buy(summary: dict[str, Any], item: dict[str, Any]) -> None:
+    """Lukitse suljetun/ikkunasta pudonneen estetyn oston viimeisin arvio pysyvästi.
+
+    Käyttää viimeisintä tunnettua unrealizedPnl-arviota (päivitetty joka kierros
+    niin kauan kuin positio oli auki) — ei täsmällinen exit-hinta, mutta ei myöskään
+    katoa jäljettömästi kuten ennen v5:tä.
+    """
+    unrealized = float(item.get("unrealizedPnl") or 0)
+    summary["blockedBuyRealizedCounterfactualEur"] = round(
+        float(summary.get("blockedBuyRealizedCounterfactualEur") or 0) + (-unrealized),
+        2,
+    )
+
+
 def _update_blocked_buy_mtm(
     shadow: dict[str, Any],
     state: dict[str, Any],
@@ -465,36 +491,50 @@ def _update_blocked_buy_mtm(
     portfolio = Portfolio(state.get("portfolio") or {})
     tickers = state.get("tickers") or {}
     open_buys = shadow.get("openBlockedBuys") or []
+    summary = shadow["summary"]
+
     if not open_buys:
-        shadow["summary"]["blockedBuyOpenEur"] = 0.0
+        summary["blockedBuyOpenEur"] = 0.0
+        summary["blockedBuyUnrealizedEur"] = 0.0
+        summary["blockedBuyCounterfactualEur"] = round(
+            float(summary.get("blockedBuyRealizedCounterfactualEur") or 0), 2
+        )
+        _recompute_net(summary)
         return
 
-    counterfactual = 0.0
+    still_open: list[dict[str, Any]] = []
     open_eur = 0.0
+    unrealized_total = 0.0
     for item in open_buys:
         sym = item.get("symbol")
         norm = normalize_symbol(sym or "")
         holding = portfolio.holdings.get(sym) or portfolio.holdings.get(norm)
+        if not holding:
+            # Positio on suljettu (myyty) livenä — lukitse viimeisin arvio pysyvästi
+            # sen sijaan että se putoaisi hiljaa pois avoimien listalta.
+            _finalize_blocked_buy(summary, item)
+            continue
+
         eur_amount = float(item.get("eurAmount") or 0)
         open_eur += eur_amount
-        if not holding:
-            continue
         ticker = tickers.get(sym) or tickers.get(norm)
-        if not ticker or not ticker.get("last"):
-            continue
         buy_price = float(item.get("buyPrice") or 0)
         amount = float(item.get("amount") or 0)
-        if buy_price <= 0 or amount <= 0:
-            continue
-        current = amount * float(ticker["last"])
-        cost = amount * buy_price
-        unrealized = current - cost
-        item["unrealizedPnl"] = round(unrealized, 2)
-        counterfactual += -unrealized
+        if ticker and ticker.get("last") and buy_price > 0 and amount > 0:
+            current = amount * float(ticker["last"])
+            cost = amount * buy_price
+            item["unrealizedPnl"] = round(current - cost, 2)
+        unrealized_total += float(item.get("unrealizedPnl") or 0)
+        still_open.append(item)
 
-    summary = shadow["summary"]
+    shadow["openBlockedBuys"] = still_open
     summary["blockedBuyOpenEur"] = round(open_eur, 2)
-    summary["blockedBuyCounterfactualEur"] = round(counterfactual, 2)
+    summary["blockedBuyUnrealizedEur"] = round(-unrealized_total, 2)
+    summary["blockedBuyCounterfactualEur"] = round(
+        float(summary.get("blockedBuyRealizedCounterfactualEur") or 0)
+        + summary["blockedBuyUnrealizedEur"],
+        2,
+    )
     _recompute_net(summary)
 
 
@@ -547,6 +587,13 @@ def record_executed_trade(
                     "timestamp": event["timestamp"],
                 }
             )
+            # Ikkuna on rajattu OPEN_BLOCKED_BUY_LIMIT:iin, mutta pudotettavan
+            # kohteen viimeisin arvio lukitaan kumulatiiviseen summaan sen sijaan
+            # että se katoaisi jäljettömästi (ks. _finalize_blocked_buy).
+            overflow = len(open_buys) - OPEN_BLOCKED_BUY_LIMIT
+            if overflow > 0:
+                for stale in open_buys[:overflow]:
+                    _finalize_blocked_buy(summary, stale)
             shadow["openBlockedBuys"] = open_buys[-OPEN_BLOCKED_BUY_LIMIT:]
 
     elif trade_type == "sell" and is_discretionary_sell(reason):

@@ -27,6 +27,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Blocked immediate rebuy of a symbol right after a losing exit",
                 "body_en": "The trade log showed a recurring pattern: both concentration mode (Gemini strong-conviction) and the empty-portfolio idle-cash deploy completely bypassed the normal 30-minute churn cooldown, letting the bot immediately rebuy the same symbol at full portfolio size right after a stop-loss or bad-setup exit — e.g. tXMRUST was bought/sold 5 times in under 24 hours (Jul 30-31), net clearly negative. A new per-symbol block (SYMBOL_REBUY_COOLDOWN_SEC, default 30 min) now prevents rebuying a symbol shortly after a losing exit across all buy paths — profitable exits (trailing/profit-take) don't trigger the block.",
             },
+            {
+                "title": "Estettyjen ostojen counterfactual-summa kumulatiiviseksi",
+                "body": "dailyPolicyShadow.blockedBuyCounterfactualEur näytti aina lähes 0 €, vaikka estettyjä ostoja (päivästop/voittolukko olisi torjunut) oli satoja — luku oli pelkkä hetkikuva enintään 40 viimeisimmän avoimen kohteen markkina-arvosta, ja suljetun (myydyn) tai ikkunasta pudonneen kohteen viimeisin arvio katosi jäljettömästi eikä kertynyt mihinkään. Nyt suljettu/pudotettu kohde lukitaan pysyvästi uuteen blockedBuyRealizedCounterfactualEur-summaan ennen poistoa, ja näkyvä blockedBuyCounterfactualEur on tämän kumulatiivisen ja avointen kohteiden nykyarvon (blockedBuyUnrealizedEur) summa. Ei vielä muuta live-kauppoja — pelkkä mittarikorjaus, jotta ostojen eston mahdollinen hyöty voidaan osoittaa luotettavasti ennen kytkentäpäätöstä.",
+                "title_en": "Blocked-buy counterfactual is now cumulative",
+                "body_en": "dailyPolicyShadow.blockedBuyCounterfactualEur always showed close to €0, despite hundreds of buys the daily-stop/profit-lock policy would have blocked — the figure was just a live snapshot of the market value of the last 40 still-open tracked items, and a closed (sold) or window-evicted item's last estimate vanished without ever being added anywhere. Now a closed/evicted item's last estimate is locked into a new cumulative blockedBuyRealizedCounterfactualEur before removal, and the displayed blockedBuyCounterfactualEur is that cumulative total plus the current open items' mark-to-market (blockedBuyUnrealizedEur). Doesn't change live trades yet — a measurement fix only, so the buy-block's potential benefit can be shown reliably before deciding whether to wire it in.",
+            },
         ],
     },
     {
