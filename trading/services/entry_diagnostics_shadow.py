@@ -33,8 +33,8 @@ MIN_SAMPLES_REPORT = 8
 # Kelly/ATR-varjokoon sekoitusosuus oikeaan eur_amount:iin — 0.0 = ei vaikutusta
 # (oletus, mekanismi laskeva mutta käytöksetön). Käyttäjä säätää myöhemmin
 # manuaalisesti kun learning_report_lines() osoittaa riittävästi näytteitä.
-ENTRY_SIZE_KELLY_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_KELLY_BLEND_WEIGHT", "0.0"))
-ENTRY_SIZE_ATR_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_ATR_BLEND_WEIGHT", "0.0"))
+ENTRY_SIZE_KELLY_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_KELLY_BLEND_WEIGHT", "0.25"))
+ENTRY_SIZE_ATR_BLEND_WEIGHT = float(os.environ.get("ENTRY_SIZE_ATR_BLEND_WEIGHT", "0.15"))
 
 
 def blended_entry_size_eur(

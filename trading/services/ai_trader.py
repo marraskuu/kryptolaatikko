@@ -14,6 +14,14 @@ ROTATE_LOSS_PCT = -1.25
 PROFIT_TAKE_TRIGGER_PCT = 2.0
 GEMINI_SELL_MIN_PROFIT_PCT = 0.5  # Gemini-myynti vain voitolla oleviin positioihin
 GEMINI_BUY_MIN_CONFIDENCE = 7     # Gemini-ostot vain ≥ tämä (kun Gemini aktiivinen)
+# Gemini-osamyynnit pois oletuksena (live expectancy −3.2 €/kauppa) — kytke päälle
+# kun kategoria-expectancy ≥ 0 ja n≥6.
+GEMINI_SELL_ENABLED = os.environ.get("GEMINI_SELL_ENABLED", "0").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 UPTREND_MIN_CHANGE_PCT = 0.3
 MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
@@ -114,7 +122,7 @@ STUCK_DEFER_1H_MIN = 0.25          # lykää jumitusta jos 1h ≥ tämä ja 4h o
 STUCK_DEFER_4H_MIN = 0.15
 STUCK_MAX_DEFER_HOURS = 6.0        # pakko-vapautus — ei pidä yli 6 h vaikka lyhytaikainen pomppu
 STUCK_FORCE_24H = -1.5             # heikko 24h → myy heti (ei lykätä)
-STUCK_FORCE_LOSS_PCT = -1.1           # selvä tappio → myy heti (ei -0.8 % micro-churn)
+STUCK_FORCE_LOSS_PCT = float(os.environ.get("STUCK_FORCE_LOSS_PCT", "-2.0"))
 STUCK_FORCE_4H = -0.5                # 4h yhä laskussa → ei dead-cat -poikkeusta
 STAGNANT_HOURS_NEUTRAL = 4.0
 STAGNANT_HOURS_BEAR = 5.0
@@ -1214,6 +1222,15 @@ def _stuck_release_forced(
     if mtf is not None and int(mtf) <= -1 and change_24h <= 0:
         return True
     return False
+
+
+def _exit_momentum_fading(analysis: dict[str, Any]) -> bool:
+    """1h heikko tai myyntialotteinen flow — jumitus-myynti vain fadeessa."""
+    ch1 = analysis.get("change1hPct")
+    if ch1 is not None and float(ch1) <= 0:
+        return True
+    flow = str(analysis.get("flowBucket") or "")
+    return flow == "fl-"
 
 
 def _short_term_recovery_hold(analysis: dict[str, Any]) -> bool:
@@ -2968,6 +2985,25 @@ def make_trading_decisions(
                     )
                     continue
                 elif stuck_forced or profit_pct <= stagnant_min_loss:
+                    # Pehmeä jumitus: vaadi fade ellei jo syvä tappio / heikko 24h.
+                    hard_force = (
+                        profit_pct <= STUCK_FORCE_LOSS_PCT
+                        or float(analysis.get("changePct") or analysis.get("momentum") or 0)
+                        <= STUCK_FORCE_24H
+                    )
+                    if not hard_force and not _exit_momentum_fading(analysis):
+                        decisions.append(
+                            {
+                                "type": "hold",
+                                "symbol": symbol,
+                                "reason": (
+                                    f"Jumitus odottaa fadea (1h/flow) — "
+                                    f"pito {profit_pct:+.1f} %, ei lukita pientä tappiota"
+                                ),
+                                "analysis": analysis,
+                            }
+                        )
+                        continue
                     partial = stuck_sell_amt < holding["amount"] * 0.99
                     fifo_note = " (vain vanhat lotit)" if partial else ""
                     decisions.append(
@@ -3080,6 +3116,23 @@ def make_trading_decisions(
             )
         elif (
             gemini_sig
+            and gemini_sig.get("action") == "sell"
+            and not GEMINI_SELL_ENABLED
+        ):
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": (
+                        "Gemini-myynti pois päältä (GEMINI_SELL_ENABLED=0) — "
+                        "voitto-otto/trailing hoitaa"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+        elif (
+            GEMINI_SELL_ENABLED
+            and gemini_sig
             and gemini_sig.get("action") == "sell"
             and gemini_sig.get("confidence", 0) >= max(sell_conf, gemini_sell_min_conf)
         ):

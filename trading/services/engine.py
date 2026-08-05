@@ -30,6 +30,7 @@ from .daily_policy_shadow import (
     record_executed_trade,
     record_profit_take_shadow,
     shadow_profit_take_config,
+    would_block_buy,
     would_block_discretionary_sell,
 )
 from .trade_meta import meta_from_analysis
@@ -78,6 +79,21 @@ GEMINI_INTERVAL_SEC = int(os.environ.get("GEMINI_INTERVAL_SEC", "600"))
 # esto päivästopin/lukon aikana ~+165 €/40pv — molemmat johdonmukaisesti positiivisia.
 # Kytketty oikeisiin kauppoihin 2026-07-29 liiallisten tappioiden korjaamiseksi.
 DAILY_POLICY_LIVE_ENABLED = os.environ.get("DAILY_POLICY_LIVE_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+# Ostojen esto päivästopin / firm-lukon (ja valinnaisesti rolling DD) aikana —
+# shadow CF ~+791 €; oletus päällä.
+DAILY_POLICY_LIVE_BUY_BLOCK = os.environ.get("DAILY_POLICY_LIVE_BUY_BLOCK", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+# Rullaava 3d-drawdown samaan ostoestoon (shadow diagnostiikka → live).
+DAILY_POLICY_LIVE_ROLLING_DD = os.environ.get("DAILY_POLICY_LIVE_ROLLING_DD", "1").lower() not in (
     "0",
     "false",
     "no",
@@ -427,6 +443,46 @@ def _apply_daily_policy_sell_gate(
     ]
 
 
+_BUY_BLOCK_REASONS = {
+    "daily_stop": "Päivästoppi — uudet ostot tauolla",
+    "profit_lock_firm": "Voittolukko — uudet ostot tauolla",
+    "rolling_drawdown": "Rullaava drawdown — uudet ostot tauolla",
+}
+
+
+def _apply_daily_policy_buy_block(
+    decisions: list[dict[str, Any]],
+    shadow_flags: dict[str, Any] | None,
+    *,
+    include_rolling_dd: bool = False,
+) -> list[dict[str, Any]]:
+    """Muunna ostot holdiksi päivästopin / firm-lukon / rolling DD aikana."""
+    if not shadow_flags:
+        return decisions
+    blocked, reason_key = would_block_buy(
+        shadow_flags, include_rolling_dd=include_rolling_dd
+    )
+    if not blocked:
+        return decisions
+    hold_reason = _BUY_BLOCK_REASONS.get(
+        reason_key or "", "Päiväpolitiikka — uudet ostot tauolla"
+    )
+    out: list[dict[str, Any]] = []
+    for d in decisions:
+        if d.get("type") == "buy":
+            out.append(
+                {
+                    "type": "hold",
+                    "symbol": d.get("symbol"),
+                    "reason": hold_reason,
+                    "analysis": d.get("analysis"),
+                }
+            )
+        else:
+            out.append(d)
+    return out
+
+
 def _try_clear_price_error(state: dict[str, Any]) -> bool:
     """Yritä nollata Bitfinex-virhe ennen kaupankäyntikierrosta."""
     if not state.get("error"):
@@ -670,9 +726,15 @@ def execute_trading_cycle() -> dict[str, Any]:
                     get_crypto_label,
                 )
                 pick_tuning, pick_notes = compute_pick_tuning(state.get("geminiPickStats"))
+                from .ai_trader import GEMINI_BUY_MIN_CONFIDENCE
+
+                pick_min = max(
+                    GEMINI_BUY_MIN_CONFIDENCE,
+                    int(pick_tuning["gemini_buy_min_confidence"]),
+                )
                 learning.update(
                     {
-                        "gemini_buy_min_confidence": pick_tuning["gemini_buy_min_confidence"],
+                        "gemini_buy_min_confidence": pick_min,
                         "gemini_pick_buy_scale": pick_tuning["gemini_pick_buy_scale"],
                         "gemini_pick_stats": pick_tuning.get("gemini_pick_stats"),
                     }
@@ -745,6 +807,19 @@ def execute_trading_cycle() -> dict[str, Any]:
         decisions = decision_result["decisions"]
         if DAILY_POLICY_LIVE_ENABLED:
             decisions = _apply_daily_policy_sell_gate(decisions, shadow_flags)
+        if DAILY_POLICY_LIVE_BUY_BLOCK:
+            decisions = _apply_daily_policy_buy_block(
+                decisions,
+                shadow_flags,
+                include_rolling_dd=DAILY_POLICY_LIVE_ROLLING_DD,
+            )
+            buy_blocked, _ = would_block_buy(
+                shadow_flags or {},
+                include_rolling_dd=DAILY_POLICY_LIVE_ROLLING_DD,
+            )
+            if buy_blocked:
+                decision_result["initialAllocation"] = []
+                decision_result["idleEmptyDeploy"] = False
         state["activeSymbols"] = decision_result.get("topSymbols", [])
 
         executed_buys: list[dict[str, Any]] = []

@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-08-05",
         "entries": [
             {
+                "title": "Polku voitolliseksi: päiväostoesto, Gemini-myynti pois, conf ≥7",
+                "body": "Päivästoppi/voittolukko/rullaava drawdown estää uudet ostot liveissä (shadow CF ~+791 €). Gemini-osamyynnit pois (GEMINI_SELL_ENABLED=0). Pick-conf ei tipu alle 7. Rotaatio vain positiivisella edgellä (n≥6). Jumitus vaatii fadea; Kelly/ATR-koko 25%/15%. Setup-mallin AUC-kynnys 0.58 (live edelleen opt-in).",
+                "title_en": "Path to profit: daily buy-block, Gemini sells off, conf ≥7",
+                "body_en": "Daily stop / profit lock / rolling drawdown now block new live buys (shadow CF ~+€791). Gemini partial sells off (GEMINI_SELL_ENABLED=0). Pick confidence never below 7. Rotation only with positive edge (n≥6). Time-stop needs fade; Kelly/ATR size blend 25%/15%. Setup model AUC gate 0.58 (live still opt-in after train).",
+            },
+            {
                 "title": "Verenvuodon-stoppaus: tiukemmat ostot ja stopit",
                 "body": "Karhu-osto vain erittäin vahvalla varjo-edgellä (condAdjust ≥ 3.5). Idle-käteinen ei ohita Gemini-/score-portteja eikä churn-taukoa. Keskittymistila ei enää myy −0.5 % tappiota chaseen. Stop-katot −5/−4.5/−3.5 % (abs −5.5 %). Oppiminen ei löysennä stoppeja. Gemini defensiivisempi, ostoconf ≥ 7.",
                 "title_en": "Bleed stop: tighter buys and stops",

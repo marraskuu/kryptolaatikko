@@ -290,12 +290,16 @@ def _apply_category_tuning(
     rot = stats.get("rotation", {})
     rot_n = int(rot.get("trades", 0))
     rot_exp = float(rot.get("expectancy_eur", 0.0))
-    if rot_n >= min_samples:
-        if rot_exp < 0:
-            rotation_enabled = False
+    # Rotaatio vain kun todistettu positiivinen edge (≥6 kauppaa). Muuten pois —
+    # tappiorotaatio on ollut kallis chase.
+    if rot_n < 6 or rot_exp <= 0:
+        rotation_enabled = False
+        if rot_n < 6:
+            notes.append(f"rotaatio pois (n={rot_n}<6)")
+        else:
             notes.append(f"rotaatio pois ({rot_exp:+.2f} €/kauppa)")
-        elif rot_exp > 0.2:
-            notes.append(f"rotaatio ok ({rot_exp:+.2f} €/kauppa)")
+    elif rot_exp > 0.2:
+        notes.append(f"rotaatio ok ({rot_exp:+.2f} €/kauppa)")
 
     gem = stats.get("gemini_sell", {})
     gem_n = int(gem.get("trades", 0))
@@ -978,10 +982,14 @@ def compute_tuning(
     except Exception:
         pass
 
+    from .ai_trader import GEMINI_BUY_MIN_CONFIDENCE
     from .gemini_pick_tracking import compute_pick_tuning
 
     pick_tuning, pick_notes = compute_pick_tuning(gemini_pick_stats)
-    gemini_buy_min_confidence = int(pick_tuning.get("gemini_buy_min_confidence", 5))
+    gemini_buy_min_confidence = max(
+        GEMINI_BUY_MIN_CONFIDENCE,
+        int(pick_tuning.get("gemini_buy_min_confidence", GEMINI_BUY_MIN_CONFIDENCE)),
+    )
     gemini_pick_buy_scale = float(pick_tuning.get("gemini_pick_buy_scale", 1.0))
     notes.extend(pick_notes)
 

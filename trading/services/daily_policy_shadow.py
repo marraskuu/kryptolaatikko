@@ -236,11 +236,17 @@ def is_discretionary_sell(reason: str) -> bool:
     return not any(k in lower for k in skip)
 
 
-def would_block_buy(flags: dict[str, Any]) -> tuple[bool, str | None]:
+def would_block_buy(
+    flags: dict[str, Any],
+    *,
+    include_rolling_dd: bool = False,
+) -> tuple[bool, str | None]:
     if flags.get("dailyStopActive"):
         return True, "daily_stop"
     if flags.get("profitLockTier") == "firm":
         return True, "profit_lock_firm"
+    if include_rolling_dd and flags.get("rollingDrawdownActive"):
+        return True, "rolling_drawdown"
     return False, None
 
 

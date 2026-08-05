@@ -55,7 +55,7 @@ SETUP_MODEL_ADJUST_WEIGHT = float(os.environ.get("SETUP_MODEL_ADJUST_WEIGHT", "6
 # Neljäsosa market_learning.MAX_SCORE_ADJUST:sta (4.0) — tarkoituksella maltillinen
 # kunnes mallin live-kalibrointi on vahvistettu.
 SETUP_MODEL_MAX_ADJUST = float(os.environ.get("SETUP_MODEL_MAX_ADJUST", "1.0"))
-SETUP_MODEL_MIN_AUC = float(os.environ.get("SETUP_MODEL_MIN_AUC", "0.55"))
+SETUP_MODEL_MIN_AUC = float(os.environ.get("SETUP_MODEL_MIN_AUC", "0.58"))
 
 _DEFAULT: dict[str, Any] = {"model": None, "meta": None}
 
@@ -292,7 +292,22 @@ def apply(analyses: dict[str, dict[str, Any]], regime: Any) -> None:
     Peilaa market_learning.apply():n muotoa. Per-symboli-poikkeukset eivät
     kaada koko sykliä — kutsujan (engine.py) tulee silti kääriä oma
     try/except tämän kutsun ympärille samaan tapaan kuin market_learning.apply.
+    Jos malli puuttuu tai holdout AUC < SETUP_MODEL_MIN_AUC, adjust on 0
+    (condition_adjust_from_model) — live-kytkin ei pakota huonoa mallia.
     """
+    loaded = load_model()
+    if loaded is None:
+        return
+    _, meta = loaded
+    holdout_auc = meta.get("holdoutAuc")
+    if holdout_auc is None or float(holdout_auc) < SETUP_MODEL_MIN_AUC:
+        logger.info(
+            "Setup model live skip: AUC %s < min %s",
+            holdout_auc,
+            SETUP_MODEL_MIN_AUC,
+        )
+        return
+
     for analysis in analyses.values():
         try:
             adj, prob = condition_adjust_from_model(analysis, regime)

@@ -453,10 +453,13 @@ def compute_pick_tuning(
     stats: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Programmatinen Gemini-pick -hillintä arkistoidun scorecard-datan perusteella."""
+    from .ai_trader import GEMINI_BUY_MIN_CONFIDENCE
+
     stats = stats or {}
     notes: list[str] = []
+    floor = int(GEMINI_BUY_MIN_CONFIDENCE)
     tuning: dict[str, Any] = {
-        "gemini_buy_min_confidence": 5,
+        "gemini_buy_min_confidence": floor,
         "gemini_pick_buy_scale": 1.0,
     }
 
@@ -479,32 +482,32 @@ def compute_pick_tuning(
 
     beats = stats.get("pick_beats_skipped_pct")
 
-    min_conf = 5
+    min_conf = floor
     scale = 1.0
 
     if win_rate is not None:
         if win_rate < 20:
-            min_conf = 7
+            min_conf = max(floor, 7)
             scale = 0.5
-            notes.append(f"Gemini-pickit heikot ({win_rate:.0f} % osuu) — conf ≥7, osto 50 %")
+            notes.append(f"Gemini-pickit heikot ({win_rate:.0f} % osuu) — conf ≥{min_conf}, osto 50 %")
         elif win_rate < 35:
-            min_conf = 6
+            min_conf = max(floor, 7)
             scale = 0.7
-            notes.append(f"Gemini-pickit alle normin ({win_rate:.0f} % osuu) — conf ≥6, osto 70 %")
+            notes.append(f"Gemini-pickit alle normin ({win_rate:.0f} % osuu) — conf ≥{min_conf}, osto 70 %")
         elif win_rate >= 45 and (avg_ret is None or avg_ret >= 0):
             notes.append(f"Gemini-pickit ok ({win_rate:.0f} % osuu)")
 
     if avg_ret is not None and avg_ret < -0.5:
-        min_conf = max(min_conf, 6)
+        min_conf = max(min_conf, floor)
         scale = min(scale, 0.75)
         notes.append(f"Gemini-pickien keskituotto {avg_ret:+.2f} % — varovaisemmin")
 
     if beats is not None and rounds >= 5 and beats < 40:
         scale = min(scale, 0.6)
-        min_conf = max(min_conf, 6)
+        min_conf = max(min_conf, floor)
         notes.append(f"Pickit häviävät ohituksille ({beats:.0f} % kierroksista)")
 
-    tuning["gemini_buy_min_confidence"] = min_conf
+    tuning["gemini_buy_min_confidence"] = max(floor, min_conf)
     tuning["gemini_pick_buy_scale"] = max(
         PICK_SCALE_MIN, min(PICK_SCALE_MAX, round(scale, 2))
     )

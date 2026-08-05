@@ -84,11 +84,18 @@ class ConditionAdjustFromModelMappingTests(SimpleTestCase):
 
 
 class ApplySetsAnalysisFieldsTests(SimpleTestCase):
+    def _patch_good_model(self):
+        return patch(
+            "trading.services.setup_model.load_model",
+            return_value=(object(), {"holdoutAuc": 0.7, "featureNames": setup_model.FEATURE_NAMES}),
+        )
+
     @patch("trading.services.setup_model.condition_adjust_from_model")
     def test_apply_sets_model_adjust_and_win_prob_without_mutating_other_keys(self, mock_adjust):
         mock_adjust.return_value = (0.42, 0.61)
         analyses = {"tBTCUSD": {"score": 3, "rsi": 55}}
-        setup_model.apply(analyses, "bull")
+        with self._patch_good_model():
+            setup_model.apply(analyses, "bull")
         self.assertEqual(analyses["tBTCUSD"]["score"], 3)
         self.assertEqual(analyses["tBTCUSD"]["rsi"], 55)
         self.assertEqual(analyses["tBTCUSD"]["modelAdjust"], 0.42)
@@ -98,19 +105,33 @@ class ApplySetsAnalysisFieldsTests(SimpleTestCase):
     def test_apply_sets_zero_adjust_without_win_prob_key_when_none(self, mock_adjust):
         mock_adjust.return_value = (0.0, None)
         analyses = {"tETHUSD": {"score": 2}}
-        setup_model.apply(analyses, "neutral")
+        with self._patch_good_model():
+            setup_model.apply(analyses, "neutral")
         self.assertEqual(analyses["tETHUSD"]["modelAdjust"], 0.0)
         self.assertNotIn("modelWinProb", analyses["tETHUSD"])
 
     def test_per_symbol_exception_does_not_crash_apply(self):
         analyses = {"tBTCUSD": {}, "tETHUSD": {"score": 1}}
-        with patch(
+        with self._patch_good_model(), patch(
             "trading.services.setup_model.condition_adjust_from_model",
             side_effect=[RuntimeError("boom"), (0.1, 0.55)],
         ):
             setup_model.apply(analyses, "bull")
         self.assertEqual(analyses["tBTCUSD"]["modelAdjust"], 0.0)
         self.assertEqual(analyses["tETHUSD"]["modelAdjust"], 0.1)
+
+    @patch("trading.services.setup_model.load_model", return_value=None)
+    def test_apply_no_op_when_model_missing(self, _mock):
+        analyses = {"tBTCUSD": {"score": 1}}
+        setup_model.apply(analyses, "bull")
+        self.assertNotIn("modelAdjust", analyses["tBTCUSD"])
+
+    @patch("trading.services.setup_model.load_model")
+    def test_apply_no_op_when_auc_below_min(self, mock_load):
+        mock_load.return_value = (object(), {"holdoutAuc": 0.50})
+        analyses = {"tBTCUSD": {"score": 1}}
+        setup_model.apply(analyses, "bull")
+        self.assertNotIn("modelAdjust", analyses["tBTCUSD"])
 
 
 class RankingFormulaIntegrationTests(SimpleTestCase):
