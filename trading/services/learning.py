@@ -395,7 +395,11 @@ def _compute_buy_scale(
 def _compute_stop_tuning(
     stats: dict[str, dict[str, float]],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Expectancy-pohjainen stop-loss: levennä/tiukenna ATR-rajoja datan perusteella."""
+    """Expectancy-pohjainen stop-loss: vain tiukenna kun stopit ovat olleet kalliita.
+
+    Löysennystä ei enää tehdä (exp > -0.35 → scale > 1) — se kasvatti yksittäisiä
+    tappioita kun voitto-otot olivat jo pieniä.
+    """
     sl = stats.get("stop_loss", {})
     n = int(sl.get("trades", 0))
     exp = float(sl.get("expectancy_eur", 0.0))
@@ -412,11 +416,7 @@ def _compute_stop_tuning(
         return config, notes
 
     config["level"] = "light"
-    if exp > -0.35:
-        config["atr_scale"] = 1.1
-        config["floor_scale"] = 1.08
-        notes.append(f"stop-loss löysempi ({exp:+.2f} €/kauppa)")
-    elif exp < -1.0:
+    if exp < -1.0:
         config["atr_scale"] = 0.88
         config["floor_scale"] = 0.92
         config["cap_scale"] = 0.92
@@ -424,10 +424,7 @@ def _compute_stop_tuning(
 
     if n >= MIN_SAMPLES_STOP_FULL:
         config["level"] = "full"
-        if exp > -0.25:
-            config["atr_scale"] = max(float(config["atr_scale"]), 1.15)
-            config["floor_scale"] = max(float(config["floor_scale"]), 1.12)
-        elif exp < -1.25:
+        if exp < -1.25:
             config["atr_scale"] = min(float(config["atr_scale"]), 0.82)
             config["floor_scale"] = min(float(config["floor_scale"]), 0.88)
             config["cap_scale"] = min(float(config["cap_scale"]), 0.88)

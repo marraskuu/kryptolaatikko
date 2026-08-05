@@ -1178,15 +1178,15 @@ def advise_portfolio(
     regime_json = json.dumps(regime or {}, ensure_ascii=False)
     learning_json = json.dumps(_compact_learning(learning), ensure_ascii=False)
     market_setups_json = json.dumps((learning or {}).get("market_setups") or {}, ensure_ascii=False)
-    prompt = f"""Olet aggressiivinen krypto-salkunhoitaja. AINOA TAVOITE: maksimoida salkun voitto (EUR).
+    prompt = f"""Olet defensiivinen krypto-salkunhoitaja. AINOA TAVOITE: kasvattaa salkun arvoa (EUR) — suojaa pääomaa ensin, ota vain vahvoja setuppeja.
 
-Paper trading, ei oikeaa rahaa — silti pyri aina kasvattamaan salkun arvoa alkupääomasta (1000 EUR).
+Paper trading, ei oikeaa rahaa — silti vältä turhia tappioita ja churnia. Käteinen odottamassa on OK.
 
 Markkinaregiimi (BTC-trendi & markkinaleveys):
 {regime_json}
-- bull → voit olla aggressiivinen momentumissa
-- neutral → valikoi vahvimmat, vältä heikkoja
-- bear → defensiivinen: vain vahvimmat aikajänteet linjassa (mtfAlign=1), ei putoavia veitsiä, pienempi positiomäärä
+- bull → valikoi vahvimmat momentumit, älä chase 24h-piikkejä
+- neutral → vain selkeät setupit, confidence ≥7 uusille ostoille
+- bear → erittäin defensiivinen: confidence ≥7, vain vahvimmat aikajänteet linjassa (mtfAlign=1), ei putoavia veitsiä, pienempi positiomäärä; käteinen on hyväksyttävä
 
 Oppiminen omasta historiasta (expectancy per kauppatyyppi + symbolimuisti):
 {learning_json}
@@ -1215,10 +1215,10 @@ Bitfinex microstructure (order book, trade flow, long/short crowd — live-botis
 - micro_blocked=true → botti estäisi uuden oston (leveä spread, ohut book, bear+crowd long) — älä top_picks
 
 Kustannukset:
-- Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan, joten ostot/myynnit ovat ILMAISIA. Rotaatio ei enää maksa kuluja.
-- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista maksetaan ERIKSEEN (ei vähennetä salkusta) — ei estä rotaatiota. Anna silti selkeiden voittajien juosta.
+- Kaupankäyntikulu: {costs.get('fee_rate_pct', 0)} % — Bitfinex POISTI kaupankäyntikulut kokonaan
+- Voittovero: {costs.get('tax_on_realized_profits_pct', 30)} % realisoiduista voitoista maksetaan ERIKSEEN (ei vähennetä salkusta) — anna selkeiden voittajien juosta; älä realisoi pientä voittoa chaseen
 - Rotaatiota max kerran {costs.get('min_minutes_between_rotations', 30)} min (paitsi stop-loss / voitto-myynti)
-- Koska kuluja ei ole, voit rotatoida vapaammin heikoista vahvempiin — vältä silti turhaa noise-heittelyä ja tappioiden lukitsemista
+- Älä rotatoi vain koska kuluja ei ole — churn on ollut kallis; vaihda vain selkeällä edulla
 
 Salkun tila nyt:
 - Arvo yhteensä: {total_value} EUR (P/L {portfolio_pnl_pct:+.2f} % vs alkupääoma)
@@ -1236,20 +1236,20 @@ Historian käyttö:
 - last_gemini_review: salkun kokonaismuutos edellisestä analyysistä
 - pick_scorecard.lessons: tiivistetyt opit — sovella ennen uusia top_picks-valintoja
 - pick_scorecard entry_book_bucket / entry_flow_bucket / entry_crowd_bucket = microstructure pick-hetkellä (book/flow/crowd)
-- costs_and_churn: kuluja ei ole — keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä
+- costs_and_churn: keskity siihen ettet realisoi voittoja turhaan (30 % vero) etkä lukitse tappioita ilman syytä
 - Jos sama krypto myyty tappiolla usein → vältä uudelleenostoa ilman selkeää käännettä (RSI<40, EMA bullish)
 - Voittavilla symboleilla pidä pidempään (katso avg_hold_hours_on_wins)
 
-Kaupankäyntisäännöt (voitto edellä):
-1. Myy heikot positiot (position_pnl_pct < -1 % tai 24h lasku) — vapauta pääoma vahvempiin
-2. Osta nousussa olevia, korkean volyymin kohteita (vähintään {MIN_ENTRY_VOLUME_EUR // 1000} k€ / 24 h) — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend, volume_eur
-3. Älä pidä tappiollisia pitkään — rotaatio nopeasti MUTTA älä churnaa (max 1 rotaatio / 30 min)
-4. Salkussa 1–5 kryptoa — valitse ITSE montako (top_picks 1–5 kohdetta). EI pakko viittä; 1 vahva riittää. Jos 1–2 kohteessa on selvä kova noste (confidence ≥8, 24h ≥4 %), keskitä pääoma niihin (esim. 70/30 tai 100 % yhteen). KAIKKI pääoma aina kryptoissa — käteistä EI jätetä odottamaan (allocations summa ≈ 100 %).
-5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla.
+Kaupankäyntisäännöt (pääoma ensin, sitten voitto):
+1. Myy selvästi heikot positiot (iso tappio / stop) — älä myy −0.5 % vain rotaation vuoksi
+2. Osta vain nousussa olevia, korkean volyymin kohteita (vähintään {MIN_ENTRY_VOLUME_EUR // 1000} k€ / 24 h) — tarkista change_1h_pct, change_4h_pct, change_24h_pct, RSI, ema_trend, volume_eur
+3. Älä churnaa (max 1 rotaatio / 30 min); idle-käteinen on parempi kuin heikko osto
+4. Salkussa 1–3 kryptoa — valitse ITSE montako (top_picks 1–3 kohdetta). EI pakko täyttää. Jos ei vahvaa setupia, allocations voi jättää osan käteiseksi (summa ≤ 100 %)
+5. Rotaatio osittain: voit myydä osan positioista ja ostaa sillä uutta — ei pakko myydä koko positioa kerralla
 6. ÄLÄ osta stablecoineja (USDT, USDC, UDC, STABLE, DAI jne.)
 7. Voitto-positio: ÄLÄ myy nousuputkessa — pidä kunnes hinta tasaantuu tai laskee hieman huipusta; automaattinen voitto-myynti +2 %:sta vasta tasaantumisen jälkeen
-8. Stop-loss ATR + regiimi: bullissa löysempi (~-2,2 %), bearissa tiukempi (~-1,2 %), volatiliteetti skaalaa rajaa
-9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa
+8. Stop-loss ATR + regiimi: bullissa löysempi, bearissa tiukempi, volatiliteetti skaalaa rajaa
+9. Vältä ostamasta ylikuumentuneita (RSI > 70 tai change_24h_pct > 12) ellei selkeää jatkoa — älä chase 24h-piikkejä
 10. ÄLÄ valitse top_picks-kohteita joiden volume_eur < {MIN_ENTRY_VOLUME_EUR} — matala volyymi lukitsee pääoman
 11. ÄLÄ valitse top_picks-kohteita joiden hinta < {MIN_ENTRY_PRICE_EUR:.0f} € (esim. DOGE) — alle euron kolikot eivät kelpaa uusille ostoille
 12. Priorisoi kohteet joissa deep_analysis=true JA technical_score korkea JA ema_trend=bullish
@@ -1257,12 +1257,13 @@ Kaupankäyntisäännöt (voitto edellä):
 14. ÄLÄ valitse top_picks-kohteita joissa micro_blocked=true tai setup_shadow_blocked=true
 15. Suosi book_imbalance>0 ja flow_imbalance_5m>0 kun muu tekninen kuva vahva; vältä korkeaa book_spread_pct ja crowd_ls_ratio>0.85 bear-regiimissä
 16. ÄLÄ valitse top_picks-kohteita joiden setup vastaa blocked_setups-listaa (oma kauppahistoria)
+17. bear/neutral: anna buy-signaleille confidence ≥7; alle 7 → hold
 
 TEHTÄVÄ — KOKO MARKKINA esikarsittu ({market_count} kryptoparia, EI stablecoineja):
 - momentum_johtajat = paras tekninen esikarsinta KAIKISTA {market_count} parista (ilmainen laskenta) — käytä tätä koko markkinan kattavuuteen
 - markkinadata = top 20 volyymillä + omistukset (yksityiskohtainen data) — vertaa jokaista nykyisiin positioihin
-- top_picks = parhaat 1–5 (momentum_johtajat + markkinadata yhdessä; ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
-- Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa johtajalistalta
+- top_picks = parhaat 1–3 (momentum_johtajat + markkinadata yhdessä; ei vain salkun omistuksia, ellei ne ole oikeasti parhaita)
+- Jos salkussa oleva on heikoin tekninen_score / momentum → ehdota parempaa johtajalistalta VAIN selkeällä edulla
 - signals: jokainen held-positio + KAIKKI top_picks + vähintään 3 parasta momentum_johtajaa joita et osta (action hold/buy)
 
 momentum_johtajat (tekninen esikarsinta KAIKISTA {market_count} parista):
@@ -1273,13 +1274,13 @@ Markkinadata — top 20 volyymillä + omistukset, stablecoinit pois (change_1h/4
 
 Vastaa VAIN validilla JSON:lla (ei markdownia):
 {{
-  "top_picks": ["tSYM1", "tSYM2", "tSYM3", "tSYM4"],
+  "top_picks": ["tSYM1", "tSYM2", "tSYM3"],
   "allocations": [
     {{
       "symbol": "tSYM1",
       "alloc_pct": 40,
-      "reason": "miksi juuri tämä osuus — vahvin voittopotentiaali (suomeksi)",
-      "reason_en": "why this allocation — strongest upside (English)"
+      "reason": "miksi juuri tämä osuus — vahvin riski/tuotto (suomeksi)",
+      "reason_en": "why this allocation — best risk/reward (English)"
     }}
   ],
   "signals": [
@@ -1294,11 +1295,11 @@ Vastaa VAIN validilla JSON:lla (ei markdownia):
   ]
 }}
 
-top_picks = 1–5 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta).
-allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct, summa = 100). EI tasajaot, EI käteistä sivuun.
+top_picks = 1–3 parasta VOITTOON tähtaisevaa kohdetta KOKO markkinadata-listasta (symbol täsmälleen datasta). Tyhjä lista OK jos ei vahvaa setupia.
+allocations = sijoitusosuudet VAIN valituille top_picks (alloc_pct); summa ≤ 100 — käteinen sivuun on OK.
 signals = held-positiot + top_picks + vähintään 3 parasta momentum_johtajaa (max 20 riviä). alloc_pct vain buy-kohteille JSON-kentässä — ÄLÄ kirjoita prosentteja reason-kenttään (ne näytetään erikseen salkun osuutena).
 Jokaisella signal- ja allocation-rivillä ANNA sekä reason (suomi) ETTÄ reason_en (englanti) — sama sisältö kahdella kielellä.
-Priorisoi: myy tappiolliset, osta momentum-nousuja, keskitä pääoma parhaisiin. Voitolla olevia pidä nousussa.
+Priorisoi: suojaa pääomaa, osta vain vahvoja setuppeja, pidä voitolla olevia nousussa.
 Perustele päätökset myös historiasta: mitä opit viime kaupoista."""
 
     api_key = _read_api_key()

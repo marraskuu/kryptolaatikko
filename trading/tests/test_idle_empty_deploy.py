@@ -1,4 +1,4 @@
-"""Tyhjä salkku + idle-cash: deploy parhaaseen ranked_buyable-kohteeseen."""
+"""Tyhjä salkku + idle-cash: deploy vain normaalien gatejen läpi (ei ohitusta)."""
 
 from unittest.mock import patch
 
@@ -12,8 +12,8 @@ _MICRO_OK = {"microChecked": True, "microBlocked": False}
 
 class IdleEmptyDeployTests(SimpleTestCase):
     @patch("trading.services.market_microstructure.ENABLED", False)
-    def test_idle_empty_deploy_reallows_score_blocked_symbol(self):
-        """Score-esto poistuu idle-tyhjällä salkulla — BTC voi palata (A + B)."""
+    def test_idle_empty_does_not_bypass_score_blocked_symbol(self):
+        """Score-esto pysyy idle-tyhjälläkin — ei allow_non_gemini_pick."""
         btc = "tBTCUSD"
         analyses = {
             btc: {
@@ -65,8 +65,8 @@ class IdleEmptyDeployTests(SimpleTestCase):
 
         allocation = result.get("initialAllocation") or []
         symbols = [slot["symbol"] for slot in allocation]
-        self.assertIn(btc, symbols)
-        self.assertTrue(result.get("idleEmptyDeploy"))
+        self.assertNotIn(btc, symbols)
+        self.assertFalse(result.get("idleEmptyDeploy"))
 
     @patch("trading.services.market_microstructure.ENABLED", False)
     def test_idle_empty_deploy_keeps_chronic_loser_blocked(self):
@@ -164,3 +164,45 @@ class IdleEmptyDeployTests(SimpleTestCase):
 
         self.assertFalse(result.get("initialAllocation"))
         self.assertFalse(result.get("idleEmptyDeploy"))
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_idle_deploy_allows_gemini_top_pick(self):
+        """Idle + Gemini top-pick + conf ≥ min → deploy ok."""
+        pick = "tBTCUSD"
+        analyses = {
+            pick: {
+                "currentPrice": 60_000.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 2,
+                "changePct": 2.0,
+                "change4hPct": 1.0,
+                **_MICRO_OK,
+            },
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 910.0
+        portfolio["holdings"] = {}
+
+        gemini_insights = {
+            "top_picks": [pick],
+            "signals": {
+                pick: {"action": "buy", "confidence": 8, "reason": "momentum"},
+            },
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=910.0,
+            label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
+            gemini_insights=gemini_insights,
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        allocation = result.get("initialAllocation") or []
+        symbols = [slot["symbol"] for slot in allocation]
+        self.assertIn(pick, symbols)

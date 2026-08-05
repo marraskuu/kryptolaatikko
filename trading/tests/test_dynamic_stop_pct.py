@@ -45,7 +45,7 @@ class DynamicStopPctAbsoluteBackstopTests(SimpleTestCase):
     def test_backstop_does_not_affect_normal_tighter_caps(self):
         analysis = {"atrPct": 20.0}
         stop = ai_trader.dynamic_stop_pct(analysis, "bear")
-        # Bear cap (-5.0) is well within the absolute backstop (-7.5), so backstop is a no-op here.
+        # Bear cap is within the absolute backstop, so backstop is a no-op here.
         self.assertEqual(stop, ai_trader.STOP_CAP_BEAR_PCT)
 
 

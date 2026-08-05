@@ -13,7 +13,7 @@ STOP_LOSS_PCT = -2.0
 ROTATE_LOSS_PCT = -1.25
 PROFIT_TAKE_TRIGGER_PCT = 2.0
 GEMINI_SELL_MIN_PROFIT_PCT = 0.5  # Gemini-myynti vain voitolla oleviin positioihin
-GEMINI_BUY_MIN_CONFIDENCE = 5     # Gemini-ostot vain ≥ tämä (kun Gemini aktiivinen)
+GEMINI_BUY_MIN_CONFIDENCE = 7     # Gemini-ostot vain ≥ tämä (kun Gemini aktiivinen)
 UPTREND_MIN_CHANGE_PCT = 0.3
 MIN_TRADE_EUR = 10
 CASH_BUFFER_EUR = 2
@@ -30,25 +30,23 @@ ROTATION_OUT_MIN_PROFIT_PCT = 0.5
 SYMBOL_REBUY_COOLDOWN_SEC = float(
     os.environ.get("SYMBOL_REBUY_COOLDOWN_SEC", str(MIN_ROTATION_INTERVAL_SEC))
 )
-# Kun suurin osa pääomasta on käteisenä, sijoita aggressiivisesti (ei 30 min taukoa).
-IDLE_CASH_DEPLOY_PCT = 0.35
-IDLE_CASH_MIN_EUR = 150
+# Idle-käteinen: deploy vain kun iso osa salkusta on käteistä (ei pakko-sijoittaa).
+IDLE_CASH_DEPLOY_PCT = 0.50
+IDLE_CASH_MIN_EUR = 250
 # Karhu: ei uusia ostoja (bull +235 € / bear −239 € live-datassa).
 BEAR_BUY_FREEZE = os.environ.get("BEAR_BUY_FREEZE", "1").lower() not in (
     "0",
     "false",
     "no",
 )
-# Poikkeus karhu-jäädytykseen: varjo-oppimisen paras löydetty asetelma on ollut
-# nimenomaan karhuregiimissä (exp1h +3,19 %, n=33) — jäädytys on estänyt sen
-# koskaan toteutumasta. Päästä läpi vain kun condAdjust on lähellä maksimia
-# (vahva, riittävällä otoksella opittu positiivinen edge tälle tarkalle asetelmalle).
+# Poikkeus karhu-jäädytykseen: vain erittäin vahva varjo-edge (condAdjust ≥ 3.5).
+# Aiemmin 2.0 päästi keskivahvoja bear-ostoja läpi → verenvuoto.
 # HUOM: vaikuttaa käytännössä vain Gemini-aktiiviseen ostopolkuun (_is_buy_blocked) —
 # tekninen (ei-Gemini) polku (_entry_ok) ei pääse bear-regiimissä läpi tästä
 # kynnyksestä riippumatta, koska sen oma mtf>=2-ehto on saavuttamaton
 # (_mtf_alignment palauttaa vain -1/0/1). Ei korjattu tässä tietoisesti.
 BEAR_FREEZE_EXCEPTION_MIN_ADJUST = float(
-    os.environ.get("BEAR_FREEZE_EXCEPTION_MIN_ADJUST", "2.0")
+    os.environ.get("BEAR_FREEZE_EXCEPTION_MIN_ADJUST", "3.5")
 )
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
@@ -64,16 +62,14 @@ STOP_CAP_PCT = -8.0          # legacy-viite neutraalille
 DEFAULT_ATR_PCT = 1.5        # jos ATR puuttuu, oletetaan ~1.5 %
 
 # Regiimi + ATR stop-loss — bull: anna hengittää, bear: leikkaa nopeammin.
-# Katot (cap) olivat aiemmin -9.0/-8.0/-5.5 — selvästi löysempiä kuin voitonoton
-# triggerit (+1.2-5.0 %, sell_strategy.py). Tiukennettu 2026-07-27 pahimman
-# yksittäisen tappion rajoittamiseksi; env-säädettävissä nopeaa rollbackia varten.
-STOP_CAP_BULL_PCT = float(os.environ.get("STOP_CAP_BULL_PCT", "-7.0"))
-STOP_CAP_NEUTRAL_PCT = float(os.environ.get("STOP_CAP_NEUTRAL_PCT", "-6.5"))
-STOP_CAP_BEAR_PCT = float(os.environ.get("STOP_CAP_BEAR_PCT", "-5.0"))
+# Tiukennettu uudelleen 2026-08-05 (−132 € bleed): pienemmät yksittäiset stopit.
+STOP_CAP_BULL_PCT = float(os.environ.get("STOP_CAP_BULL_PCT", "-5.0"))
+STOP_CAP_NEUTRAL_PCT = float(os.environ.get("STOP_CAP_NEUTRAL_PCT", "-4.5"))
+STOP_CAP_BEAR_PCT = float(os.environ.get("STOP_CAP_BEAR_PCT", "-3.5"))
 # Absoluuttinen backstop dynamic_stop_pct():lle — riippumaton regiimistä/oppimisen
 # hienosäädöstä, viimeinen suoja yllättävän auto-tuning-arvon tai tuntemattoman
 # regiime-merkkijonon varalta.
-STOP_LOSS_ABS_MAX_PCT = float(os.environ.get("STOP_LOSS_ABS_MAX_PCT", "-7.5"))
+STOP_LOSS_ABS_MAX_PCT = float(os.environ.get("STOP_LOSS_ABS_MAX_PCT", "-5.5"))
 
 REGIME_STOP_PROFILES: dict[str, dict[str, float]] = {
     "bull": {"atr_mult": 1.75, "floor": -2.25, "cap": STOP_CAP_BULL_PCT},
@@ -2667,50 +2663,18 @@ def make_trading_decisions(
         def _empty_pick_blocked(
             sym: str,
             analysis: dict[str, Any] | None,
-            *,
-            allow_idle: bool = False,
         ) -> bool:
-            effective_blocked = (
-                _hard_blocked_buys(symbol_memory) | recently_lost
-                if allow_idle and idle_cash
-                else blocked_buys
-            )
             return _is_buy_blocked(
                 sym,
                 analysis if analysis is not None else analyses.get(sym),
-                blocked_buys=effective_blocked,
+                blocked_buys=blocked_buys,
                 blocked_setups=blocked_setups,
                 regime=entry_regime,
                 gemini_insights=gemini_insights,
                 gemini_active=gemini_active,
                 gemini_conf_scales=gemini_conf_scales,
                 gemini_buy_min_confidence=gemini_buy_min_conf,
-                allow_non_gemini_pick=allow_idle and idle_cash,
-            )
-
-        def _relaxed_idle_ranked() -> list[dict[str, Any]]:
-            relaxed_buys = _hard_blocked_buys(symbol_memory) | recently_lost
-
-            def _relaxed_blocked(sym: str, analysis: dict[str, Any] | None) -> bool:
-                return _is_buy_blocked(
-                    sym,
-                    analysis if analysis is not None else analyses.get(sym),
-                    blocked_buys=relaxed_buys,
-                    blocked_setups=blocked_setups,
-                    regime=entry_regime,
-                    gemini_insights=gemini_insights,
-                    gemini_active=gemini_active,
-                    gemini_conf_scales=gemini_conf_scales,
-                    gemini_buy_min_confidence=gemini_buy_min_conf,
-                    allow_non_gemini_pick=True,
-                )
-
-            return _ranked_buyable_candidates(
-                ranked,
-                entry_regime=entry_regime,
-                blocked_buys=relaxed_buys,
-                buy_blocked_fn=_relaxed_blocked,
-                entry_score_min=entry_score_min,
+                allow_non_gemini_pick=False,
             )
 
         picks: list[dict[str, Any]] = []
@@ -2727,21 +2691,19 @@ def make_trading_decisions(
                 for c in picks
                 if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
-        if not picks and idle_cash:
-            idle_ranked = _relaxed_idle_ranked()
-            fallback_n = min(position_cap, max_new_positions, len(idle_ranked))
-            picks = _liquid_crypto_items(idle_ranked[:fallback_n])
+        # Idle tyhjä salkku: vain normaalien gatejen läpi (ei Gemini-/score-ohitusta).
+        if not picks and idle_cash and ranked_buyable:
+            fallback_n = min(position_cap, max_new_positions, len(ranked_buyable))
+            picks = _liquid_crypto_items(ranked_buyable[:fallback_n])
             picks = [
                 c
                 for c in picks
-                if not _empty_pick_blocked(
-                    c["symbol"], c.get("analysis"), allow_idle=True
-                )
+                if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
             if picks:
                 idle_empty_deploy = True
                 logger.info(
-                    "Tyhjä salkku: idle-cash deploy (%d kohdetta, Gemini/score-esto ohitettu)",
+                    "Tyhjä salkku: idle-cash deploy (%d kohdetta, gatet voimassa)",
                     len(picks),
                 )
         if picks:
@@ -2904,21 +2866,8 @@ def make_trading_decisions(
         if concentration_mode and norm_hold not in top_norms:
             edge_here = _edge_pct(analysis)
             gap = best_target_edge - edge_here
-            if profit_pct <= -0.5 and not _bear_defense_active(regime_info):
-                decisions.append(
-                    {
-                        "type": "sell",
-                        "symbol": symbol,
-                        "amount": holding["amount"],
-                        "eurAmount": holding_value,
-                        "reason": (
-                            f"Keskittymistila — tappiolla {profit_pct:.1f} %, "
-                            f"vapautetaan fokuksen kohteisiin"
-                        ),
-                        "analysis": analysis,
-                    }
-                )
-                continue
+            # Älä lukitse pientä tappiota (−0.5 %) chaseen — stop/time-stop hoitavat.
+            # Keskittyminen myy vain voitolla / selkeällä edulla (alla).
             skip_consolidate = (
                 profit_pct >= PROFIT_TAKE_TRIGGER_PCT
                 and _in_uptrend(analysis)
@@ -3417,7 +3366,10 @@ def make_trading_decisions(
         preferred_symbols=top_norms,
     )
 
-    if not churn_cooldown or concentration_mode or idle_cash:
+    # Churn-ohitus vain tyhjälle salkulle (ensimmäinen deploy). Idle/concentration
+    # ei saa ohittaa 30 min cooldownia — aiheutti XMR-tyylistä churnia.
+    allow_deploy = (not churn_cooldown) or (len(holdings) == 0)
+    if allow_deploy:
         _deploy_cash_to_targets(
             decisions,
             holdings,

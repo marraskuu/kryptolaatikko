@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-05",
+        "entries": [
+            {
+                "title": "Verenvuodon-stoppaus: tiukemmat ostot ja stopit",
+                "body": "Karhu-osto vain erittäin vahvalla varjo-edgellä (condAdjust ≥ 3.5). Idle-käteinen ei ohita Gemini-/score-portteja eikä churn-taukoa. Keskittymistila ei enää myy −0.5 % tappiota chaseen. Stop-katot −5/−4.5/−3.5 % (abs −5.5 %). Oppiminen ei löysennä stoppeja. Gemini defensiivisempi, ostoconf ≥ 7.",
+                "title_en": "Bleed stop: tighter buys and stops",
+                "body_en": "Bear buys only with a very strong shadow edge (condAdjust ≥ 3.5). Idle cash no longer bypasses Gemini/score gates or the churn pause. Concentration mode no longer sells a −0.5% loser to chase picks. Stop caps −5/−4.5/−3.5% (abs −5.5%). Learning no longer loosens stops. Gemini is more defensive; buy confidence ≥ 7.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-01",
         "entries": [
             {
