@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-08",
+        "entries": [
+            {
+                "title": "Tyhjä salkku: ranked-osto kun Gemini ei valitse",
+                "body": "Kun käteistä on idle-määrä ja Gemini palauttaa 0 pickiä, botti voi ostaa yhden teknisesti ranked-kohteen. blocked_buys, setup- ja micro-gatet pysyvät — ohitetaan vain “pakko olla Gemini-pick”.",
+                "title_en": "Empty book: ranked buy when Gemini picks none",
+                "body_en": "With idle cash and Gemini returning 0 picks, the bot may buy one technically ranked target. blocked_buys, setup and micro gates stay — only the “must be a Gemini pick” rule is skipped.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-05",
         "entries": [
             {

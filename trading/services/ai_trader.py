@@ -2708,20 +2708,57 @@ def make_trading_decisions(
                 for c in picks
                 if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
-        # Idle tyhjä salkku: vain normaalien gatejen läpi (ei Gemini-/score-ohitusta).
-        if not picks and idle_cash and ranked_buyable:
-            fallback_n = min(position_cap, max_new_positions, len(ranked_buyable))
-            picks = _liquid_crypto_items(ranked_buyable[:fallback_n])
-            picks = [
-                c
-                for c in picks
-                if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
+        # Tyhjä salkku + idle-käteinen + Gemini 0 pickiä → 1 ranked-osto normaaleilla
+        # gateilla (blocked_buys/setup/micro/entry), ohittaen vain "pakko olla Gemini-pick".
+        # ranked_buyable on usein tyhjä kun Gemini on aktiivinen ilman pickejä (buy_blocked
+        # suodattaa jo listan), joten rakennetaan ehdokkaat uudelleen allow_non_gemini_pickillä.
+        gemini_pick_n = len(_gemini_top_picks(gemini_insights)) if gemini_active else 0
+        if not picks and idle_cash and gemini_pick_n == 0:
+            idle_ranked = [
+                r
+                for r in ranked
+                if _entry_ok(r["analysis"], entry_regime)
+                and entry_eligible(r["analysis"])
+                and normalize_symbol(r["symbol"]) not in blocked_buys
+                and not _is_buy_blocked(
+                    r["symbol"],
+                    r["analysis"],
+                    blocked_buys=blocked_buys,
+                    blocked_setups=blocked_setups,
+                    regime=entry_regime,
+                    gemini_insights=gemini_insights,
+                    gemini_active=gemini_active,
+                    gemini_conf_scales=gemini_conf_scales,
+                    gemini_buy_min_confidence=gemini_buy_min_conf,
+                    allow_non_gemini_pick=True,
+                )
+                and r["rank"] >= entry_score_min
             ]
+            if not idle_ranked:
+                idle_ranked = [
+                    r
+                    for r in ranked
+                    if _entry_ok(r["analysis"], entry_regime)
+                    and entry_eligible(r["analysis"])
+                    and normalize_symbol(r["symbol"]) not in blocked_buys
+                    and not _is_buy_blocked(
+                        r["symbol"],
+                        r["analysis"],
+                        blocked_buys=blocked_buys,
+                        blocked_setups=blocked_setups,
+                        regime=entry_regime,
+                        gemini_insights=gemini_insights,
+                        gemini_active=gemini_active,
+                        gemini_conf_scales=gemini_conf_scales,
+                        gemini_buy_min_confidence=gemini_buy_min_conf,
+                        allow_non_gemini_pick=True,
+                    )
+                ]
+            picks = _liquid_crypto_items(idle_ranked[:1])
             if picks:
                 idle_empty_deploy = True
                 logger.info(
-                    "Tyhjä salkku: idle-cash deploy (%d kohdetta, gatet voimassa)",
-                    len(picks),
+                    "Tyhjä salkku: idle ranked-deploy (1 kohde, Gemini 0 pickiä, gatet voimassa)"
                 )
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
