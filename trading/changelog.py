@@ -19,17 +19,6 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
-        "date": "2026-08-09",
-        "entries": [
-            {
-                "title": "ATR-kokosekoitus ei enää kasvata ostobudjettia osittaisella datalla",
-                "body": "Kun vain osalla ostokohteista oli ATR-dataa, ATR-varjokoko jakoi vahingossa koko ostobudjetin vain näiden kohteiden kesken ja muut kohteet pitivät alkuperäisen summansa. Tämä saattoi kasvattaa kierroksen ostojen yhteissummaa ja vinouttaa toteutusta. Nyt ATR jakaa uudelleen vain niiden kohteiden oman osuuden, joilla ATR on käytettävissä.",
-                "title_en": "ATR size blend no longer increases buy budget with partial data",
-                "body_en": "When only some buy targets had ATR data, the ATR shadow size accidentally redistributed the entire buy budget across just those targets while the remaining targets kept their original amounts. That could increase the cycle's total requested buys and skew execution. ATR now redistributes only the covered targets' own share.",
-            },
-        ],
-    },
-    {
         "date": "2026-08-08",
         "entries": [
             {

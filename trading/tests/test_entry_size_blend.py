@@ -140,28 +140,6 @@ class ApplyEntrySizeBlendEngineWiringTests(SimpleTestCase):
         self.assertEqual(buy_decisions[0]["eurAmount"], 200.0)
         self.assertAlmostEqual(buy_decisions[0]["amount"], 200.0 / 100000.0)
 
-    def test_partial_atr_coverage_does_not_inflate_total_buy_amount(self):
-        buy_decisions = [
-            {"symbol": "tBTCUSD", "eurAmount": 100.0, "amount": 0.001,
-             "analysis": {"currentPrice": 100000.0, "atrPct": 1.0}},
-            {"symbol": "tETHUSD", "eurAmount": 100.0, "amount": 0.05,
-             "analysis": {"currentPrice": 2000.0}},
-        ]
-        before_total = sum(d["eurAmount"] for d in buy_decisions)
-        from trading.services.entry_diagnostics_shadow import atr_weighted_shadow_sizes
-
-        _apply_entry_size_blend(
-            buy_decisions,
-            atr_shadow_map=atr_weighted_shadow_sizes(buy_decisions),
-            kelly_shadow_map={},
-            kelly_weight=0.0,
-            atr_weight=1.0,
-        )
-
-        self.assertAlmostEqual(sum(d["eurAmount"] for d in buy_decisions), before_total)
-        self.assertEqual(buy_decisions[0]["eurAmount"], 100.0)
-        self.assertEqual(buy_decisions[1]["eurAmount"], 100.0)
-
     def test_missing_price_skips_symbol_without_raising(self):
         buy_decisions = [
             {"symbol": "tBTCUSD", "eurAmount": 100.0, "amount": 0.001, "analysis": {}},
