@@ -81,7 +81,7 @@ class GeminiSellDisabledTests(SimpleTestCase):
         symbol = "tBTCUSD"
         analyses = {
             symbol: {
-                "currentPrice": 110.0,
+                "currentPrice": 101.0,
                 "volumeEur": 1_000_000.0,
                 "action": "sell",
                 "score": -3,
@@ -103,7 +103,7 @@ class GeminiSellDisabledTests(SimpleTestCase):
         result = ai_trader.make_trading_decisions(
             analyses,
             portfolio,
-            total_value=110.0,
+            total_value=101.0,
             label_fn=lambda sym: sym,
             gemini_insights=gemini_insights,
             regime="neutral",
@@ -119,7 +119,7 @@ class GeminiSellDisabledTests(SimpleTestCase):
         symbol = "tETHUSD"
         analyses = {
             symbol: {
-                "currentPrice": 110.0,
+                "currentPrice": 101.0,
                 "volumeEur": 1_000_000.0,
                 "action": "hold",
                 "score": 0,
@@ -141,7 +141,7 @@ class GeminiSellDisabledTests(SimpleTestCase):
         result = ai_trader.make_trading_decisions(
             analyses,
             portfolio,
-            total_value=110.0,
+            total_value=101.0,
             label_fn=lambda sym: sym,
             gemini_insights=gemini_insights,
             regime="neutral",
