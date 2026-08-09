@@ -119,27 +119,26 @@ def max_correlation_vs_holdings(
 
 
 def atr_weighted_shadow_sizes(buy_batch: list[dict[str, Any]]) -> dict[str, float]:
-    """Jakaisi saman kokonais-EUR:n uudelleen 1/ATR-painotuksella (matalampi vola = isompi paino).
+    """Jakaisi saman katetun EUR:n uudelleen 1/ATR-painotuksella (matalampi vola = isompi paino).
 
     Ei muuta oikeaa eur_amount-arvoa — puhtaasti vertailuluku.
     """
     if not buy_batch:
         return {}
-    total_eur = sum(float(item.get("eurAmount") or 0) for item in buy_batch)
-    if total_eur <= 0:
-        return {}
 
     inv_atr: dict[str, float] = {}
+    covered_total_eur = 0.0
     for item in buy_batch:
         atr = _atr_pct(item.get("analysis") or {})
         if atr > 0:
             inv_atr[item["symbol"]] = 1.0 / atr
+            covered_total_eur += float(item.get("eurAmount") or 0)
     weight_total = sum(inv_atr.values())
-    if weight_total <= 0:
+    if weight_total <= 0 or covered_total_eur <= 0:
         return {}
 
     return {
-        symbol: round(total_eur * (weight / weight_total), 2)
+        symbol: round(covered_total_eur * (weight / weight_total), 2)
         for symbol, weight in inv_atr.items()
     }
 

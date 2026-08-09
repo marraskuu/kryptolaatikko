@@ -54,6 +54,14 @@ class AtrWeightedShadowSizesTests(SimpleTestCase):
         self.assertGreater(shadow["A"], shadow["B"])
         self.assertAlmostEqual(shadow["A"] + shadow["B"], 200.0, places=2)
 
+    def test_partial_atr_coverage_preserves_only_covered_total(self):
+        batch = [
+            {"symbol": "A", "eurAmount": 100.0, "analysis": {"atrPct": 1.0}},
+            {"symbol": "B", "eurAmount": 100.0, "analysis": {}},
+        ]
+        shadow = atr_weighted_shadow_sizes(batch)
+        self.assertEqual(shadow, {"A": 100.0})
+
     def test_empty_batch_returns_empty(self):
         self.assertEqual(atr_weighted_shadow_sizes([]), {})
 
