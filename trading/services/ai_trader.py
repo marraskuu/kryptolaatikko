@@ -3155,6 +3155,7 @@ def make_trading_decisions(
             gemini_sig
             and gemini_sig.get("action") == "sell"
             and not GEMINI_SELL_ENABLED
+            and analysis.get("preGeminiAction", analysis.get("action")) != "sell"
         ):
             decisions.append(
                 {
@@ -3574,6 +3575,7 @@ def apply_gemini_insights(
         confidence = int(signal.get("confidence", 5))
         reason = signal.get("reason", "")
         reason_en = signal.get("reason_en") or signal.get("reasonEn") or ""
+        analysis.setdefault("preGeminiAction", analysis.get("action"))
 
         if confidence >= min_conf:
             analysis["score"] = analysis.get("score", 0) + (confidence - 5) + (
