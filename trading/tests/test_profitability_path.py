@@ -8,6 +8,7 @@ from trading.services import ai_trader
 from trading.services.daily_policy_shadow import would_block_buy
 from trading.services.engine import _apply_daily_policy_buy_block
 from trading.services.gemini_pick_tracking import compute_pick_tuning
+from trading.services.portfolio import default_portfolio
 
 
 def _buy(symbol: str) -> dict:
@@ -75,6 +76,83 @@ class DailyPolicyBuyBlockTests(SimpleTestCase):
 class GeminiSellDisabledTests(SimpleTestCase):
     def test_gemini_sell_disabled_by_default(self):
         self.assertFalse(ai_trader.GEMINI_SELL_ENABLED)
+
+    def test_disabled_gemini_sell_does_not_block_technical_sell(self):
+        symbol = "tBTCUSD"
+        analyses = {
+            symbol: {
+                "currentPrice": 101.0,
+                "volumeEur": 1_000_000.0,
+                "action": "sell",
+                "score": -3,
+                "mtfAlign": -1,
+                "changePct": -1.0,
+                "reasons": ["Tekninen myyntisignaali"],
+            }
+        }
+        gemini_insights = {
+            "signals": {
+                symbol: {"action": "sell", "confidence": 8, "reason": "heikko setup"}
+            }
+        }
+        ai_trader.apply_gemini_insights(analyses, gemini_insights)
+
+        portfolio = default_portfolio()
+        portfolio["cash"] = 0.0
+        portfolio["holdings"] = {symbol: {"amount": 1.0, "avgPrice": 100.0}}
+        result = ai_trader.make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=101.0,
+            label_fn=lambda sym: sym,
+            gemini_insights=gemini_insights,
+            regime="neutral",
+            regime_info={"regime": "neutral"},
+            learning={"entry_score_min": 1},
+        )
+
+        sells = [d for d in result["decisions"] if d.get("type") == "sell"]
+        self.assertEqual([d["symbol"] for d in sells], [symbol])
+        self.assertNotIn("Gemini-myynti pois", sells[0]["reason"])
+
+    def test_disabled_gemini_sell_only_signal_remains_hold(self):
+        symbol = "tETHUSD"
+        analyses = {
+            symbol: {
+                "currentPrice": 101.0,
+                "volumeEur": 1_000_000.0,
+                "action": "hold",
+                "score": 0,
+                "mtfAlign": 0,
+                "changePct": -1.0,
+                "reasons": ["Pidetään"],
+            }
+        }
+        gemini_insights = {
+            "signals": {
+                symbol: {"action": "sell", "confidence": 8, "reason": "heikko setup"}
+            }
+        }
+        ai_trader.apply_gemini_insights(analyses, gemini_insights)
+
+        portfolio = default_portfolio()
+        portfolio["cash"] = 0.0
+        portfolio["holdings"] = {symbol: {"amount": 1.0, "avgPrice": 100.0}}
+        result = ai_trader.make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=101.0,
+            label_fn=lambda sym: sym,
+            gemini_insights=gemini_insights,
+            regime="neutral",
+            regime_info={"regime": "neutral"},
+            learning={"entry_score_min": 1},
+        )
+
+        self.assertFalse([d for d in result["decisions"] if d.get("type") == "sell"])
+        holds = [d for d in result["decisions"] if d.get("type") == "hold"]
+        self.assertEqual([d["symbol"] for d in holds], [symbol])
+        self.assertIn("Gemini-myynti pois", holds[0]["reason"])
 
 
 class GeminiConfFloorTests(SimpleTestCase):

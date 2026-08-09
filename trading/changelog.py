@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-09",
+        "entries": [
+            {
+                "title": "Gemini-myyntieston ei anneta peittää teknisiä myyntejä",
+                "body": "Kun GEMINI_SELL_ENABLED=0, Gemini-osamyynnit ovat pois päältä kuten ennenkin. Korjattu sivuvaikutus, jossa sama Gemini sell -signaali kirjasi hold-päätöksen ja pysäytti myöhemmän teknisen/rotaatiomyyntipolun. Nyt Gemini-only sell pysyy estettynä, mutta oikea tekninen myyntisignaali saa edetä normaalisti.",
+                "title_en": "Disabled Gemini sells no longer mask technical sells",
+                "body_en": "With GEMINI_SELL_ENABLED=0, Gemini partial sells remain disabled. Fixed a side effect where the same Gemini sell signal logged a hold decision and stopped the later technical/rotation sell path. Gemini-only sells stay suppressed, while a real technical sell signal can proceed normally.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-08",
         "entries": [
             {
