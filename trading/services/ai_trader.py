@@ -2712,7 +2712,11 @@ def make_trading_decisions(
         # gateilla (blocked_buys/setup/micro/entry), ohittaen vain "pakko olla Gemini-pick".
         # ranked_buyable on usein tyhjä kun Gemini on aktiivinen ilman pickejä (buy_blocked
         # suodattaa jo listan), joten rakennetaan ehdokkaat uudelleen allow_non_gemini_pickillä.
-        gemini_pick_n = len(_gemini_top_picks(gemini_insights)) if gemini_active else 0
+        gemini_pick_n = (
+            0
+            if gemini_active and (gemini_insights or {}).get("topPicksFallback")
+            else (len(_gemini_top_picks(gemini_insights)) if gemini_active else 0)
+        )
         if not picks and idle_cash and gemini_pick_n == 0:
             idle_ranked = [
                 r

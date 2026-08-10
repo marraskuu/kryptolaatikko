@@ -19,6 +19,23 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-10",
+        "entries": [
+            {
+                "title": "Tyhjä salkku: Gemini-fallback ei enää estä ranked-ostoa",
+                "body": "Kun Gemini palauttaa 0 oikeaa pickiä, palvelun tekninen top_picks-fallback lasketaan nyt oikein “ei pickiä” -tilanteeksi. Idle-käteinen voi taas ostaa yhden ranked-kohteen normaalien blocked_buys-, setup- ja micro-gatejen läpi.",
+                "title_en": "Empty book: Gemini fallback no longer blocks ranked buy",
+                "body_en": "When Gemini returns 0 real picks, the service's technical top_picks fallback is now treated as a true no-pick case. Idle cash can again buy one ranked target through the normal blocked_buys, setup and micro gates.",
+            },
+            {
+                "title": "ATR-kokosäätö ei enää ylitä valittujen ostojen käteissummaa",
+                "body": "Kun vain osalla ostokohteista on ATR-data, ATR-painotus jakaa nyt uudelleen vain näiden kohteiden oman summan eikä koko buy-batchia. Tämä estää live-ostojen ylibudjetoinnin ja hiljaisen viimeisten ostojen leikkautumisen.",
+                "title_en": "ATR size blend no longer exceeds the selected buy cash",
+                "body_en": "When only some buy targets have ATR data, ATR weighting now redistributes only those targets' own subtotal instead of the full buy batch. This prevents live buys from being over-budgeted and silently clipping later orders.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-08",
         "entries": [
             {
