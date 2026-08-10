@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .ai_trader import CORR_THRESHOLD, MIN_TRADE_EUR, _analysis_for, _atr_pct, _pearson
+from .ai_trader import CORR_THRESHOLD, MIN_TRADE_EUR, _analysis_for, _pearson
 
 __all__ = [
     "max_correlation_vs_holdings",
@@ -129,7 +129,11 @@ def atr_weighted_shadow_sizes(buy_batch: list[dict[str, Any]]) -> dict[str, floa
     inv_atr: dict[str, float] = {}
     covered_total_eur = 0.0
     for item in buy_batch:
-        atr = _atr_pct(item.get("analysis") or {})
+        raw_atr = (item.get("analysis") or {}).get("atrPct")
+        try:
+            atr = float(raw_atr)
+        except (TypeError, ValueError):
+            continue
         if atr > 0:
             inv_atr[item["symbol"]] = 1.0 / atr
             covered_total_eur += float(item.get("eurAmount") or 0)
