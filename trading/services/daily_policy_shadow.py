@@ -288,7 +288,7 @@ def fork_shadow_portfolio(state: dict[str, Any]) -> None:
     shadow["shadowPortfolio"] = deepcopy(live)
     tickers = state.get("tickers") or {}
     sp = Portfolio(shadow["shadowPortfolio"])
-    start_value = sp.get_total_value(tickers) if tickers else float(live.get("cash") or 0)
+    start_value = sp.get_total_value(tickers)
     shadow["shadowDayStartValue"] = round(start_value, 2)
     shadow["portfolioMetrics"] = {"tradesMirrored": 0, "tradesSkipped": 0}
 

@@ -233,6 +233,9 @@ class Portfolio:
         _resolved, ticker = resolve_holding_ticker(symbol, tickers)
         if ticker and ticker.get("last"):
             return float(ticker["last"])
+        avg_price = float(holding.get("avgPrice") or 0)
+        if avg_price > 0:
+            return avg_price
         return None
 
     def get_total_value(self, tickers: dict[str, dict[str, Any]]) -> float:
