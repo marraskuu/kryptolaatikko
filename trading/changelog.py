@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-11",
+        "entries": [
+            {
+                "title": "Kelly/ATR-ostokoon sekoitus oikeasti pois päältä oletuksena",
+                "body": "ENTRY_SIZE_KELLY_BLEND_WEIGHT ja ENTRY_SIZE_ATR_BLEND_WEIGHT olivat dokumentaation mukaan opt-in, mutta koodin oletukset muuttivat inkrementaalisten ostojen eurAmountia ilman env-asetusta. Oletukset palautettu 0.0:aan, joten Kelly/ATR-sekoitus vaikuttaa live-ostoihin vain erikseen kytkettynä.",
+                "title_en": "Kelly/ATR entry-size blend truly off by default",
+                "body_en": "ENTRY_SIZE_KELLY_BLEND_WEIGHT and ENTRY_SIZE_ATR_BLEND_WEIGHT were documented as opt-in, but the code defaults changed incremental buy eurAmount without an env override. Defaults are back to 0.0, so the Kelly/ATR blend affects live buys only when explicitly enabled.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-08",
         "entries": [
             {

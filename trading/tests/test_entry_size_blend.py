@@ -5,10 +5,18 @@ from __future__ import annotations
 from django.test import SimpleTestCase
 
 from trading.services.engine import _apply_entry_size_blend
-from trading.services.entry_diagnostics_shadow import blended_entry_size_eur
+from trading.services.entry_diagnostics_shadow import (
+    ENTRY_SIZE_ATR_BLEND_WEIGHT,
+    ENTRY_SIZE_KELLY_BLEND_WEIGHT,
+    blended_entry_size_eur,
+)
 
 
 class BlendedEntrySizeTests(SimpleTestCase):
+    def test_live_blend_weights_default_to_zero(self):
+        self.assertEqual(ENTRY_SIZE_KELLY_BLEND_WEIGHT, 0.0)
+        self.assertEqual(ENTRY_SIZE_ATR_BLEND_WEIGHT, 0.0)
+
     def test_zero_weight_returns_original_unchanged(self):
         result = blended_entry_size_eur(
             "tBTCUSD",
