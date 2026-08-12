@@ -119,7 +119,7 @@ def _simulate_trade(
 
         if profit_pct <= stop_pct:
             blended = (
-                tier1_profit_pct * (1.0 - remaining_fraction)
+                tier1_profit_pct
                 + profit_pct * remaining_fraction
             )
             return {

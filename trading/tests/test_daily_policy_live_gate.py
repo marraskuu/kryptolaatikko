@@ -58,6 +58,31 @@ class DailyPolicySellGateTests(SimpleTestCase):
         result = _apply_daily_policy_sell_gate(decisions, flags)
         self.assertEqual(result, decisions)
 
+    def test_daily_stop_does_not_block_stuck_time_stop_sell(self):
+        decisions = [
+            _sell(
+                "tBTCUSD",
+                "Positio jämähtänyt ≥24 h (-1.2 %) — myydään riippumatta markkinan noususta",
+            )
+        ]
+        flags = {"dailyStopActive": True, "profitLockTier": "none"}
+        result = _apply_daily_policy_sell_gate(decisions, flags)
+        self.assertEqual(result, decisions)
+
+    def test_daily_stop_does_not_block_fast_loss_sells(self):
+        reasons = [
+            "Tunnettu häviäjä (score -2.5) — täysi myynti -1.0 %",
+            "Huono markkina-asetelma — täysi myynti -1.0 % (raja -0.8 %)",
+            "Huono oma asetelma — täysi myynti -1.1 % (raja -0.8 %)",
+        ]
+        flags = {"dailyStopActive": True, "profitLockTier": "none"}
+
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                decisions = [_sell("tBTCUSD", reason)]
+                result = _apply_daily_policy_sell_gate(decisions, flags)
+                self.assertEqual(result, decisions)
+
     def test_daily_stop_does_not_block_buys(self):
         decisions = [_buy("tBTCUSD")]
         flags = {"dailyStopActive": True, "profitLockTier": "none"}
