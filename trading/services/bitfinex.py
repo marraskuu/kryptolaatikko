@@ -332,7 +332,11 @@ def fetch_all_markets() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, 
 
 
 def _eur_factor_for_symbol(symbol: str) -> float:
-    quote = _crypto_meta.get(symbol, {}).get("quote", "USD")
+    symbol = normalize_symbol(symbol)
+    parsed = parse_pair_symbol(symbol)
+    quote = _crypto_meta.get(symbol, {}).get("quote") or (
+        parsed["quote"] if parsed else "USD"
+    )
     if quote == "EUR":
         return 1.0
     if quote in ("USD", "UST"):

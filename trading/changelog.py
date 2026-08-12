@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-12",
+        "entries": [
+            {
+                "title": "Korjattu pakkomyyntien päivästoppiportti ja kynttilä-/backtest-laskenta",
+                "body": "Päivästoppi ja kiinteä voittolukko estävät edelleen harkinnanvaraiset myynnit, mutta eivät enää pudota pakollisia jumitus- ja huonon asetelman tappioleikkureita. Lisäksi EUR-parien kynttilät säilyvät euroissa myös ilman valmista metatietoa, ja historiabackfill/Strategy Explorer laskee osittaisen voitonoton jälkeen stoppiin päätyvän kaupan lukitun voiton vain kerran.",
+                "title_en": "Fixed forced-sell daily gate and candle/backtest accounting",
+                "body_en": "Daily stop and firm profit lock still block discretionary sells, but no longer drop mandatory stuck-position and bad-setup loss cutters. EUR-pair candles also stay in EUR even without preloaded metadata, and historical backfill / Strategy Explorer now count locked partial-take profit exactly once when the rest later stops out.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-08",
         "entries": [
             {

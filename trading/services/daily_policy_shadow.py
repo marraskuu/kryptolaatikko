@@ -221,8 +221,12 @@ def is_discretionary_sell(reason: str) -> bool:
     skip = (
         "stop-loss",
         "aikastoppi",
+        "positio jämähtänyt",
         "krooninen",
         "cooldown",
+        "tunnettu häviäjä",
+        "huono markkina-asetelma",
+        "huono oma asetelma",
         "stablecoin",
         "matala volyymi",
         "estetty kohde",

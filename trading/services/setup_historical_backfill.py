@@ -126,7 +126,7 @@ def simulate_round_trip_pct(
 
         if profit_pct <= stop_pct:
             blended = (
-                tier1_profit_pct * (1.0 - remaining_fraction)
+                tier1_profit_pct
                 + profit_pct * remaining_fraction
             )
             return blended - ROUND_TRIP_COST_PCT

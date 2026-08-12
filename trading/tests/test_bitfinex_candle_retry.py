@@ -87,3 +87,16 @@ class FetchCandlesRetryTests(SimpleTestCase):
         self.assertEqual(len(first), 1)
         self.assertEqual(len(second), 1)
         self.assertEqual(mock_get.call_count, 4)
+
+    @patch("trading.services.bitfinex.requests.get")
+    def test_eur_quote_candles_do_not_need_meta_to_skip_conversion(self, mock_get):
+        bitfinex._crypto_meta.pop("tBTCEUR", None)
+        candle_row = [1700000000000, 100.0, 105.0, 110.0, 95.0, 12.5]
+        mock_get.return_value = _mock_response(status_code=200, json_data=[candle_row])
+
+        result = bitfinex.fetch_candles("tBTCEUR", "1h", limit=10)
+
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["open"], 100.0)
+        self.assertEqual(result[0]["close"], 105.0)
