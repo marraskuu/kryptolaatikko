@@ -202,13 +202,14 @@ def _stats_refresh_targets(
     return targets
 
 
-def _apply_micro_fields(analysis: dict[str, Any], fields: dict[str, Any]) -> None:
+def _apply_micro_fields(analysis: dict[str, Any], fields: dict[str, Any], regime: str) -> None:
     for key, value in fields.items():
         if value is not None:
             analysis[key] = value
     analysis["bookBucket"] = book_bucket(analysis.get("bookImbalance"))
     analysis["crowdBucket"] = crowd_bucket(analysis.get("longShortRatio"))
     analysis["flowBucket"] = flow_bucket(analysis.get("flowImbalance"))
+    _score_and_block(analysis, regime)
 
 
 MICRO_PRESERVE_KEYS = (
@@ -373,7 +374,7 @@ def enrich_analyses(
         parsed = parse_order_book(rows)
         if parsed:
             analysis = analyses.setdefault(sym, {})
-            _apply_micro_fields(analysis, parsed)
+            _apply_micro_fields(analysis, parsed, regime)
             summary["bookFetched"] += 1
             if sym not in summary["symbols"]:
                 summary["symbols"].append(sym)
@@ -387,7 +388,7 @@ def enrich_analyses(
             )
             if flow:
                 analysis = analyses.setdefault(sym, {})
-                _apply_micro_fields(analysis, flow)
+                _apply_micro_fields(analysis, flow, regime)
                 summary["tradesFetched"] += 1
                 if sym not in summary["symbols"]:
                     summary["symbols"].append(sym)
@@ -400,7 +401,7 @@ def enrich_analyses(
         if not stats:
             continue
         analysis = analyses.setdefault(sym, {})
-        _apply_micro_fields(analysis, stats)
+        _apply_micro_fields(analysis, stats, regime)
         summary["statsFetched"] += 1
         if sym not in summary["symbols"]:
             summary["symbols"].append(sym)
@@ -410,7 +411,7 @@ def enrich_analyses(
         if not stats:
             continue
         analysis = analyses.setdefault(sym, {})
-        _apply_micro_fields(analysis, stats)
+        _apply_micro_fields(analysis, stats, regime)
 
     for sym in candidates:
         analysis = analyses.get(sym)
@@ -452,7 +453,7 @@ def enrich_holdings_for_exits(
         if not parsed:
             continue
         analysis = analyses.setdefault(sym, {})
-        _apply_micro_fields(analysis, parsed)
+        _apply_micro_fields(analysis, parsed, regime)
         summary["bookFetched"] += 1
         summary["symbols"].append(sym)
 
@@ -464,7 +465,7 @@ def enrich_holdings_for_exits(
                 window_5m_sec=TRADES_WINDOW_5M_SEC,
             )
             if flow:
-                _apply_micro_fields(analysis, flow)
+                _apply_micro_fields(analysis, flow, regime)
                 summary["tradesFetched"] += 1
 
         if BOOK_REQ_PAUSE_SEC > 0:
@@ -475,7 +476,7 @@ def enrich_holdings_for_exits(
         if not stats:
             continue
         analysis = analyses.setdefault(sym, {})
-        _apply_micro_fields(analysis, stats)
+        _apply_micro_fields(analysis, stats, regime)
         summary["statsCached"] += 1
         if sym not in summary["symbols"]:
             summary["symbols"].append(sym)
