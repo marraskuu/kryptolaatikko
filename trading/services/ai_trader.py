@@ -2737,26 +2737,6 @@ def make_trading_decisions(
                 )
                 and r["rank"] >= entry_score_min
             ]
-            if not idle_ranked:
-                idle_ranked = [
-                    r
-                    for r in ranked
-                    if _entry_ok(r["analysis"], entry_regime)
-                    and entry_eligible(r["analysis"])
-                    and normalize_symbol(r["symbol"]) not in blocked_buys
-                    and not _is_buy_blocked(
-                        r["symbol"],
-                        r["analysis"],
-                        blocked_buys=blocked_buys,
-                        blocked_setups=blocked_setups,
-                        regime=entry_regime,
-                        gemini_insights=gemini_insights,
-                        gemini_active=gemini_active,
-                        gemini_conf_scales=gemini_conf_scales,
-                        gemini_buy_min_confidence=gemini_buy_min_conf,
-                        allow_non_gemini_pick=True,
-                    )
-                ]
             picks = _liquid_crypto_items(idle_ranked[:1])
             if picks:
                 idle_empty_deploy = True
