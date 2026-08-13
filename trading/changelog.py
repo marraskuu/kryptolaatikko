@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-08-13",
         "entries": [
             {
+                "title": "Microstructure-portti päivittyy aina tuoreesta order bookista",
+                "body": "Ostoraja laskee microBlocked/microAdjust-arvot nyt uudelleen aina kun Bitfinexin order book, trade flow tai long/short-data päivittyy. Vanha microChecked-tila ei voi enää jättää leveää spreadiä tai ohutta bookia virheellisesti ostokelpoiseksi.",
+                "title_en": "Microstructure gate refreshes from every fresh order book",
+                "body_en": "The buy gate now recomputes microBlocked/microAdjust whenever Bitfinex order book, trade-flow or long/short data refreshes. A stale microChecked state can no longer leave a wide spread or thin book incorrectly buyable.",
+            },
+            {
                 "title": "Vuodon-stop: karhuostosulku, kokokatto, cash/micro-esto",
                 "body": "Virallisessa karhussa ei uusia ostoja vaikka vaihe peilaisi bullia. Yksi osto max 30 % salkusta (ei all-in). Gemini hold/cash-first tai microBlocked estää oston — korjaa bounce→stop -silmukan.",
                 "title_en": "Bleed stop: bear buy freeze, size cap, cash/micro gate",
