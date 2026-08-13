@@ -129,3 +129,37 @@ class MicrostructureGateTests(SimpleTestCase):
                 analyses[sym].get("microChecked"),
                 f"{sym} missing microChecked",
             )
+
+    @patch("trading.services.market_microstructure.BOOK_REQ_PAUSE_SEC", 0)
+    @patch("trading.services.market_microstructure._cached_position_stats", return_value=None)
+    @patch("trading.services.market_microstructure.fetch_trades_hist", return_value=[])
+    @patch(
+        "trading.services.market_microstructure.parse_order_book",
+        return_value={"bookSpreadPct": 0.50, "bookBidDepthEur": 100_000.0, "bookAskDepthEur": 100_000.0},
+    )
+    @patch("trading.services.market_microstructure.fetch_order_book", return_value=[["book"]])
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_fresh_micro_fields_recompute_stale_checked_gate(
+        self,
+        _mock_book,
+        _mock_parse,
+        _mock_trades,
+        _mock_stats,
+    ):
+        """Tuore leveä spread ei saa jäädä vanhan microChecked=False/True-tilan taakse."""
+        sym = "tBTCUSD"
+        tickers = {sym: {"last": 50_000.0, "volumeEur": 1_000_000.0, "changePct": 1.0}}
+        analyses = {
+            sym: _buy_analysis(
+                microChecked=True,
+                microBlocked=False,
+                microAdjust=0.0,
+                bookSpreadPct=0.02,
+            )
+        }
+
+        enrich_analyses(tickers, analyses, {"holdings": {}, "cash": 1000, "trades": []}, "neutral")
+
+        self.assertTrue(analyses[sym]["microChecked"])
+        self.assertTrue(analyses[sym]["microBlocked"])
+        self.assertTrue(blocks_entry(analyses[sym]))
