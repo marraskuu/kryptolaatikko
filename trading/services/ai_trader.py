@@ -2149,6 +2149,9 @@ def _deploy_cash_to_targets(
                 )
         elif target_symbols:
             if concentration_mode:
+                profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
+                if not _rotation_trim_allowed(profit_pct, regime):
+                    continue
                 sell_amount = amount * concentration_trim
                 _append_sell_decision(
                     decisions,
