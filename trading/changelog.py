@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-13",
+        "entries": [
+            {
+                "title": "Vuodon-stop: karhuostosulku, kokokatto, cash/micro-esto",
+                "body": "Virallisessa karhussa ei uusia ostoja vaikka vaihe peilaisi bullia. Yksi osto max 30 % salkusta (ei all-in). Gemini hold/cash-first tai microBlocked estää oston — korjaa bounce→stop -silmukan.",
+                "title_en": "Bleed stop: bear buy freeze, size cap, cash/micro gate",
+                "body_en": "No new buys while official regime is bear, even if phase anticipates bull. Single buy capped at 30% of portfolio (no all-in). Gemini hold/cash-first or microBlocked blocks the buy — cuts the bounce→stop loop.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-08",
         "entries": [
             {

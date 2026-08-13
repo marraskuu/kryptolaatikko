@@ -56,6 +56,10 @@ BEAR_BUY_FREEZE = os.environ.get("BEAR_BUY_FREEZE", "1").lower() not in (
 BEAR_FREEZE_EXCEPTION_MIN_ADJUST = float(
     os.environ.get("BEAR_FREEZE_EXCEPTION_MIN_ADJUST", "3.5")
 )
+# Yhden oston / position katto salkun arvosta — estää 100 % all-in → iso stop.
+MAX_SINGLE_BUY_PORTFOLIO_PCT = float(
+    os.environ.get("MAX_SINGLE_BUY_PORTFOLIO_PCT", "0.30")
+)
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
@@ -730,14 +734,63 @@ def risk_regime_key(regime_info: dict[str, Any] | str) -> str:
 
 
 def _bear_buy_freeze_active(regime_info: dict[str, Any] | str | None) -> bool:
-    """Karhu-jäädytys: ei uusia ostoja kun defenssi on päällä."""
-    return BEAR_BUY_FREEZE and _bear_defense_active(regime_info)
+    """Karhu-jäädytys: ei uusia ostoja virallisessa karhussa tai riski-karhussa.
+
+    Virallinen regime=bear estää ostot vaikka anticipated-vaihe peilaisi bullia
+    (bounce-osto → stop oli live-vuodon ydin).
+    """
+    if not BEAR_BUY_FREEZE or not regime_info:
+        return False
+    if isinstance(regime_info, str):
+        return regime_info == "bear"
+    if str(regime_info.get("regime") or "") == "bear":
+        return True
+    return risk_regime_key(regime_info) == "bear"
 
 
 def _bear_defense_active(regime_info: dict[str, Any] | str | None) -> bool:
     if not BEAR_DEFENSE_ENABLED or not regime_info:
         return False
     return risk_regime_key(regime_info) == "bear"
+
+
+def _gemini_prefers_cash(sig: dict[str, Any] | None) -> bool:
+    """Gemini kehottaa käteiseen / micro estetty — älä osta tästä signaalista."""
+    if not sig:
+        return False
+    action = str(sig.get("action") or "").lower()
+    if action in ("hold", "sell", "avoid", "cash"):
+        return True
+    reason = f"{sig.get('reason') or ''} {sig.get('reason_en') or ''} {sig.get('reasonEn') or ''}".lower()
+    needles = (
+        "pidä käteistä",
+        "holding cash",
+        "hold cash",
+        "keep cash",
+        "prefer cash",
+        "stay in cash",
+        "käteisen pitäminen",
+        "cash is primary",
+        "micro_blocked=true",
+        "micro_blocked = true",
+        "mikrorakenne estetty",
+        "microstructure blocked",
+    )
+    return any(n in reason for n in needles)
+
+
+def _cap_buy_eur(
+    buy_eur: float,
+    *,
+    portfolio_value: float,
+    current_position_eur: float = 0.0,
+) -> float:
+    """Raja yhdelle ostolle: max MAX_SINGLE_BUY_PORTFOLIO_PCT salkusta (ml. olemassa oleva)."""
+    if buy_eur <= 0:
+        return 0.0
+    basis = portfolio_value if portfolio_value > 0 else buy_eur
+    cap = max(0.0, basis * MAX_SINGLE_BUY_PORTFOLIO_PCT - max(0.0, current_position_eur))
+    return max(0.0, min(buy_eur, cap))
 
 
 def _stagnant_min_loss_pct(regime: str) -> float:
@@ -1000,10 +1053,15 @@ def _is_buy_blocked(
     gemini_conf_scales: dict[Any, float] | None = None,
     gemini_buy_min_confidence: int | None = None,
     allow_non_gemini_pick: bool = False,
+    regime_info: dict[str, Any] | str | None = None,
 ) -> bool:
     if not analysis:
         return True
-    if regime == "bear" and BEAR_BUY_FREEZE:
+    freeze_ctx = regime_info if regime_info is not None else regime
+    if _bear_buy_freeze_active(freeze_ctx):
+        if float(analysis.get("condAdjust") or 0) < BEAR_FREEZE_EXCEPTION_MIN_ADJUST:
+            return True
+    elif regime == "bear" and BEAR_BUY_FREEZE:
         if float(analysis.get("condAdjust") or 0) < BEAR_FREEZE_EXCEPTION_MIN_ADJUST:
             return True
     if normalize_symbol(symbol) in blocked_buys:
@@ -1011,6 +1069,10 @@ def _is_buy_blocked(
     if not entry_price_ok(analysis):
         return True
     if analysis.get("condBlocked"):
+        return True
+    # Kun microBlocked on merkitty analyysiin, kunnioita sitä vaikka micro-gate
+    # olisi feature-flagilla pois (Gemini-prompt voi silti liputtaa eston).
+    if analysis.get("microBlocked"):
         return True
     from .market_learning import setup_key_for_analysis
     from .market_microstructure import blocks_entry
@@ -1080,7 +1142,7 @@ def _gemini_buy_allowed(
     sig = (analysis or {}).get("geminiSignal") or _gemini_signal_for(gemini_insights, sym)
     if not sig:
         return False
-    if sig.get("action") == "sell":
+    if _gemini_prefers_cash(sig):
         return False
     conf = int(sig.get("confidence", 0))
     if conf < min_conf:
@@ -2095,6 +2157,7 @@ def _deploy_cash_to_targets(
             gemini_active=gemini_active,
             gemini_conf_scales=gemini_conf_scales,
             gemini_buy_min_confidence=gemini_buy_min_confidence,
+            regime_info=regime_info if regime_info is not None else regime,
         )
         and entry_eligible(analyses.get(s))
     ]
@@ -2249,6 +2312,11 @@ def _deploy_cash_to_targets(
                 continue
             buy_eur *= conf_scale
         buy_eur = max(0.0, min(buy_eur, remaining))
+        buy_eur = _cap_buy_eur(
+            buy_eur,
+            portfolio_value=total_value,
+            current_position_eur=current,
+        )
         if buy_eur < MIN_TRADE_EUR:
             continue
 
@@ -2305,17 +2373,19 @@ def _plan_initial_allocation(
     if not (concentration_mode and len(symbols) <= CONCENTRATION_MAX_POSITIONS):
         weights = diversify_weights(weights, analyses)
     investable = cash / (1 + FEE_RATE)
+    # Tyhjä salkku: cash ≈ portfolio — älä allokoi yli MAX_SINGLE_BUY_PORTFOLIO_PCT / kohde.
+    max_per = investable * MAX_SINGLE_BUY_PORTFOLIO_PCT
     planned: list[dict[str, Any]] = []
     remaining = investable
 
-    for i, item in enumerate(picks):
+    for item in picks:
         sym = item["symbol"]
         w = weights.get(normalize_symbol(sym), 0.0)
-        if i == len(picks) - 1:
-            eur = round(remaining, 2)
-        else:
-            eur = round(investable * w, 2)
-            remaining -= eur
+        raw = investable * w
+        eur = round(min(raw, max_per, remaining), 2)
+        if eur < MIN_TRADE_EUR:
+            continue
+        remaining -= eur
         planned.append({**item, "eurAmount": max(eur, 0.0), "allocPct": round(w * 100, 1)})
     return planned
 
@@ -2409,7 +2479,7 @@ def _gemini_desired_symbols(
             continue
         sig = _gemini_signal_for(gemini_insights, sym)
         conf = int(sig.get("confidence", 0)) if sig else 0
-        if conf < min_conf or (sig and sig.get("action") == "sell"):
+        if conf < min_conf or _gemini_prefers_cash(sig):
             continue
         analysis = (analyses or {}).get(sym) or (analyses or {}).get(normalize_symbol(sym))
         if _gemini_conf_scale_for_analysis(analysis, gemini_insights, sym, gemini_conf_scales) <= 0:
@@ -2419,6 +2489,8 @@ def _gemini_desired_symbols(
     if not result:
         for raw, signal in (gemini_insights.get("signals") or {}).items():
             if signal.get("action") != "buy" or signal.get("confidence", 0) < min_conf:
+                continue
+            if _gemini_prefers_cash(signal):
                 continue
             sym = normalize_symbol(str(raw))
             if sym and sym not in seen and not is_stablecoin(sym):
@@ -2544,6 +2616,7 @@ def make_trading_decisions(
             gemini_active=gemini_active,
             gemini_conf_scales=gemini_conf_scales,
             gemini_buy_min_confidence=gemini_buy_min_conf,
+            regime_info=regime_info if regime_info is not None else regime,
         )
 
     def _mem_adjust(symbol: str) -> float:
@@ -2692,6 +2765,7 @@ def make_trading_decisions(
                 gemini_conf_scales=gemini_conf_scales,
                 gemini_buy_min_confidence=gemini_buy_min_conf,
                 allow_non_gemini_pick=False,
+                regime_info=regime_info if regime_info is not None else regime,
             )
 
         picks: list[dict[str, Any]] = []
@@ -2731,6 +2805,7 @@ def make_trading_decisions(
                     gemini_conf_scales=gemini_conf_scales,
                     gemini_buy_min_confidence=gemini_buy_min_conf,
                     allow_non_gemini_pick=True,
+                    regime_info=regime_info if regime_info is not None else regime,
                 )
                 and r["rank"] >= entry_score_min
             ]
@@ -2752,6 +2827,7 @@ def make_trading_decisions(
                         gemini_conf_scales=gemini_conf_scales,
                         gemini_buy_min_confidence=gemini_buy_min_conf,
                         allow_non_gemini_pick=True,
+                        regime_info=regime_info if regime_info is not None else regime,
                     )
                 ]
             picks = _liquid_crypto_items(idle_ranked[:1])
