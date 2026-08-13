@@ -140,6 +140,50 @@ class RotationOutOfPicksTests(SimpleTestCase):
         self.assertTrue(sells)
         self.assertIn("ei valinnoissa", sells[0]["reason"])
 
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_concentration_mode_does_not_trim_tiny_losing_position(self):
+        """Keskittymistila ei saa ohittaa samaa pienen tappion rotaatiosuojaa."""
+        held = "tBTCUSD"
+        target = "tETHUSD"
+        analyses = {
+            held: _buy_analysis(
+                currentPrice=49_950.0,
+                changePct=0.2,
+                change4hPct=0.1,
+                mtfAlign=0,
+                score=2,
+            ),
+            target: _buy_analysis(
+                currentPrice=3_000.0,
+                score=9,
+                mtfAlign=2,
+                changePct=5.0,
+                change4hPct=3.0,
+            ),
+        }
+        holdings = {
+            held: {"amount": 0.01, "avgPrice": 50_000.0},
+        }
+        decisions: list = []
+        _deploy_cash_to_targets(
+            decisions,
+            holdings,
+            cash=50.0,
+            total_value=550.0,
+            weights={target: 1.0},
+            target_symbols=[target],
+            analyses=analyses,
+            label_fn=lambda s: s.replace("t", "").replace("USD", ""),
+            gemini_active=False,
+            skip_sell_symbols=set(),
+            blocked_buys=set(),
+            best_target_edge=5.0,
+            concentration_mode=True,
+            regime="bull",
+        )
+        sells = [d for d in decisions if d.get("type") == "sell" and d.get("symbol") == held]
+        self.assertFalse(sells)
+
 
 class SymbolMemoryNetPositiveTests(SimpleTestCase):
     def test_net_positive_cooldown_not_in_blocked_buys(self):

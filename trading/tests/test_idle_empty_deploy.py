@@ -252,6 +252,45 @@ class IdleEmptyDeployTests(SimpleTestCase):
         self.assertEqual(len(symbols), 1)
 
     @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_idle_ranked_zero_picks_still_respects_entry_score_min(self):
+        """Gemini 0 pick -fallback ei ohita oppimisen nostamaa valikoivuusrajaa."""
+        weak = "tSOLUSD"
+        analyses = {
+            weak: {
+                "currentPrice": 150.0,
+                "volumeEur": 200_000.0,
+                "action": "buy",
+                "score": 2,
+                "mtfAlign": 2,
+                "changePct": 3.0,
+                "change4hPct": 1.5,
+                **_MICRO_OK,
+            },
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 910.0
+        portfolio["holdings"] = {}
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=910.0,
+            label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
+            gemini_insights={
+                "top_picks": [],
+                "signals": {
+                    weak: {"action": "hold", "confidence": 5, "reason": "wait"},
+                },
+            },
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 4, "blocked_buys": []},
+        )
+
+        self.assertFalse(result.get("initialAllocation"))
+        self.assertFalse(result.get("idleEmptyDeploy"))
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
     def test_idle_ranked_still_respects_blocked_buys(self):
         """Gemini 0 pick -fallback ei ohita blocked_buys."""
         blocked = "tSOLUSD"
