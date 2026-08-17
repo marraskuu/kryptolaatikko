@@ -8,6 +8,7 @@ from django.test import Client, RequestFactory, TestCase
 from trading.models import PageVisit, ShareClick
 from trading.services.visitor_analytics import (
     STATS_TRACKING_PAUSE_COOKIE,
+    _client_ip,
     _normalize_client_ip,
     get_share_click_stats,
     is_bot_user_agent,
@@ -61,6 +62,38 @@ class NormalizeClientIpTests(TestCase):
         self.assertIsNone(_normalize_client_ip("not-an-ip"))
 
 
+class ClientIpTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_forwarded_chain_uses_trusted_proxy_side(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="198.51.100.77, 203.0.113.10",
+            REMOTE_ADDR="10.0.0.5",
+        )
+
+        self.assertEqual(_client_ip(request), "203.0.113.10")
+
+    def test_public_remote_ignores_client_supplied_forwarded_for(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="198.51.100.77",
+            REMOTE_ADDR="8.8.8.8",
+        )
+
+        self.assertEqual(_client_ip(request), "8.8.8.8")
+
+    def test_invalid_forwarded_for_falls_back_to_remote_addr(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="definitely-not-valid",
+            REMOTE_ADDR="10.0.0.5",
+        )
+
+        self.assertEqual(_client_ip(request), "10.0.0.5")
+
+
 class RecordPageVisitTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
@@ -89,7 +122,7 @@ class RecordPageVisitTests(TestCase):
         visit_id = record_page_visit(request, "/")
         self.assertIsNotNone(visit_id)
         visit = PageVisit.objects.get(pk=visit_id)
-        self.assertIsNone(visit.client_ip)
+        self.assertEqual(visit.client_ip, "127.0.0.1")
 
 
 class BotUserAgentTests(TestCase):

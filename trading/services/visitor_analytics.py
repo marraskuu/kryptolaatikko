@@ -155,13 +155,6 @@ def isp_for_ip(client_ip: str, stored_isp: str = "") -> str:
     return _geo_lookup(client_ip).get("isp") or ""
 
 
-def _client_ip(request) -> str:
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return (request.META.get("REMOTE_ADDR") or "").strip()
-
-
 def _normalize_client_ip(raw: str) -> str | None:
     """Validoi IP ennen tietokantaa — virheellinen IP ei saa kaataa käyntitallennusta."""
     value = (raw or "").strip()
@@ -178,6 +171,22 @@ def _normalize_client_ip(raw: str) -> str | None:
     except ValueError:
         logger.warning("Invalid client IP ignored: %r", value[:64])
         return None
+
+
+def _client_ip(request) -> str:
+    remote = _normalize_client_ip(request.META.get("REMOTE_ADDR") or "")
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded and (not remote or _is_private_ip(remote)):
+        # Railway/proxies append the real client after any spoofed client-supplied
+        # values. Use the trusted-proxy side of the chain so prepended spoofing
+        # cannot rotate rate-limit keys.
+        for part in reversed(forwarded.split(",")):
+            candidate = _normalize_client_ip(part)
+            if candidate:
+                return candidate
+    if remote:
+        return remote
+    return (request.META.get("REMOTE_ADDR") or "").strip()
 
 
 def _client_ip_normalized(request) -> str | None:
