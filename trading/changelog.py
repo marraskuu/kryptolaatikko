@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-17",
+        "entries": [
+            {
+                "title": "Kokosäätö ei voi enää ohittaa 30 % ostokattoa",
+                "body": "Kelly/ATR-kokosekoitus tehdään nyt saman 30 % per positio -riskikaton sisällä kuin alkuperäinen ostopäätös. Näin jälkikäteinen kokosäätö ei voi kasvattaa yksittäistä ostoa yli salkun suojarajan.",
+                "title_en": "Size blending can no longer bypass the 30% buy cap",
+                "body_en": "Kelly/ATR size blending now stays inside the same 30% per-position risk cap as the original buy decision. The post-decision sizing step can no longer grow a single buy above the portfolio safety limit.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

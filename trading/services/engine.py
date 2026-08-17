@@ -14,6 +14,8 @@ from .ai_trader import (
     compute_market_regime,
     enrich_regime_phase,
     DEEP_ANALYSIS_TIME_BUDGET_SEC,
+    MIN_TRADE_EUR,
+    _cap_buy_eur,
     enrich_display_timeframes,
     enrich_analyses_for_gemini,
     format_initial_buy_reason,
@@ -270,6 +272,8 @@ def _apply_entry_size_blend(
     kelly_shadow_map: dict[str, float],
     kelly_weight: float = ENTRY_SIZE_KELLY_BLEND_WEIGHT,
     atr_weight: float = ENTRY_SIZE_ATR_BLEND_WEIGHT,
+    portfolio_value: float | None = None,
+    current_positions_eur: dict[str, float] | None = None,
 ) -> None:
     """Sekoittaa Kelly/ATR-varjokoon oikeaan eur_amount:iin ennen portfolio.buy():ta.
 
@@ -291,6 +295,12 @@ def _apply_entry_size_blend(
             kelly_weight=kelly_weight,
             atr_weight=atr_weight,
         )
+        if portfolio_value is not None:
+            d["eurAmount"] = _cap_buy_eur(
+                d["eurAmount"],
+                portfolio_value=portfolio_value,
+                current_position_eur=(current_positions_eur or {}).get(d["symbol"], 0.0),
+            )
         d["amount"] = d["eurAmount"] / price
 
 
@@ -998,11 +1008,24 @@ def execute_trading_cycle() -> dict[str, Any]:
         kelly_shadow_map = kelly_expectancy_shadow_sizes(
             buy_batch, learning.get("gemini_confidence_stats")
         )
+        current_positions_eur = {}
+        for d in buy_decisions:
+            holding = portfolio.holdings.get(d["symbol"])
+            analysis = d.get("analysis") or {}
+            price = float(analysis.get("currentPrice") or 0)
+            if holding and price > 0:
+                current_positions_eur[d["symbol"]] = float(holding.get("amount") or 0) * price
         _apply_entry_size_blend(
-            buy_decisions, atr_shadow_map=atr_shadow_map, kelly_shadow_map=kelly_shadow_map
+            buy_decisions,
+            atr_shadow_map=atr_shadow_map,
+            kelly_shadow_map=kelly_shadow_map,
+            portfolio_value=total_value,
+            current_positions_eur=current_positions_eur,
         )
         for d in buy_decisions:
             analysis = d.get("analysis") or {}
+            if float(d.get("eurAmount") or 0) < MIN_TRADE_EUR:
+                continue
             buy_meta = meta_from_analysis(analysis, regime)
             buy_meta.update(d.get("bullSatelliteMeta") or {})
             if d.get("reasonEn"):
