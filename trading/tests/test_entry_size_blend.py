@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.test import SimpleTestCase
 
+from trading.services.ai_trader import MAX_SINGLE_BUY_PORTFOLIO_PCT
 from trading.services.engine import _apply_entry_size_blend
 from trading.services.entry_diagnostics_shadow import blended_entry_size_eur
 
@@ -152,3 +153,22 @@ class ApplyEntrySizeBlendEngineWiringTests(SimpleTestCase):
             atr_weight=1.0,
         )
         self.assertEqual(buy_decisions[0]["eurAmount"], 100.0)
+
+    def test_post_blend_size_respects_single_position_cap(self):
+        buy_decisions = [
+            {"symbol": "tBTCUSD", "eurAmount": 300.0, "amount": 0.003,
+             "analysis": {"currentPrice": 100000.0}},
+        ]
+        _apply_entry_size_blend(
+            buy_decisions,
+            atr_shadow_map={"tBTCUSD": 600.0},
+            kelly_shadow_map={},
+            kelly_weight=0.0,
+            atr_weight=1.0,
+            portfolio_value=1000.0,
+            current_positions_eur={},
+        )
+
+        cap = 1000.0 * MAX_SINGLE_BUY_PORTFOLIO_PCT
+        self.assertEqual(buy_decisions[0]["eurAmount"], cap)
+        self.assertAlmostEqual(buy_decisions[0]["amount"], cap / 100000.0)
