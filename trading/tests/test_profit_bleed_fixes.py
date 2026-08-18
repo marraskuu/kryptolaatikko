@@ -8,6 +8,7 @@ from trading.services.ai_trader import (
     MAX_SINGLE_BUY_PORTFOLIO_PCT,
     _bear_buy_freeze_active,
     _cap_buy_eur,
+    _deploy_cash_to_targets,
     _gemini_buy_allowed,
     _gemini_prefers_cash,
     _is_buy_blocked,
@@ -91,6 +92,48 @@ class SizeCapTests(SimpleTestCase):
         self.assertEqual(len(planned), 1)
         self.assertLessEqual(planned[0]["eurAmount"], 900.0 * MAX_SINGLE_BUY_PORTFOLIO_PCT + 0.01)
         self.assertGreater(planned[0]["eurAmount"], 100.0)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_cash_deploy_caps_each_active_target_position(self):
+        analyses = {
+            "tBTCUSD": {
+                "currentPrice": 10.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 9,
+                **_MICRO_OK,
+            },
+            "tETHUSD": {
+                "currentPrice": 100.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                **_MICRO_OK,
+            },
+        }
+        holdings = {
+            "tBTCUSD": {"amount": 29.0, "avgPrice": 10.0},  # 290 € of a 1000 € book
+        }
+        decisions: list[dict] = []
+
+        _deploy_cash_to_targets(
+            decisions,
+            holdings,
+            cash=710.0,
+            total_value=1_000.0,
+            weights={"tBTCUSD": 0.8, "tETHUSD": 0.2},
+            target_symbols=["tBTCUSD", "tETHUSD"],
+            analyses=analyses,
+            label_fn=lambda sym: sym,
+            gemini_active=False,
+            skip_sell_symbols=set(),
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+        )
+
+        btc_buy = next(d for d in decisions if d["type"] == "buy" and d["symbol"] == "tBTCUSD")
+        max_btc_add = (1_000.0 * MAX_SINGLE_BUY_PORTFOLIO_PCT) - 290.0
+        self.assertLessEqual(btc_buy["eurAmount"], max_btc_add + 0.01)
 
 
 class GeminiCashMicroGateTests(SimpleTestCase):

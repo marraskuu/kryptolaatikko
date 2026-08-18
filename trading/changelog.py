@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-18",
+        "entries": [
+            {
+                "title": "Korjattu position kokokatto käteisen sijoituksessa",
+                "body": "Käteisen uudelleensijoitus laskee nyt 30 %:n position kokokaton aina käsiteltävän krypton nykyisestä arvosta. Aiemmin usean kohteen kierrossa katto saattoi käyttää edellisen kohteen arvoa ja kasvattaa jo lähes täyttä positiota liikaa.",
+                "title_en": "Fixed position size cap during cash deployment",
+                "body_en": "Cash redeployment now applies the 30% position cap against the current value of the crypto being bought. In multi-target deploys the cap could previously use another target's value and add too much to an already nearly full position.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {
