@@ -2312,10 +2312,11 @@ def _deploy_cash_to_targets(
                 continue
             buy_eur *= conf_scale
         buy_eur = max(0.0, min(buy_eur, remaining))
+        current_position_eur = _effective_holding_amount(sym, holdings, decisions) * price
         buy_eur = _cap_buy_eur(
             buy_eur,
             portfolio_value=total_value,
-            current_position_eur=current,
+            current_position_eur=current_position_eur,
         )
         if buy_eur < MIN_TRADE_EUR:
             continue
