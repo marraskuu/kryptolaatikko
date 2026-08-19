@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-19",
+        "entries": [
+            {
+                "title": "Bull-satelliitti noudattaa 30 % positiokattoa",
+                "body": "Bull-regiimin 65/35-käteisjako ei enää lisää ydinpositioon, jos olemassa oleva positio on jo yli yhden oston 30 % salkkurajan. Näin satelliittiosto ei voi kiertää vuodon-stopin kokokattoa.",
+                "title_en": "Bull-satellite now respects the 30% position cap",
+                "body_en": "The bull-regime 65/35 cash split no longer adds to the primary holding when the existing position is already above the 30% single-buy portfolio cap. This keeps satellite deployment from bypassing the bleed-stop size limit.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {
