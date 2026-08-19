@@ -8,6 +8,7 @@ from trading.services.ai_trader import (
     MAX_SINGLE_BUY_PORTFOLIO_PCT,
     _bear_buy_freeze_active,
     _cap_buy_eur,
+    _deploy_cash_to_targets,
     _gemini_buy_allowed,
     _gemini_prefers_cash,
     _is_buy_blocked,
@@ -91,6 +92,62 @@ class SizeCapTests(SimpleTestCase):
         self.assertEqual(len(planned), 1)
         self.assertLessEqual(planned[0]["eurAmount"], 900.0 * MAX_SINGLE_BUY_PORTFOLIO_PCT + 0.01)
         self.assertGreater(planned[0]["eurAmount"], 100.0)
+
+    def test_bull_satellite_deploy_respects_existing_position_cap(self):
+        primary = "tBTCUSD"
+        satellite = "tETHUSD"
+        analyses = {
+            primary: {
+                "currentPrice": 50_000.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 1,
+                "changePct": 1.0,
+                "change4hPct": 1.0,
+                **_MICRO_OK,
+            },
+            satellite: {
+                "currentPrice": 100.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 2,
+                "changePct": 4.0,
+                "change4hPct": 4.0,
+                **_MICRO_OK,
+            },
+        }
+        decisions: list[dict] = []
+
+        _deploy_cash_to_targets(
+            decisions,
+            holdings={primary: {"amount": 0.012, "avgPrice": 45_000.0}},
+            cash=400.0,
+            total_value=1000.0,
+            weights={primary: 0.65, satellite: 0.35},
+            target_symbols=[primary, satellite],
+            analyses=analyses,
+            label_fn=lambda s: s,
+            gemini_active=False,
+            skip_sell_symbols=set(),
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            bull_satellite_split={
+                "primary": primary,
+                "satellite": satellite,
+                "reason": "edge + momentum",
+            },
+        )
+
+        buys = [d for d in decisions if d.get("type") == "buy"]
+        self.assertFalse([d for d in buys if d.get("symbol") == primary])
+        satellite_buys = [d for d in buys if d.get("symbol") == satellite]
+        self.assertEqual(len(satellite_buys), 1)
+        self.assertLessEqual(
+            satellite_buys[0]["eurAmount"],
+            1000.0 * MAX_SINGLE_BUY_PORTFOLIO_PCT + 0.01,
+        )
 
 
 class GeminiCashMicroGateTests(SimpleTestCase):

@@ -572,6 +572,7 @@ def deploy_bull_satellite_cash(
     analyses: dict[str, dict[str, Any]],
     gemini_active: bool,
     format_reason: Callable[..., str],
+    cap_buy_eur: Callable[[str, float, dict[str, Any]], float] | None = None,
 ) -> bool:
     """Jaa käteinen 65/35 — ei koske olemassa olevaa positiota."""
     if available_cash < MIN_TRADE_EUR:
@@ -623,7 +624,13 @@ def deploy_bull_satellite_cash(
 
     pair_id = datetime.now(timezone.utc).strftime("bs-%Y%m%d%H%M%S")
 
+    added = False
     for sym, eur, analysis, weight in planned:
+        if cap_buy_eur is not None:
+            eur = cap_buy_eur(sym, eur, analysis)
+        if eur < MIN_TRADE_EUR:
+            continue
+
         price = float(analysis["currentPrice"])
         role = "primary" if sym == primary else "satellite"
         alloc_pct = round(weight * 100, 1)
@@ -654,6 +661,7 @@ def deploy_bull_satellite_cash(
             existing["amount"] = existing["eurAmount"] / price
             existing["reason"] = reason
             existing["bullSatelliteMeta"] = bs_meta
+            added = True
             continue
 
         decisions.append(
@@ -667,5 +675,6 @@ def deploy_bull_satellite_cash(
                 "bullSatelliteMeta": bs_meta,
             }
         )
+        added = True
 
-    return True
+    return added

@@ -2257,6 +2257,22 @@ def _deploy_cash_to_targets(
     if bull_satellite_split:
         from .bull_satellite import deploy_bull_satellite_cash
 
+        def _cap_bull_satellite_buy(
+            symbol: str, buy_eur: float, analysis: dict[str, Any]
+        ) -> float:
+            price = float(analysis.get("currentPrice") or 0)
+            current_position_eur = _effective_holding_amount(symbol, holdings, decisions) * price
+            queued_buy_eur = sum(
+                float(d.get("eurAmount") or 0)
+                for d in decisions
+                if d.get("type") == "buy" and d.get("symbol") == symbol
+            )
+            return _cap_buy_eur(
+                buy_eur,
+                portfolio_value=total_value,
+                current_position_eur=current_position_eur + queued_buy_eur,
+            )
+
         if deploy_bull_satellite_cash(
             decisions,
             available_cash=available,
@@ -2264,6 +2280,7 @@ def _deploy_cash_to_targets(
             analyses=analyses,
             gemini_active=gemini_active,
             format_reason=_format_trade_reason,
+            cap_buy_eur=_cap_bull_satellite_buy,
         ):
             return
 
