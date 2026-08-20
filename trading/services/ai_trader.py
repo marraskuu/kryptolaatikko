@@ -2782,12 +2782,13 @@ def make_trading_decisions(
                 for c in picks
                 if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
-        # Tyhjä salkku + idle-käteinen + Gemini 0 pickiä → 1 ranked-osto normaaleilla
-        # gateilla (blocked_buys/setup/micro/entry), ohittaen vain "pakko olla Gemini-pick".
+        # Tyhjä salkku + idle-käteinen + Gemini 0 ostokelpoista pickiä → 1 ranked-osto
+        # normaaleilla gateilla (blocked_buys/setup/micro/entry), ohittaen vain
+        # "pakko olla Gemini-pick".
         # ranked_buyable on usein tyhjä kun Gemini on aktiivinen ilman pickejä (buy_blocked
         # suodattaa jo listan), joten rakennetaan ehdokkaat uudelleen allow_non_gemini_pickillä.
-        gemini_pick_n = len(_gemini_top_picks(gemini_insights)) if gemini_active else 0
-        if not picks and idle_cash and gemini_pick_n == 0:
+        actionable_gemini_pick_n = len(desired) if gemini_active else 0
+        if not picks and idle_cash and actionable_gemini_pick_n == 0:
             idle_ranked = [
                 r
                 for r in ranked
@@ -3098,9 +3099,10 @@ def make_trading_decisions(
                     )
                     continue
                 elif stuck_forced or profit_pct <= stagnant_min_loss:
-                    # Pehmeä jumitus: vaadi fade ellei jo syvä tappio / heikko 24h.
+                    # Pehmeä jumitus: vaadi fade ellei jo pakko-vapautus.
                     hard_force = (
-                        profit_pct <= STUCK_FORCE_LOSS_PCT
+                        stuck_forced
+                        or profit_pct <= STUCK_FORCE_LOSS_PCT
                         or float(analysis.get("changePct") or analysis.get("momentum") or 0)
                         <= STUCK_FORCE_24H
                     )

@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-20",
+        "entries": [
+            {
+                "title": "Korjattu idle-käteisen fallback ja jumittuneiden positioiden pakkomyynti",
+                "body": "Tyhjä salkku voi taas ostaa yhden ranked-kohteen, jos Gemini listaa vain hold/cash-pickejä eikä yhtään ostokelpoista kohdetta. Lisäksi yli max-defer-ajan jumittunut FIFO-erä vapautetaan, vaikka 1h/24h-liike näyttäisi hetkellistä pomppua.",
+                "title_en": "Fixed idle-cash fallback and forced release of stuck positions",
+                "body_en": "An empty portfolio can again buy one ranked target when Gemini only lists hold/cash picks and no actionable buy. Also, a FIFO lot stuck past the max-defer window is released even if 1h/24h movement shows a short-lived bounce.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

@@ -252,6 +252,50 @@ class IdleEmptyDeployTests(SimpleTestCase):
         self.assertEqual(len(symbols), 1)
 
     @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_idle_ranked_when_gemini_picks_are_not_buyable(self):
+        """Hold/cash Gemini-pickit eivät saa estää idle ranked -fallbackia."""
+        ranked = "tSOLUSD"
+        analyses = {
+            ranked: {
+                "currentPrice": 150.0,
+                "volumeEur": 2_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 2,
+                "changePct": 3.0,
+                "change4hPct": 1.5,
+                **_MICRO_OK,
+            },
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 910.0
+        portfolio["holdings"] = {}
+
+        gemini_insights = {
+            "top_picks": [ranked],
+            "signals": {
+                ranked: {"action": "hold", "confidence": 8, "reason": "pidetään käteinen"},
+            },
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=910.0,
+            label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
+            gemini_insights=gemini_insights,
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        allocation = result.get("initialAllocation") or []
+        symbols = [slot["symbol"] for slot in allocation]
+        self.assertIn(ranked, symbols)
+        self.assertTrue(result.get("idleEmptyDeploy"))
+        self.assertEqual(len(symbols), 1)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
     def test_idle_ranked_still_respects_blocked_buys(self):
         """Gemini 0 pick -fallback ei ohita blocked_buys."""
         blocked = "tSOLUSD"

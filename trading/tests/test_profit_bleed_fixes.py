@@ -1,5 +1,6 @@
 """Vuodon-stop: karhuostosulku, kokokatto, Gemini cash/micro-esto."""
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -192,3 +193,58 @@ class EmptyBookBearNoDeployTests(SimpleTestCase):
             learning={"entry_score_min": 1, "blocked_buys": []},
         )
         self.assertFalse(result.get("initialAllocation"))
+
+
+class StuckReleaseTests(SimpleTestCase):
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_max_defer_stuck_release_sells_even_without_fade(self):
+        """Yli max-defer-ikäinen FIFO-lotti vapautetaan vaikka 1h/24h pomppii."""
+        symbol = "tSOLUSD"
+        opened_at = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+        portfolio = default_portfolio()
+        portfolio["cash"] = 0.0
+        portfolio["holdings"] = {
+            symbol: {"amount": 1.0, "avgPrice": 100.0, "openedAt": opened_at}
+        }
+        portfolio["trades"] = [
+            {
+                "id": 1,
+                "type": "buy",
+                "symbol": symbol,
+                "amount": 1.0,
+                "price": 100.0,
+                "eurTotal": 100.0,
+                "timestamp": opened_at,
+                "reason": "test buy",
+            }
+        ]
+        analyses = {
+            symbol: {
+                "currentPrice": 99.0,
+                "volumeEur": 2_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 0,
+                "changePct": 0.5,
+                "change1hPct": 0.4,
+                "change4hPct": 0.2,
+                "flowBucket": "fl+",
+                **_MICRO_OK,
+            }
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=99.0,
+            label_fn=lambda s: s,
+            regime="neutral",
+            regime_info={"regime": "neutral", "phase": "neutral"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        sells = [d for d in result["decisions"] if d.get("type") == "sell"]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["symbol"], symbol)
+        self.assertAlmostEqual(sells[0]["amount"], 1.0)
+        self.assertIn("myydään riippumatta markkinan noususta", sells[0]["reason"])
