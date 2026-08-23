@@ -762,6 +762,10 @@ def _gemini_prefers_cash(sig: dict[str, Any] | None) -> bool:
     if action in ("hold", "sell", "avoid", "cash"):
         return True
     reason = f"{sig.get('reason') or ''} {sig.get('reason_en') or ''} {sig.get('reasonEn') or ''}".lower()
+    return _gemini_reason_contains_cash_or_micro_veto(reason)
+
+
+def _gemini_reason_contains_cash_or_micro_veto(reason: str) -> bool:
     needles = (
         "pidä käteistä",
         "holding cash",
@@ -777,6 +781,17 @@ def _gemini_prefers_cash(sig: dict[str, Any] | None) -> bool:
         "microstructure blocked",
     )
     return any(n in reason for n in needles)
+
+
+def _gemini_blocks_non_pick_fallback(sig: dict[str, Any] | None) -> bool:
+    """Idle fallback ohittaa vain pick-pakon, ei Geminin eksplisiittistä vetoa."""
+    if not sig:
+        return False
+    action = str(sig.get("action") or "").lower()
+    if action in ("sell", "avoid", "cash"):
+        return True
+    reason = f"{sig.get('reason') or ''} {sig.get('reason_en') or ''} {sig.get('reasonEn') or ''}".lower()
+    return _gemini_reason_contains_cash_or_micro_veto(reason)
 
 
 def _cap_buy_eur(
@@ -1079,6 +1094,13 @@ def _is_buy_blocked(
 
     if blocks_entry(analysis):
         return True
+    if allow_non_gemini_pick and gemini_active:
+        sig = (analysis or {}).get("geminiSignal") or _gemini_signal_for(
+            gemini_insights,
+            symbol,
+        )
+        if _gemini_blocks_non_pick_fallback(sig):
+            return True
     if not allow_non_gemini_pick and not _gemini_buy_allowed(
         symbol,
         analysis,

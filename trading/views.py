@@ -403,9 +403,10 @@ def api_historical_backfill(request):
         return JsonResponse({"error": "unauthorized"}, status=403)
 
     from .services.market_learning_backfill import (
+        HistoricalBackfillAlreadyRunning,
         get_backfill_status,
         maybe_schedule_historical_backfill,
-        run_historical_backfill,
+        run_historical_backfills_exclusive,
     )
 
     force = request.GET.get("force", "").lower() in ("1", "true", "yes")
@@ -418,13 +419,22 @@ def api_historical_backfill(request):
         return JsonResponse(payload)
 
     try:
-        result = run_historical_backfill()
-        from .services.setup_historical_backfill import (
-            get_setup_backfill_status,
-            run_setup_historical_backfill,
-        )
+        backfill_result = run_historical_backfills_exclusive()
+        result = backfill_result["result"]
+        setup_result = backfill_result["setupResult"]
+        from .services.setup_historical_backfill import get_setup_backfill_status
+    except HistoricalBackfillAlreadyRunning:
+        payload = {
+            "scheduled": False,
+            "force": force,
+            "async": False,
+            "error": "historical_backfill_already_running",
+        }
+        payload.update(get_backfill_status())
+        from .services.setup_historical_backfill import get_setup_backfill_status
 
-        setup_result = run_setup_historical_backfill()
+        payload.update(get_setup_backfill_status())
+        return JsonResponse(payload, status=409)
     except Exception as exc:
         logger.exception("Historical backfill failed")
         return JsonResponse({"error": str(exc)}, status=500)
