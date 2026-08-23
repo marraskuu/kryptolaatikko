@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-23",
+        "entries": [
+            {
+                "title": "Korjattu idle-osto ja historiabackfillin päällekkäisyys",
+                "body": "Tyhjän salkun idle-osto ei enää ohita Geminin eksplisiittistä käteis-/microstructure-vetoa, vaikka Gemini palauttaisi 0 pickiä. Synkroninen admin-historiabackfill torjuu nyt päällekkäisen ajon, jotta varjo-oppimisen JSON-tila ei ylikirjoitu rinnakkaisista päivityksistä.",
+                "title_en": "Fix idle buy veto and overlapping history backfill",
+                "body_en": "Empty-portfolio idle deploy no longer bypasses Gemini's explicit cash/microstructure veto when Gemini returns zero picks. The synchronous admin history backfill now rejects overlapping runs so shadow-learning JSON state is not overwritten by concurrent updates.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

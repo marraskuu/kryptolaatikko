@@ -42,6 +42,25 @@ BITFINEX_REQ_PAUSE_SEC = float(os.environ.get("BITFINEX_REQ_PAUSE_SEC", "2.1"))
 BTC_SYMBOL_CANDIDATES = ("tBTCUSD", "tBTCUST", "tBTCEUR")
 
 
+class HistoricalBackfillAlreadyRunning(RuntimeError):
+    """Raised when a manual backfill would overlap an active backfill thread."""
+
+
+def _begin_backfill() -> bool:
+    global _backfill_running
+    with _backfill_lock:
+        if _backfill_running:
+            return False
+        _backfill_running = True
+        return True
+
+
+def _finish_backfill() -> None:
+    global _backfill_running
+    with _backfill_lock:
+        _backfill_running = False
+
+
 def _pause() -> None:
     time.sleep(BITFINEX_REQ_PAUSE_SEC)
 
@@ -227,10 +246,29 @@ def run_historical_backfill(
     return store["lastHistoryBackfillSummary"]
 
 
+def run_historical_backfills_exclusive(
+    symbols: list[str] | None = None,
+    *,
+    candle_limit: int | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Run market + setup history backfills without overlapping the scheduler."""
+    if not _begin_backfill():
+        raise HistoricalBackfillAlreadyRunning("historical backfill already running")
+    try:
+        result = run_historical_backfill(symbols=symbols, candle_limit=candle_limit)
+        from .setup_historical_backfill import run_setup_historical_backfill
+
+        setup_result = run_setup_historical_backfill(
+            symbols=symbols,
+            candle_limit=candle_limit,
+        )
+        return {"result": result, "setupResult": setup_result}
+    finally:
+        _finish_backfill()
+
+
 def maybe_schedule_historical_backfill(force: bool = False) -> bool:
     """Käynnistä taustalokiikka jos viikkobackfill erääntynyt."""
-    global _backfill_running
-
     store = _load()
     last = int(store.get("lastHistoryBackfillAt") or 0)
     now_ms = int(time.time() * 1000)
@@ -238,13 +276,10 @@ def maybe_schedule_historical_backfill(force: bool = False) -> bool:
     if not due:
         return False
 
-    with _backfill_lock:
-        if _backfill_running:
-            return False
-        _backfill_running = True
+    if not _begin_backfill():
+        return False
 
     def _worker() -> None:
-        global _backfill_running
         try:
             result = run_historical_backfill()
             logger.info(
@@ -263,8 +298,7 @@ def maybe_schedule_historical_backfill(force: bool = False) -> bool:
         except Exception:
             logger.exception("Scheduled history backfill failed")
         finally:
-            with _backfill_lock:
-                _backfill_running = False
+            _finish_backfill()
 
     threading.Thread(target=_worker, name="ml-history-backfill", daemon=True).start()
     return True
