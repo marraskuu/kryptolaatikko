@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-25",
+        "entries": [
+            {
+                "title": "Gemini-osto ei enää esty kieltävän käteislausun vuoksi",
+                "body": "Cash/micro-portti tunnistaa edelleen aidot “pidä käteistä” -signaalit, mutta ei enää tulkitse kieltävää perustelua (esim. “not holding cash”) käteisvetoiseksi estoksi. Tyhjän salkun vahva Gemini top-pick voi taas muodostaa alkuallokaation normaalien porttien läpi.",
+                "title_en": "Gemini buy no longer blocked by negated cash wording",
+                "body_en": "The cash/micro gate still honors true hold-cash signals, but no longer treats negated rationale text (for example “not holding cash”) as a cash-first veto. A strong Gemini top pick on an empty book can again create the initial allocation through the normal gates.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {
