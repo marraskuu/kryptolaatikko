@@ -108,6 +108,26 @@ class GeminiCashMicroGateTests(SimpleTestCase):
             )
         )
 
+    def test_prefers_cash_ignores_negated_reason_text(self):
+        self.assertFalse(
+            _gemini_prefers_cash(
+                {
+                    "action": "buy",
+                    "confidence": 8,
+                    "reason": "Not holding cash here; momentum and liquidity are strong.",
+                }
+            )
+        )
+        self.assertFalse(
+            _gemini_prefers_cash(
+                {
+                    "action": "buy",
+                    "confidence": 8,
+                    "reason": "Käteisen pitäminen ei ole ensisijaista tässä setupissa.",
+                }
+            )
+        )
+
     def test_gemini_buy_allowed_rejects_cash_first_signal(self):
         insights = {
             "top_picks": ["tBTCUSD"],
@@ -127,6 +147,26 @@ class GeminiCashMicroGateTests(SimpleTestCase):
             gemini_buy_min_confidence=7,
         )
         self.assertFalse(ok)
+
+    def test_gemini_buy_allowed_accepts_negated_cash_reason(self):
+        insights = {
+            "top_picks": ["tBTCUSD"],
+            "signals": {
+                "tBTCUSD": {
+                    "action": "buy",
+                    "confidence": 8,
+                    "reason_en": "Not holding cash here; momentum and liquidity are strong.",
+                }
+            },
+        }
+        ok = _gemini_buy_allowed(
+            "tBTCUSD",
+            {"currentPrice": 1.0},
+            insights,
+            gemini_active=True,
+            gemini_buy_min_confidence=7,
+        )
+        self.assertTrue(ok)
 
     def test_micro_blocked_field_blocks_even_if_micro_module_off(self):
         analysis = {
@@ -148,6 +188,47 @@ class GeminiCashMicroGateTests(SimpleTestCase):
                 regime="bull",
             )
         self.assertTrue(blocked)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_empty_book_negated_cash_reason_still_deploys_top_pick(self):
+        pick = "tBTCUSD"
+        analyses = {
+            pick: {
+                "currentPrice": 60_000.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 9,
+                "mtfAlign": 1,
+                "changePct": 2.0,
+                "change4hPct": 1.0,
+                **_MICRO_OK,
+            }
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 910.0
+        portfolio["holdings"] = {}
+        gemini_insights = {
+            "top_picks": [pick],
+            "signals": {
+                pick: {
+                    "action": "buy",
+                    "confidence": 8,
+                    "reason_en": "Not holding cash here; momentum and liquidity are strong.",
+                },
+            },
+        }
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=910.0,
+            label_fn=lambda s: s,
+            gemini_insights=gemini_insights,
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+        self.assertEqual(result.get("topSymbols"), [pick])
+        self.assertTrue(result.get("initialAllocation"))
 
 
 class EmptyBookBearNoDeployTests(SimpleTestCase):

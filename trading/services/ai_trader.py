@@ -762,6 +762,8 @@ def _gemini_prefers_cash(sig: dict[str, Any] | None) -> bool:
     if action in ("hold", "sell", "avoid", "cash"):
         return True
     reason = f"{sig.get('reason') or ''} {sig.get('reason_en') or ''} {sig.get('reasonEn') or ''}".lower()
+    if "micro_blocked=true" in reason or "micro_blocked = true" in reason:
+        return True
     needles = (
         "pidä käteistä",
         "holding cash",
@@ -771,12 +773,26 @@ def _gemini_prefers_cash(sig: dict[str, Any] | None) -> bool:
         "stay in cash",
         "käteisen pitäminen",
         "cash is primary",
-        "micro_blocked=true",
-        "micro_blocked = true",
         "mikrorakenne estetty",
         "microstructure blocked",
     )
-    return any(n in reason for n in needles)
+    return any(_cash_reason_phrase_is_active(reason, n) for n in needles)
+
+
+def _cash_reason_phrase_is_active(reason: str, phrase: str) -> bool:
+    start = 0
+    while True:
+        idx = reason.find(phrase, start)
+        if idx < 0:
+            return False
+        prefix = reason[max(0, idx - 32):idx].replace("’", "'").rstrip(" \t:-—,.")
+        suffix = reason[idx + len(phrase):idx + len(phrase) + 32].replace("’", "'").lstrip(" \t:-—,.")
+        if not (
+            prefix.endswith(("not", "no", "never", "don't", "dont", "do not", "ei", "älä", "ala"))
+            or suffix.startswith(("not ", "is not", "isn't", "ei ", "ei ole"))
+        ):
+            return True
+        start = idx + len(phrase)
 
 
 def _cap_buy_eur(
