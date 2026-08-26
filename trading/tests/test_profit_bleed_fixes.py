@@ -11,9 +11,11 @@ from trading.services.ai_trader import (
     _gemini_buy_allowed,
     _gemini_prefers_cash,
     _is_buy_blocked,
+    _learning_regime_key,
     _plan_initial_allocation,
     make_trading_decisions,
 )
+from trading.services.market_learning import setup_key_for_analysis
 from trading.services.portfolio import default_portfolio
 
 _MICRO_OK = {"microChecked": True, "microBlocked": False}
@@ -53,6 +55,46 @@ class BearFreezeOfficialRegimeTests(SimpleTestCase):
             regime_info={"regime": "bear", "phase": "bear"},
         )
         self.assertTrue(blocked)
+
+    def test_official_bear_setup_block_applies_during_anticipated_bull(self):
+        analysis = {
+            "currentPrice": 60_000.0,
+            "volumeEur": 5_000_000.0,
+            "action": "buy",
+            "score": 9,
+            "mtfAlign": 1,
+            "changePct": 2.0,
+            "change4hPct": 1.0,
+            "condAdjust": 4.0,
+            **_MICRO_OK,
+        }
+        blocked_setup = setup_key_for_analysis(analysis, "bear")
+
+        blocked = _is_buy_blocked(
+            "tBTCUSD",
+            analysis,
+            blocked_buys=set(),
+            blocked_setups={blocked_setup},
+            regime="bull",  # anticipated bounce entry regime
+            regime_info={
+                "regime": "bear",
+                "phase": "bull_emerging",
+                "shift_to": "bull",
+                "shift_strength": "moderate",
+            },
+        )
+
+        self.assertTrue(blocked)
+
+    def test_bear_freeze_uses_risk_regime_for_learning_tuning(self):
+        regime_info = {
+            "regime": "bear",
+            "phase": "bull_emerging",
+            "shift_to": "bull",
+            "shift_strength": "moderate",
+        }
+
+        self.assertEqual(_learning_regime_key("bull", "bear", regime_info), "bear")
 
 
 class SizeCapTests(SimpleTestCase):
