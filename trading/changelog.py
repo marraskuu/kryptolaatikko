@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-26",
+        "entries": [
+            {
+                "title": "Karhu-bounce ei ohita opittua setup-estoa",
+                "body": "Kun virallinen markkina on karhu mutta vaihe ennakoi bull-bouncea, botti tarkistaa nyt opitut setup-estot myös virallisen/riskiregiimin avaimilla. Bear-jäädytyksen poikkeus ei siis enää voi ostaa asetelmaa, jonka oma tai historiallinen oppiminen on merkinnyt karhussa tappiolliseksi.",
+                "title_en": "Bear bounce no longer skips learned setup blocks",
+                "body_en": "When the official market is bear but the phase anticipates a bull bounce, the bot now checks learned setup blocks with the official/risk-regime keys too. A bear-freeze exception can no longer buy a setup that own or historical learning marked as losing in bear conditions.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

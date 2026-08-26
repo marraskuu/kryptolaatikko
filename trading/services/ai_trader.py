@@ -1013,6 +1013,33 @@ def _hard_blocked_buys(symbol_memory: dict[str, dict[str, Any]]) -> set[str]:
     }
 
 
+def _setup_block_keys(
+    analysis: dict[str, Any],
+    regime: str,
+    regime_info: dict[str, Any] | str | None,
+) -> set[str]:
+    """Blocked setup keys are stored with official/risk regimes, not just anticipated buys."""
+    from .market_learning import setup_key_for_analysis
+
+    regimes = [regime]
+    if isinstance(regime_info, dict):
+        official = str(regime_info.get("regime") or "")
+        risk = risk_regime_key(regime_info)
+        regimes.extend(r for r in (official, risk) if r)
+    elif isinstance(regime_info, str):
+        regimes.append(regime_info)
+    return {setup_key_for_analysis(analysis, r) for r in dict.fromkeys(regimes)}
+
+
+def _learning_regime_key(
+    entry_regime: str,
+    risk_regime: str,
+    regime_info: dict[str, Any] | str | None,
+) -> str:
+    """Use defensive tuning when bear-freeze is active, even if buys anticipate a bounce."""
+    return risk_regime if _bear_buy_freeze_active(regime_info) else entry_regime
+
+
 def _ranked_buyable_candidates(
     ranked: list[dict[str, Any]],
     *,
@@ -1074,7 +1101,6 @@ def _is_buy_blocked(
     # olisi feature-flagilla pois (Gemini-prompt voi silti liputtaa eston).
     if analysis.get("microBlocked"):
         return True
-    from .market_learning import setup_key_for_analysis
     from .market_microstructure import blocks_entry
 
     if blocks_entry(analysis):
@@ -1089,7 +1115,7 @@ def _is_buy_blocked(
     ):
         return True
 
-    return setup_key_for_analysis(analysis, regime) in blocked_setups
+    return bool(blocked_setups & _setup_block_keys(analysis, regime, regime_info))
 
 
 def _gemini_signal_for(
@@ -2571,7 +2597,10 @@ def make_trading_decisions(
     entry_regime = entry_regime_key(regime_info if regime_info else regime)
     risk_regime = risk_regime_key(regime_info if regime_info else regime)
     defense_regime = risk_regime
-    learning = merge_regime_tuning(learning, entry_regime)
+    tuning_regime = _learning_regime_key(
+        entry_regime, risk_regime, regime_info if regime_info else regime
+    )
+    learning = merge_regime_tuning(learning, tuning_regime)
     rotation_scale = float(learning.get("rotation_scale", 1.0))
     rotation_enabled = bool(learning.get("rotation_enabled", True))
     rotation_trim = max(0.25, min(1.0, ROTATION_TRIM_FRACTION * rotation_scale))
