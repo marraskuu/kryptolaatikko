@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-26",
+        "entries": [
+            {
+                "title": "Tuore tappiomyynti ei enää pakota jäljellä olevaa positiota myyntiin",
+                "body": "Per-symbolin takaisinostoesto pysyy ostoestona: jos symbolista on tuore tappiollinen osamyynti, botti ei osta sitä heti lisää, mutta idle-käteisen siivous ei enää tulkitse estoa syyksi myydä jäljellä olevaa positiota kokonaan.",
+                "title_en": "Recent losing sell no longer forces the remaining holding out",
+                "body_en": "The per-symbol rebuy cooldown now stays buy-only: after a recent losing partial sell the bot still avoids adding to the same symbol, but idle-cash cleanup no longer treats that block as a reason to liquidate the remaining holding.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

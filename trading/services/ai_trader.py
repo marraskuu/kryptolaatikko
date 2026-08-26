@@ -1759,7 +1759,7 @@ def _release_idle_dust_holdings(
     *,
     blocked_buys: set[str],
 ) -> None:
-    """Myy alle 1 € / cooldown-kohteet — vapauttaa pääoman uudelleenallokaatioon."""
+    """Myy kohteet joihin ei voi lisätä hintasäännön takia — vapauttaa pääoman."""
     for symbol, holding in list(holdings.items()):
         if is_stablecoin(symbol):
             continue
@@ -1770,7 +1770,7 @@ def _release_idle_dust_holdings(
         price = float(analysis.get("currentPrice") or 0)
         if price <= 0:
             continue
-        cant_add = not entry_price_ok(analysis) or norm in blocked_buys
+        cant_add = not entry_price_ok(analysis)
         if not cant_add:
             continue
         for d in decisions:
@@ -1782,7 +1782,7 @@ def _release_idle_dust_holdings(
                 symbol,
                 holding["amount"],
                 price,
-                "Vapaa käteinen — myydään kohde johon ei voi lisätä (hinta/cooldown)",
+                "Vapaa käteinen — myydään kohde johon ei voi lisätä (hinta)",
                 analysis,
             )
 
