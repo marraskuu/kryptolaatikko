@@ -147,3 +147,46 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
         allocation = result.get("initialAllocation") or []
         symbols = [slot["symbol"] for slot in allocation]
         self.assertIn(symbol, symbols)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_recent_partial_loss_blocks_rebuy_without_liquidating_remaining_holding(self):
+        symbol = "tXMRUST"
+        portfolio = default_portfolio()
+        portfolio["cash"] = 600.0
+        portfolio["holdings"] = {
+            symbol: {
+                "amount": 0.5,
+                "avgPrice": 300.0,
+                "openedAt": _iso(7200),
+            }
+        }
+        portfolio["trades"] = [
+            {
+                "type": "sell",
+                "symbol": symbol,
+                "timestamp": _iso(300),
+                "profitLoss": -10.5,
+                "reason": "Osittainen tappiomyynti",
+            }
+        ]
+
+        analyses = self._analyses(symbol)
+        analyses[symbol]["action"] = "hold"
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=750.0,
+            label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
+            regime="neutral",
+            regime_info={"regime": "neutral", "phase": "neutral"},
+            learning={"entry_score_min": 1},
+        )
+
+        decisions = result.get("decisions") or []
+        self.assertFalse(
+            any(d.get("type") == "sell" and d.get("symbol") == symbol for d in decisions)
+        )
+        self.assertFalse(
+            any(d.get("type") == "buy" and d.get("symbol") == symbol for d in decisions)
+        )
