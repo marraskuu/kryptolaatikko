@@ -1213,22 +1213,19 @@ def _fast_loss_exit_reason(
             f"Tunnettu häviäjä (score {mem['score_adjust']:+.1f}) — "
             f"täysi myynti {profit_pct:.1f} %"
         )
-    if _is_buy_blocked(
-        symbol,
-        analysis,
-        blocked_buys=set(),
-        blocked_setups=blocked_setups,
-        regime=regime,
-    ):
-        if analysis.get("condBlocked"):
-            return (
-                f"Huono markkina-asetelma — täysi myynti {profit_pct:.1f} % "
-                f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
-            )
+    if analysis.get("condBlocked"):
         return (
-            f"Huono oma asetelma — täysi myynti {profit_pct:.1f} % "
+            f"Huono markkina-asetelma — täysi myynti {profit_pct:.1f} % "
             f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
         )
+    if blocked_setups:
+        from .market_learning import setup_key_for_analysis
+
+        if setup_key_for_analysis(analysis, regime) in blocked_setups:
+            return (
+                f"Huono oma asetelma — täysi myynti {profit_pct:.1f} % "
+                f"(raja {FAST_EXIT_LOSS_PCT:.1f} %)"
+            )
     return None
 
 
