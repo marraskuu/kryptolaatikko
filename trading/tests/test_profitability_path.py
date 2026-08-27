@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
-from trading.services import ai_trader
+from trading.services import ai_trader, engine
 from trading.services.daily_policy_shadow import would_block_buy
-from trading.services.engine import _apply_daily_policy_buy_block
+from trading.services.engine import (
+    _apply_daily_policy_buy_block,
+    _daily_policy_buy_block_enabled,
+)
 from trading.services.gemini_pick_tracking import compute_pick_tuning
 
 
@@ -39,6 +44,11 @@ class WouldBlockBuyTests(SimpleTestCase):
 
 
 class DailyPolicyBuyBlockTests(SimpleTestCase):
+    @patch.object(engine, "DAILY_POLICY_LIVE_ENABLED", False)
+    @patch.object(engine, "DAILY_POLICY_LIVE_BUY_BLOCK", True)
+    def test_global_live_switch_disables_buy_block(self):
+        self.assertFalse(_daily_policy_buy_block_enabled())
+
     def test_converts_buys_to_hold_on_daily_stop(self):
         decisions = [_buy("tBTCUSD"), _sell("tETHUSD", "Stop-loss -1.2 %")]
         flags = {"dailyStopActive": True, "profitLockTier": "none"}

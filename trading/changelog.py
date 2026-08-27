@@ -27,6 +27,12 @@ CHANGELOG: list[Day] = [
                 "title_en": "Gemini cash reserve is preserved in allocations",
                 "body_en": "When Gemini gives buy picks with allocations totaling less than 100%, the bot now leaves the difference in cash instead of normalizing the weights back to full deployment. This prevents a defensive cash-first decision from accidentally becoming a larger buy.",
             },
+            {
+                "title": "Päiväpolitiikan pääkytkin pysäyttää myös ostoeston",
+                "body": "DAILY_POLICY_LIVE_ENABLED=0 poistaa nyt käytöstä myös päivästopin/voittolukon/rullaavan drawdownin live-ostoeston, jolloin pääkytkin toimii todellisena rollback-kytkimenä kaikille päiväpolitiikan live-vaikutuksille.",
+                "title_en": "Daily-policy master switch also stops the buy block",
+                "body_en": "DAILY_POLICY_LIVE_ENABLED=0 now also disables the live buy block for daily stop / profit lock / rolling drawdown, so the master switch works as a true rollback switch for all daily-policy live effects.",
+            },
         ],
     },
     {

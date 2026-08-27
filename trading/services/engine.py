@@ -483,6 +483,10 @@ def _apply_daily_policy_buy_block(
     return out
 
 
+def _daily_policy_buy_block_enabled() -> bool:
+    return DAILY_POLICY_LIVE_ENABLED and DAILY_POLICY_LIVE_BUY_BLOCK
+
+
 def _try_clear_price_error(state: dict[str, Any]) -> bool:
     """Yritä nollata Bitfinex-virhe ennen kaupankäyntikierrosta."""
     if not state.get("error"):
@@ -807,7 +811,7 @@ def execute_trading_cycle() -> dict[str, Any]:
         decisions = decision_result["decisions"]
         if DAILY_POLICY_LIVE_ENABLED:
             decisions = _apply_daily_policy_sell_gate(decisions, shadow_flags)
-        if DAILY_POLICY_LIVE_BUY_BLOCK:
+        if _daily_policy_buy_block_enabled():
             decisions = _apply_daily_policy_buy_block(
                 decisions,
                 shadow_flags,
