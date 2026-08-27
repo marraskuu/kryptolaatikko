@@ -475,7 +475,7 @@ def diversify_weights(
     norm_total = sum(adjusted.values())
     if norm_total <= 0:
         return weights
-    return {s: w / norm_total for s, w in adjusted.items()}
+    return adjusted
 
 
 def _atr_pct(analysis: dict[str, Any]) -> float:
@@ -1960,22 +1960,39 @@ def _compute_allocation_weights(
     analyses: dict[str, dict[str, Any]],
     gemini_active: bool,
 ) -> dict[str, float]:
-    """Palauttaa symbol -> osuus (0–1), summa 1 valituille symboleille."""
+    """Palauttaa symbol -> osuus (0–1).
+
+    Gemini voi jättää osan salkusta käteiseksi (alloc_pct-summa < 100), joten
+    eksplisiittisiä prosentteja ei normalisoida täyteen 100 %:iin.
+    """
     if not symbols:
         return {}
 
     raw: dict[str, float] = {}
+    explicit_allocations = False
+
+    def _positive_pct(value: Any) -> float | None:
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            return None
+        return pct if pct > 0 else None
+
     if gemini_insights:
         allocs = gemini_insights.get("allocations") or {}
         for sym in symbols:
             norm = normalize_symbol(sym)
             pct = allocs.get(sym) or allocs.get(norm)
-            if pct is not None and pct > 0:
-                raw[norm] = float(pct)
+            pct_float = _positive_pct(pct)
+            if pct_float is not None:
+                raw[norm] = pct_float
+                explicit_allocations = True
                 continue
             sig = _gemini_signal(gemini_insights, sym)
-            if sig and sig.get("alloc_pct") is not None and sig.get("alloc_pct") > 0:
-                raw[norm] = float(sig["alloc_pct"])
+            sig_pct = _positive_pct(sig.get("alloc_pct") if sig else None)
+            if sig_pct is not None:
+                raw[norm] = sig_pct
+                explicit_allocations = True
 
     if not raw and gemini_active and gemini_insights:
         for sym in symbols:
@@ -1998,6 +2015,18 @@ def _compute_allocation_weights(
             return {norm: score / total_score for score, norm in ranked_scores}
         equal = 1.0 / len(symbols)
         return {normalize_symbol(s): equal for s in symbols}
+
+    if explicit_allocations:
+        weights = {
+            normalize_symbol(sym): (
+                min(100.0, max(0.0, raw.get(normalize_symbol(sym), 0.0))) / 100.0
+            )
+            for sym in symbols
+        }
+        total_weight = sum(weights.values())
+        if total_weight > 1.0:
+            return {sym: weight / total_weight for sym, weight in weights.items()}
+        return weights
 
     normalized: dict[str, float] = {}
     for sym in symbols:
@@ -2281,6 +2310,11 @@ def _deploy_cash_to_targets(
             deficits.append((deficit, sym, analysis))
 
     if not deficits:
+        target_weight_total = sum(
+            max(0.0, weights.get(normalize_symbol(s), 0.0)) for s in buy_targets
+        )
+        if target_weight_total < 0.999:
+            return
         best = max(
             buy_targets,
             key=lambda s: weights.get(normalize_symbol(s), 0),
@@ -2297,7 +2331,7 @@ def _deploy_cash_to_targets(
             break
         price = analysis["currentPrice"]
         if i == len(deficits) - 1:
-            buy_eur = remaining
+            buy_eur = min(remaining, deficit)
         elif total_deficit > 0:
             buy_eur = min(remaining * (deficit / total_deficit), deficit, remaining)
         else:

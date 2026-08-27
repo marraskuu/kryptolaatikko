@@ -150,6 +150,103 @@ class GeminiCashMicroGateTests(SimpleTestCase):
         self.assertTrue(blocked)
 
 
+class GeminiPartialAllocationTests(SimpleTestCase):
+    def _analysis(self, price: float, score: int = 8) -> dict:
+        return {
+            "currentPrice": price,
+            "volumeEur": 5_000_000.0,
+            "action": "buy",
+            "score": score,
+            "mtfAlign": 2,
+            "changePct": 2.0,
+            "change4hPct": 1.0,
+            **_MICRO_OK,
+        }
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_initial_allocation_preserves_gemini_cash_reserve(self):
+        symbols = ["tBTCUSD", "tETHUSD", "tSOLUSD"]
+        analyses = {
+            "tBTCUSD": self._analysis(60_000.0, 9),
+            "tETHUSD": self._analysis(3_000.0, 8),
+            "tSOLUSD": self._analysis(150.0, 7),
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 1000.0
+        portfolio["holdings"] = {}
+        gemini_insights = {
+            "top_picks": symbols,
+            "allocations": {
+                "tBTCUSD": 20,
+                "tETHUSD": 20,
+                "tSOLUSD": 10,
+            },
+            "signals": {
+                sym: {"action": "buy", "confidence": 8, "reason": "strong setup"}
+                for sym in symbols
+            },
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=1000.0,
+            label_fn=lambda s: s,
+            gemini_insights=gemini_insights,
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        allocation = result.get("initialAllocation") or []
+        self.assertEqual(len(allocation), 3)
+        self.assertAlmostEqual(
+            sum(slot["eurAmount"] for slot in allocation),
+            500.0,
+            places=2,
+        )
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_cash_deploy_does_not_spend_unallocated_gemini_cash(self):
+        analyses = {
+            "tBTCUSD": self._analysis(60_000.0, 9),
+            "tETHUSD": self._analysis(1_000.0, 8),
+            "tSOLUSD": self._analysis(150.0, 7),
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 900.0
+        portfolio["holdings"] = {
+            "tETHUSD": {"amount": 0.1, "avgPrice": 1_000.0},
+        }
+        gemini_insights = {
+            "top_picks": ["tBTCUSD", "tETHUSD", "tSOLUSD"],
+            "allocations": {
+                "tBTCUSD": 20,
+                "tETHUSD": 10,
+                "tSOLUSD": 20,
+            },
+            "signals": {
+                sym: {"action": "buy", "confidence": 8, "reason": "strong setup"}
+                for sym in ("tBTCUSD", "tETHUSD", "tSOLUSD")
+            },
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=1000.0,
+            label_fn=lambda s: s,
+            gemini_insights=gemini_insights,
+            regime="bull",
+            regime_info={"regime": "bull", "phase": "bull"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        buys = [d for d in result["decisions"] if d["type"] == "buy"]
+        self.assertEqual({d["symbol"] for d in buys}, {"tBTCUSD", "tSOLUSD"})
+        self.assertAlmostEqual(sum(d["eurAmount"] for d in buys), 400.0, places=2)
+
+
 class EmptyBookBearNoDeployTests(SimpleTestCase):
     @patch("trading.services.market_microstructure.ENABLED", False)
     def test_official_bear_blocks_empty_gemini_buy(self):

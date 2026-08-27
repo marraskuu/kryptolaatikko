@@ -19,6 +19,23 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-27",
+        "entries": [
+            {
+                "title": "Geminin käteisvaraus säilyy allokaatioissa",
+                "body": "Kun Gemini antaa ostovalinnoille allokaatiot joiden summa on alle 100 %, botti jättää erotuksen käteiseksi eikä normalisoi osuuksia takaisin täyteen sijoitusasteeseen. Tämä estää defensiivisen cash-first -päätöksen muuttumisen vahingossa suuremmaksi ostoksi.",
+                "title_en": "Gemini cash reserve is preserved in allocations",
+                "body_en": "When Gemini gives buy picks with allocations totaling less than 100%, the bot now leaves the difference in cash instead of normalizing the weights back to full deployment. This prevents a defensive cash-first decision from accidentally becoming a larger buy.",
+            },
+            {
+                "title": "Päiväpolitiikan pääkytkin pysäyttää myös ostoeston",
+                "body": "DAILY_POLICY_LIVE_ENABLED=0 poistaa nyt käytöstä myös päivästopin/voittolukon/rullaavan drawdownin live-ostoeston, jolloin pääkytkin toimii todellisena rollback-kytkimenä kaikille päiväpolitiikan live-vaikutuksille.",
+                "title_en": "Daily-policy master switch also stops the buy block",
+                "body_en": "DAILY_POLICY_LIVE_ENABLED=0 now also disables the live buy block for daily stop / profit lock / rolling drawdown, so the master switch works as a true rollback switch for all daily-policy live effects.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {
