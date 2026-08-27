@@ -8,12 +8,14 @@ from trading.services.ai_trader import (
     MAX_SINGLE_BUY_PORTFOLIO_PCT,
     _bear_buy_freeze_active,
     _cap_buy_eur,
+    _fast_loss_exit_reason,
     _gemini_buy_allowed,
     _gemini_prefers_cash,
     _is_buy_blocked,
     _plan_initial_allocation,
     make_trading_decisions,
 )
+from trading.services.market_learning import setup_key_for_analysis
 from trading.services.portfolio import default_portfolio
 
 _MICRO_OK = {"microChecked": True, "microBlocked": False}
@@ -192,3 +194,78 @@ class EmptyBookBearNoDeployTests(SimpleTestCase):
             learning={"entry_score_min": 1, "blocked_buys": []},
         )
         self.assertFalse(result.get("initialAllocation"))
+
+
+class BearFreezeFastExitTests(SimpleTestCase):
+    def _analysis(self, **overrides):
+        base = {
+            "currentPrice": 98.4,
+            "volumeEur": 5_000_000.0,
+            "action": "hold",
+            "score": 5,
+            "mtfAlign": 0,
+            "changePct": -0.2,
+            "change4hPct": 0.1,
+            "condAdjust": 0.0,
+            **_MICRO_OK,
+        }
+        base.update(overrides)
+        return base
+
+    def test_bear_buy_freeze_does_not_fast_exit_existing_holding(self):
+        analysis = self._analysis()
+        reason = _fast_loss_exit_reason(
+            "tBTCUSD",
+            -1.6,
+            analysis,
+            "bear",
+            symbol_memory={},
+            blocked_setups=set(),
+        )
+        self.assertIsNone(reason)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_official_bear_holding_is_not_liquidated_by_buy_freeze(self):
+        analysis = self._analysis()
+        portfolio = default_portfolio()
+        portfolio["cash"] = 100.0
+        portfolio["holdings"] = {
+            "tBTCUSD": {"amount": 1.0, "avgPrice": 100.0},
+        }
+
+        result = make_trading_decisions(
+            {"tBTCUSD": analysis},
+            portfolio,
+            total_value=198.4,
+            label_fn=lambda s: s,
+            regime="bear",
+            regime_info={"regime": "bear", "phase": "bear"},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        sells = [d for d in result["decisions"] if d.get("type") == "sell"]
+        self.assertEqual(sells, [])
+
+    def test_cond_blocked_still_fast_exits(self):
+        reason = _fast_loss_exit_reason(
+            "tBTCUSD",
+            -1.6,
+            self._analysis(condBlocked=True),
+            "bear",
+            symbol_memory={},
+            blocked_setups=set(),
+        )
+        self.assertIn("Huono markkina-asetelma", reason or "")
+
+    def test_learned_blocked_setup_still_fast_exits(self):
+        analysis = self._analysis()
+        blocked = {setup_key_for_analysis(analysis, "bear")}
+        reason = _fast_loss_exit_reason(
+            "tBTCUSD",
+            -1.6,
+            analysis,
+            "bear",
+            symbol_memory={},
+            blocked_setups=blocked,
+        )
+        self.assertIn("Huono oma asetelma", reason or "")
