@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-08-27",
+        "entries": [
+            {
+                "title": "Geminin käteisvaraus säilyy allokaatioissa",
+                "body": "Kun Gemini antaa ostovalinnoille allokaatiot joiden summa on alle 100 %, botti jättää erotuksen käteiseksi eikä normalisoi osuuksia takaisin täyteen sijoitusasteeseen. Tämä estää defensiivisen cash-first -päätöksen muuttumisen vahingossa suuremmaksi ostoksi.",
+                "title_en": "Gemini cash reserve is preserved in allocations",
+                "body_en": "When Gemini gives buy picks with allocations totaling less than 100%, the bot now leaves the difference in cash instead of normalizing the weights back to full deployment. This prevents a defensive cash-first decision from accidentally becoming a larger buy.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {
