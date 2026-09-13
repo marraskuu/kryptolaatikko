@@ -1148,9 +1148,12 @@ def _is_buy_blocked(
     # olisi feature-flagilla pois (Gemini-prompt voi silti liputtaa eston).
     if analysis.get("microBlocked"):
         return True
+    from .entry_structure import entry_structure_blocks
     from .market_learning import setup_key_for_analysis
     from .market_microstructure import blocks_entry
 
+    if entry_structure_blocks(analysis):
+        return True
     if blocks_entry(analysis):
         return True
     if not allow_non_gemini_pick and not _gemini_buy_allowed(
@@ -1598,12 +1601,19 @@ def build_deep_analysis(ticker: dict[str, Any], candles: list[dict[str, Any]]) -
         analysis["currentPrice"] = ticker.get("last", analysis["currentPrice"])
         analysis["emaBullish"] = analysis.get("ema9", 0) > analysis.get("ema21", 0)
         analysis["quick"] = False
+        from .entry_structure import apply_ticker_structure, apply_volume_structure
+
+        apply_ticker_structure(analysis, ticker)
+        apply_volume_structure(analysis, candles)
         return analysis
     quick = analyze_ticker_quick(ticker)
     quick["change1hPct"] = None
     quick["change4hPct"] = None
     quick["atrPct"] = None
     quick["mtfAlign"] = 0
+    from .entry_structure import apply_ticker_structure
+
+    apply_ticker_structure(quick, ticker)
     return quick
 
 

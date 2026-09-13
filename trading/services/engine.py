@@ -116,16 +116,26 @@ _CARRY_FORWARD_KEYS = (
     "change1hPct",
     "change4hPct",
     "recentReturns",
+    "distToHigh24hPct",
+    "near24hHigh",
+    "relVolume1h",
+    "volumeSpike",
+    "change15mPct",
+    "change4hCandlePct",
+    "entryMtfChecked",
 )
 
 
 def _refresh_analyses(state: dict[str, Any]) -> None:
+    from .entry_structure import apply_ticker_structure
+
     for symbol, ticker in state["tickers"].items():
         prev = state["analyses"].get(symbol) or {}
         fresh = analyze_ticker_quick(ticker)
         for key in _CARRY_FORWARD_KEYS:
             if prev.get(key) is not None:
                 fresh[key] = prev[key]
+        apply_ticker_structure(fresh, ticker)
         state["analyses"][symbol] = fresh
 
 
@@ -618,6 +628,18 @@ def execute_trading_cycle() -> dict[str, Any]:
             fetch_candles,
             skip_symbols=set(state["portfolio"].get("holdings", {}).keys()),
         )
+        try:
+            from .entry_structure import enrich_mtf_entry_signals
+
+            mtf_summary = enrich_mtf_entry_signals(
+                state["tickers"],
+                state["analyses"],
+                state["portfolio"],
+                fetch_candles,
+            )
+            state["entryStructure"] = mtf_summary
+        except Exception:
+            logger.warning("Entry structure MTF enrich failed", exc_info=True)
 
         # B + D: markkinaregiimi ja oppiminen lasketaan joka kierros (ilmaiseksi)
         regime_info = compute_market_regime(state["tickers"], state["analyses"])

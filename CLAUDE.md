@@ -130,6 +130,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike
 - `20260913a` — Profit Pack v1: chase ≤6% 24h, breadth ≥35%, majors only, no setup −1.5% exit, PT 3.5%/20%
 - `20260813a` — bear freeze + 30% size cap + cash/micro gate
 - `20260808a` — idle ranked buy when Gemini picks none
@@ -145,6 +146,11 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 | `SETUP_FAST_EXIT_ENABLED` | off | No −1.5% “bad setup” full sells |
 | `PARTIAL_TAKE_TRIGGER_PCT` | 3.5 | Later first profit tier |
 | `PARTIAL_TAKE_FRACTION` | 0.20 | Smaller first harvest — let winners run |
+| `ENTRY_STRUCTURE_ENABLED` | on | 15m/4h + 24h-high + volume spike |
+| `MIN_DIST_FROM_24H_HIGH_PCT` | 1.5 | Block buys too close to 24h high |
+| `VOLUME_SPIKE_RATIO` | 2.5 | Climax volume vs 1h median |
+| `MAX_ENTRY_CHANGE_15M_PCT` | 2.5 | Short-TF chase cap |
+| `MIN_ENTRY_CHANGE_4H_PCT` | -1.5 | Block buys into falling 4h trend |
 
 When breadth is low (e.g. 16% bear), expect **cash** — that is intended, not a bug.
 

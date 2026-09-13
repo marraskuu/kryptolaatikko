@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-09-13",
         "entries": [
             {
+                "title": "Bitfinex-rakenne: 15m/4h, 24h-huippu, volume spike",
+                "body": "Ostot estetään jos hinta lähellä 24h-huippua, 15m-chase, laskeva 4h-trendi tai climax-volyymi (1h volyymi ≫ mediaani + nousu). Tiedot public REST:stä — ei uutta API-avainta.",
+                "title_en": "Bitfinex structure: 15m/4h, 24h high, volume spike",
+                "body_en": "Buys blocked near the 24h high, on 15m chase, a falling 4h trend, or climax volume (1h volume ≫ median + rising). Public REST only — no new API key.",
+            },
+            {
                 "title": "Profit Pack v1: chase-katto, majors, breadth, R:R",
                 "body": "Ei ostoa jos 24h ≥6 % tai markkinan breadth <35 %. Vain BTC/ETH/SOL/XRP/LTC/LINK. “Huono asetelma −1.5 %” täysmyynti pois (stop hoitaa). Voitonotto juoksee pidemmälle (porras 3.5 % / 20 %). Tavoite: avg win ≥ avg loss.",
                 "title_en": "Profit Pack v1: chase cap, majors, breadth, R:R",
