@@ -75,6 +75,9 @@ BUY_MAJOR_BASES = frozenset(
     for b in os.environ.get("BUY_MAJOR_BASES", _DEFAULT_MAJOR_BASES).split(",")
     if b.strip()
 )
+# Legacy-omistukset majors-listan ulkopuolella (esim. tokenisoitu bond ALT2612):
+# vapauta pääoma — trailing ei toimi matalavolatiliteettisilla instrumenteilla.
+FORCE_EXIT_NON_MAJOR_HOURS = float(os.environ.get("FORCE_EXIT_NON_MAJOR_HOURS", "24"))
 # “Huono asetelma −1.5 %” täysmyynti pois oletuksena (live −€52 / 86 myyntiä).
 # Krooninen/blocked/score-häviäjä -exitit säilyvät.
 SETUP_FAST_EXIT_ENABLED = os.environ.get("SETUP_FAST_EXIT_ENABLED", "0").lower() not in (
@@ -2975,6 +2978,30 @@ def make_trading_decisions(
             if holding["avgPrice"]
             else 0
         )
+
+        # Majors-only-universumi: vanhat non-major -positiot (bondit, dated, altit)
+        # eivät ole momentum-kauppoja — max-pito vapauttaa käteisen.
+        if (
+            BUY_MAJORS_ONLY
+            and FORCE_EXIT_NON_MAJOR_HOURS > 0
+            and not _is_buy_major(symbol)
+        ):
+            age_h = _holding_age_hours(holding.get("openedAt"))
+            if age_h is not None and age_h >= FORCE_EXIT_NON_MAJOR_HOURS:
+                decisions.append(
+                    {
+                        "type": "sell",
+                        "symbol": symbol,
+                        "amount": holding["amount"],
+                        "eurAmount": holding_value,
+                        "reason": (
+                            f"Max-pito non-major ≥{FORCE_EXIT_NON_MAJOR_HOURS:.0f} h "
+                            f"({age_h:.0f} h, {profit_pct:+.1f} %) — vapautetaan pääomaa"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+                continue
 
         fast_exit = _fast_loss_exit_reason(
             symbol,

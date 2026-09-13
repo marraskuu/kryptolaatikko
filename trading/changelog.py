@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-09-13",
         "entries": [
             {
+                "title": "Force-exit: non-major max-pito + vanhentunut trailing",
+                "body": "Majors-listan ulkopuoliset legacy-omistukset (esim. tokenisoitu bond ALT2612) myydään ≥24 h jälkeen. Jos voitonotto on aseistettu mutta hinta ei tipu kynnystä ≥8 h, voitto realisoidaan — matala volatiliteetti ei saa jumittaa pääomaa.",
+                "title_en": "Force-exit: non-major max hold + stale trailing",
+                "body_en": "Legacy holdings outside the majors list (e.g. tokenised bond ALT2612) are sold after ≥24 h. If profit-take is armed but price never pulls back for ≥8 h, the profit is taken — low volatility must not trap capital.",
+            },
+            {
                 "title": "Bitfinex-rakenne: 15m/4h, 24h-huippu, volume spike",
                 "body": "Ostot estetään jos hinta lähellä 24h-huippua, 15m-chase, laskeva 4h-trendi tai climax-volyymi (1h volyymi ≫ mediaani + nousu). Tiedot public REST:stä — ei uutta API-avainta.",
                 "title_en": "Bitfinex structure: 15m/4h, 24h high, volume spike",

@@ -29,6 +29,9 @@ ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja (vain 30 % vo
 # Profit Pack v1: myöhempi/pienempi porras → avg win kasvaa vs stopit.
 PARTIAL_TAKE_TRIGGER_PCT = float(os.environ.get("PARTIAL_TAKE_TRIGGER_PCT", "3.5"))
 PARTIAL_TAKE_FRACTION = float(os.environ.get("PARTIAL_TAKE_FRACTION", "0.20"))
+# Trailing aseistettu mutta hinta ei koskaan tipu kynnystä (bondit / flat):
+# realisoi voitto sen sijaan että odotetaan päiviä 0.5 % pullbackia.
+FORCE_EXIT_ARMED_STALE_HOURS = float(os.environ.get("FORCE_EXIT_ARMED_STALE_HOURS", "8"))
 
 # Pitkä pito + hiipuva 1h/flow → aiempi arm + tiukempi trailing
 LONG_HOLD_EARLY_HOURS = 2.0
@@ -452,6 +455,24 @@ def update_profit_sell(
             f"Voitto +{profit_pct:.1f} % — nousu tasaantui (huippu {peak:.2f} €), "
             f"trailing-stop -{pullback_pct:.2f} % huipusta (raja {pullback_threshold:.2f} %) "
             f"→ realisoidaan voitto{signal_note}"
+        )
+    elif (
+        FORCE_EXIT_ARMED_STALE_HOURS > 0
+        and state["armed"]
+        and peak > 0
+        and covers_cost
+        and profit_pct >= LONG_HOLD_MIN_PROFIT_PCT
+        and elapsed >= int(FORCE_EXIT_ARMED_STALE_HOURS * 3600 * 1000)
+        and pullback_pct < pullback_threshold
+    ):
+        # Matala volatiliteetti: hinta jää huipulle → trailing ei koskaan laukea.
+        should_sell = True
+        stale_h = elapsed / 3_600_000
+        exit_signals.append(f"trailing vanhentunut {stale_h:.0f} h")
+        reason = (
+            f"Voitto +{profit_pct:.1f} % — trailing vanhentunut {stale_h:.0f} h "
+            f"huipusta ilman −{pullback_threshold:.2f} % laskua "
+            f"(nyt −{pullback_pct:.2f} %) → realisoidaan voitto"
         )
 
     state["prevPrice"] = current_price
