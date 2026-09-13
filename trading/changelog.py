@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-09-13",
         "entries": [
             {
+                "title": "Korjaus: volume spike -ostoesto ennen live-päätöstä",
+                "body": "Rakenneportti hakee nyt 1h-volyymikynttilät samalla kierroksella kuin 15m/4h-portit, jotta climax-volyymi estää oston ennen toteutusta eikä jää odottamaan harvempaa syväanalyysiä.",
+                "title_en": "Fix: volume-spike buy block before live decisions",
+                "body_en": "The structure gate now fetches 1h volume candles in the same pass as the 15m/4h gates, so climax volume blocks a buy before execution instead of waiting for less frequent deep analysis.",
+            },
+            {
                 "title": "BTC-trendiportti + pidempi rebuy-kielto (churn-stop)",
                 "body": "Ei uusia ostoja kun BTC 21 pv momentum ≤ 0 % (Bitfinex 1D). Takaisinosto tappion jälkeen 4 h (ei 30 min). Bitfinex-historiaskannaus: ZEC/UNI/XMR/BTC nousivat +24…+155 %, botti churnasi ne tappiolle — cash heikossa trendissä on edge.",
                 "title_en": "BTC trend gate + longer rebuy cooldown (churn stop)",
