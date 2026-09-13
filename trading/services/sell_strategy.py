@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Any
 
@@ -16,28 +17,29 @@ PULLBACK_FROM_PEAK_PCT = 0.35
 
 # A + E: ATR-pohjainen trailing take-profit
 PROFIT_TRIGGER_ATR_MULT = 1.2   # arming-kynnys = 1.2 x ATR%
-PROFIT_TRIGGER_FLOOR_PCT = 1.2  # mutta vähintään tämä (kattaa kulut + veron)
+PROFIT_TRIGGER_FLOOR_PCT = float(os.environ.get("PROFIT_TRIGGER_FLOOR_PCT", "1.6"))
 PROFIT_TRIGGER_CAP_PCT = 5.0    # ja enintään tämä (lukitaan voitot aiemmin)
 PULLBACK_ATR_MULT = 0.6         # trailing-stop = 0.6 x ATR% huipusta
-PULLBACK_FLOOR_PCT = 0.35
+PULLBACK_FLOOR_PCT = float(os.environ.get("PULLBACK_FLOOR_PCT", "0.45"))
 PULLBACK_CAP_PCT = 3.0          # enimmäisanto huipusta ennen myyntiä
 ROUND_TRIP_COST_PCT = 0.0       # Bitfinex: ei kaupankäyntikuluja (vain 30 % voittovero)
 
 # 2: Porrastettu voiton kotiutus — lukitse osa voitosta ensimmäisessä portaassa,
 # anna lopun ratsastaa trailing-stopilla (paras molemmista: turvattu voitto + nousuvara).
-PARTIAL_TAKE_TRIGGER_PCT = 2.5  # ensimmäinen porras kun voitto ylittää tämän
-PARTIAL_TAKE_FRACTION = 0.30    # kotiuta 30 % positiosta portaassa 1
+# Profit Pack v1: myöhempi/pienempi porras → avg win kasvaa vs stopit.
+PARTIAL_TAKE_TRIGGER_PCT = float(os.environ.get("PARTIAL_TAKE_TRIGGER_PCT", "3.5"))
+PARTIAL_TAKE_FRACTION = float(os.environ.get("PARTIAL_TAKE_FRACTION", "0.20"))
 
 # Pitkä pito + hiipuva 1h/flow → aiempi arm + tiukempi trailing
 LONG_HOLD_EARLY_HOURS = 2.0
 LONG_HOLD_STRICT_HOURS = 4.0
-LONG_HOLD_EARLY_TRIGGER_MULT = 0.75   # ≥2 h + fade → arm 75 % normaalikynnyksestä
-LONG_HOLD_STRICT_TRIGGER_MULT = 0.65  # ≥4 h + fade → arm 65 %
+LONG_HOLD_EARLY_TRIGGER_MULT = float(os.environ.get("LONG_HOLD_EARLY_TRIGGER_MULT", "0.85"))
+LONG_HOLD_STRICT_TRIGGER_MULT = float(os.environ.get("LONG_HOLD_STRICT_TRIGGER_MULT", "0.75"))
 LONG_HOLD_1H_FADE_PCT = 0.0           # 1h-muutos ≤ tämä = hiipuminen
 LONG_HOLD_MIN_PROFIT_PCT = 0.8        # alle tämän ei pakoteta aikaisempaa armia
 # Partial take × pitkä pito: aiempi/isompi porras 1, ≥4 h + fade → ohita porras (koko trailing)
-LONG_HOLD_PARTIAL_FRACTION_MULT = 1.5   # 30 % → 45 % kun ≥2 h + fade
-LONG_HOLD_PARTIAL_FRACTION_CAP = 0.55
+LONG_HOLD_PARTIAL_FRACTION_MULT = 1.5   # 20 % → 30 % kun ≥2 h + fade
+LONG_HOLD_PARTIAL_FRACTION_CAP = 0.45
 
 
 def default_profit_take_config() -> dict[str, Any]:

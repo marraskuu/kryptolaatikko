@@ -140,7 +140,7 @@ class RankingFormulaIntegrationTests(SimpleTestCase):
 
     @patch("trading.services.market_microstructure.ENABLED", False)
     def test_higher_model_adjust_wins_selection_order(self):
-        regime_info = {"regime": "bull"}
+        regime_info = {"regime": "bull", "breadth_up_pct": 55.0}
         entry_regime = ai_trader.entry_regime_key(regime_info)
         base = {
             "currentPrice": 100.0,
@@ -150,13 +150,15 @@ class RankingFormulaIntegrationTests(SimpleTestCase):
             "mtfAlign": 0,
             "changePct": 1.0,
             "change4hPct": 1.0,
+            "microChecked": True,
+            "microBlocked": False,
         }
         analyses = {
-            "tAAAUSD": {**base, "modelAdjust": 1.0},
-            "tBBBUSD": {**base, "modelAdjust": -1.0},
+            "tBTCUSD": {**base, "currentPrice": 60_000.0, "modelAdjust": 1.0},
+            "tETHUSD": {**base, "currentPrice": 3_000.0, "modelAdjust": -1.0},
         }
-        self.assertTrue(ai_trader._entry_ok(analyses["tAAAUSD"], entry_regime))
-        self.assertTrue(ai_trader._entry_ok(analyses["tBBBUSD"], entry_regime))
+        self.assertTrue(ai_trader._entry_ok(analyses["tBTCUSD"], entry_regime))
+        self.assertTrue(ai_trader._entry_ok(analyses["tETHUSD"], entry_regime))
 
         portfolio = default_portfolio()
         result = ai_trader.make_trading_decisions(
@@ -170,10 +172,10 @@ class RankingFormulaIntegrationTests(SimpleTestCase):
         )
         allocation = result.get("initialAllocation") or []
         allocated_symbols = [slot["symbol"] for slot in allocation]
-        self.assertIn("tAAAUSD", allocated_symbols)
-        if "tBBBUSD" in allocated_symbols:
+        self.assertIn("tBTCUSD", allocated_symbols)
+        if "tETHUSD" in allocated_symbols:
             self.assertLess(
-                allocated_symbols.index("tAAAUSD"), allocated_symbols.index("tBBBUSD")
+                allocated_symbols.index("tBTCUSD"), allocated_symbols.index("tETHUSD")
             )
 
 

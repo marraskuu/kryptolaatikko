@@ -60,6 +60,29 @@ BEAR_FREEZE_EXCEPTION_MIN_ADJUST = float(
 MAX_SINGLE_BUY_PORTFOLIO_PCT = float(
     os.environ.get("MAX_SINGLE_BUY_PORTFOLIO_PCT", "0.30")
 )
+# Profit Pack v1 — expectancy: ei chase-huippuja, ei heikkoa breadthiä, vain majorit.
+MAX_ENTRY_CHANGE_24H_PCT = float(os.environ.get("MAX_ENTRY_CHANGE_24H_PCT", "6.0"))
+MIN_BREADTH_UP_PCT_FOR_BUY = float(os.environ.get("MIN_BREADTH_UP_PCT_FOR_BUY", "35.0"))
+BUY_MAJORS_ONLY = os.environ.get("BUY_MAJORS_ONLY", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+_DEFAULT_MAJOR_BASES = "BTC,ETH,SOL,XRP,LTC,LINK"
+BUY_MAJOR_BASES = frozenset(
+    b.strip().upper()
+    for b in os.environ.get("BUY_MAJOR_BASES", _DEFAULT_MAJOR_BASES).split(",")
+    if b.strip()
+)
+# “Huono asetelma −1.5 %” täysmyynti pois oletuksena (live −€52 / 86 myyntiä).
+# Krooninen/blocked/score-häviäjä -exitit säilyvät.
+SETUP_FAST_EXIT_ENABLED = os.environ.get("SETUP_FAST_EXIT_ENABLED", "0").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 # Bitfinex poisti kaupankäyntikulut kokonaan — 0 %.
 FEE_RATE = 0.0
 GEMINI_DEEP_ANALYSIS_LIMIT = int(os.environ.get("GEMINI_DEEP_ANALYSIS_LIMIT", "10"))
@@ -793,6 +816,50 @@ def _cap_buy_eur(
     return max(0.0, min(buy_eur, cap))
 
 
+def _symbol_base(symbol: str) -> str:
+    from .bitfinex import get_crypto_label, parse_pair_symbol
+
+    sym = normalize_symbol(symbol)
+    parsed = parse_pair_symbol(sym)
+    if parsed:
+        return str(parsed.get("base") or "").upper()
+    return get_crypto_label(sym).upper()
+
+
+def _is_buy_major(symbol: str) -> bool:
+    """BTC/ETH/SOL… — ei päivättyjä futuureja (ALT2612) eikä alt-noisea."""
+    base = _symbol_base(symbol)
+    if not base or any(ch.isdigit() for ch in base):
+        return False
+    return base in BUY_MAJOR_BASES
+
+
+def _entry_change_24h(analysis: dict[str, Any] | None) -> float | None:
+    if not analysis:
+        return None
+    raw = analysis.get("changePct")
+    if raw is None:
+        raw = analysis.get("momentum")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _breadth_blocks_buy(regime_info: dict[str, Any] | str | None) -> bool:
+    if not isinstance(regime_info, dict):
+        return False
+    raw = regime_info.get("breadth_up_pct")
+    if raw is None:
+        return False
+    try:
+        return float(raw) < MIN_BREADTH_UP_PCT_FOR_BUY
+    except (TypeError, ValueError):
+        return False
+
+
 def _stagnant_min_loss_pct(regime: str) -> float:
     if regime == "bear" and BEAR_DEFENSE_ENABLED:
         return BEAR_STAGNANT_MIN_LOSS_PCT
@@ -1064,6 +1131,13 @@ def _is_buy_blocked(
     elif regime == "bear" and BEAR_BUY_FREEZE:
         if float(analysis.get("condAdjust") or 0) < BEAR_FREEZE_EXCEPTION_MIN_ADJUST:
             return True
+    if BUY_MAJORS_ONLY and not _is_buy_major(symbol):
+        return True
+    if _breadth_blocks_buy(regime_info):
+        return True
+    ch24 = _entry_change_24h(analysis)
+    if ch24 is not None and ch24 >= MAX_ENTRY_CHANGE_24H_PCT:
+        return True
     if normalize_symbol(symbol) in blocked_buys:
         return True
     if not entry_price_ok(analysis):
@@ -1213,6 +1287,8 @@ def _fast_loss_exit_reason(
             f"Tunnettu häviäjä (score {mem['score_adjust']:+.1f}) — "
             f"täysi myynti {profit_pct:.1f} %"
         )
+    if not SETUP_FAST_EXIT_ENABLED:
+        return None
     if _is_buy_blocked(
         symbol,
         analysis,

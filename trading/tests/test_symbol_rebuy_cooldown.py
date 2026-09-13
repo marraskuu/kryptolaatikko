@@ -77,20 +77,20 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
     def _analyses(self, symbol: str) -> dict:
         return {
             symbol: {
-                "currentPrice": 300.0,
+                "currentPrice": 60_000.0 if "BTC" in symbol else 300.0,
                 "volumeEur": 5_000_000.0,
                 "action": "buy",
                 "score": 9,
                 "mtfAlign": 2,
-                "changePct": 3.0,
-                "change4hPct": 2.0,
+                "changePct": 2.0,
+                "change4hPct": 1.0,
                 **_MICRO_OK,
             },
         }
 
     @patch("trading.services.market_microstructure.ENABLED", False)
     def test_idle_empty_deploy_blocks_just_stopped_out_symbol(self):
-        symbol = "tXMRUST"
+        symbol = "tBTCUSD"
         portfolio = default_portfolio()
         portfolio["cash"] = 910.0
         portfolio["holdings"] = {}
@@ -110,7 +110,7 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
             total_value=910.0,
             label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
             regime="neutral",
-            regime_info={"regime": "neutral", "phase": "neutral"},
+            regime_info={"regime": "neutral", "phase": "neutral", "breadth_up_pct": 55.0},
             learning={"entry_score_min": 1},
         )
 
@@ -120,7 +120,7 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
 
     @patch("trading.services.market_microstructure.ENABLED", False)
     def test_idle_empty_deploy_allows_symbol_after_profitable_exit(self):
-        symbol = "tXMRUST"
+        symbol = "tBTCUSD"
         portfolio = default_portfolio()
         portfolio["cash"] = 910.0
         portfolio["holdings"] = {}
@@ -140,7 +140,7 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
             total_value=910.0,
             label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
             regime="neutral",
-            regime_info={"regime": "neutral", "phase": "neutral"},
+            regime_info={"regime": "neutral", "phase": "neutral", "breadth_up_pct": 55.0},
             learning={"entry_score_min": 1},
         )
 

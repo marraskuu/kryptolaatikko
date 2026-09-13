@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-13",
+        "entries": [
+            {
+                "title": "Profit Pack v1: chase-katto, majors, breadth, R:R",
+                "body": "Ei ostoa jos 24h ≥6 % tai markkinan breadth <35 %. Vain BTC/ETH/SOL/XRP/LTC/LINK. “Huono asetelma −1.5 %” täysmyynti pois (stop hoitaa). Voitonotto juoksee pidemmälle (porras 3.5 % / 20 %). Tavoite: avg win ≥ avg loss.",
+                "title_en": "Profit Pack v1: chase cap, majors, breadth, R:R",
+                "body_en": "No buys if 24h ≥6% or market breadth <35%. Majors only (BTC/ETH/SOL/XRP/LTC/LINK). Disabled −1.5% “bad setup” full exits (stops still apply). Profit-take runs longer (tier 3.5% / 20%). Goal: avg win ≥ avg loss.",
+            },
+        ],
+    },
+    {
         "date": "2026-08-13",
         "entries": [
             {

@@ -60,7 +60,7 @@ class LongHoldPeakExitTests(SimpleTestCase):
         self.assertTrue(any("pitkä pito" in s or "hiipuva" in s for s in faded["signals"]))
 
     def test_update_profit_sell_arms_earlier_on_long_hold_fade(self):
-        # Normaali trigger ~2 %; 4h + fade → 65 % → ~1.3 %
+        # Normaali trigger floor 1.6 %; 4h + fade → 75 % → ~1.2 %
         watches: dict = {}
         analysis = {"change1hPct": -0.1, "flowBucket": "fl-"}
         result = update_profit_sell(
@@ -101,11 +101,11 @@ class LongHoldPartialTakeTests(SimpleTestCase):
 
     def test_partial_larger_and_armed_when_2h_fade(self):
         watches: dict = {}
-        # 2.6 % > lowered partial trigger (~2.5 * 0.75 = 1.875)
+        # 3.6 % > lowered partial trigger (~3.5 * ~0.85)
         result = update_profit_sell(
             watches,
             "tETHUSD",
-            current_price=102.6,
+            current_price=103.6,
             avg_price=100.0,
             now_ms=2_000_000,
             atr_pct=None,
@@ -114,8 +114,8 @@ class LongHoldPartialTakeTests(SimpleTestCase):
         )
         self.assertEqual(result["status"], "tier1")
         self.assertTrue(result["shouldSell"])
-        self.assertGreater(result["sellFraction"], 0.30)
-        self.assertLessEqual(result["sellFraction"], 0.55)
+        self.assertGreater(result["sellFraction"], 0.20)
+        self.assertLessEqual(result["sellFraction"], 0.45)
         self.assertTrue(watches["tETHUSD"]["armed"])
         self.assertTrue(
             any("porras 1" in s or "pito" in s for s in result["exitSignals"])
@@ -167,7 +167,7 @@ class LongHoldPartialTakeTests(SimpleTestCase):
         result = update_profit_sell(
             watches,
             "tBTCUSD",
-            current_price=103.0,
+            current_price=103.6,
             avg_price=100.0,
             now_ms=4_000_000,
             atr_pct=None,
@@ -175,5 +175,5 @@ class LongHoldPartialTakeTests(SimpleTestCase):
             hold_age_hours=5.0,
         )
         self.assertEqual(result["status"], "tier1")
-        self.assertAlmostEqual(result["sellFraction"], 0.30, places=2)
+        self.assertAlmostEqual(result["sellFraction"], 0.20, places=2)
         self.assertFalse(watches["tBTCUSD"]["armed"])
