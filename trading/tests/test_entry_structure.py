@@ -4,12 +4,14 @@ from django.test import SimpleTestCase
 
 from trading.services.entry_structure import (
     MAX_ENTRY_CHANGE_15M_PCT,
+    ENTRY_MTF_1H_LIMIT,
     MIN_DIST_FROM_24H_HIGH_PCT,
     MIN_ENTRY_CHANGE_4H_PCT,
     VOLUME_SPIKE_RATIO,
     apply_mtf_candles,
     apply_ticker_structure,
     apply_volume_structure,
+    enrich_mtf_entry_signals,
     entry_structure_block_reason,
     entry_structure_blocks,
 )
@@ -78,6 +80,71 @@ class MtfCandleGateTests(SimpleTestCase):
         analysis: dict = {}
         apply_mtf_candles(analysis, c15, c4h)
         self.assertFalse(entry_structure_blocks(analysis))
+
+
+class EntryStructureEnrichTests(SimpleTestCase):
+    def test_enrich_computes_volume_spike_before_buy_gate(self):
+        symbol = "tBTCUSD"
+        tickers = {
+            symbol: {"last": 100.0, "high": 110.0, "volumeEur": 5_000_000.0}
+        }
+        analyses = {
+            symbol: {
+                "currentPrice": 100.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 1,
+                "changePct": 2.0,
+                "change1hPct": 1.5,
+                "microChecked": True,
+                "microBlocked": False,
+            }
+        }
+        calls = []
+
+        def fake_fetch(sym, timeframe, limit):
+            calls.append((sym, timeframe, limit))
+            if timeframe == "15m":
+                return [{"close": 100.0}, {"close": 100.2}]
+            if timeframe == "4h":
+                return [
+                    {"close": 100.0},
+                    {"close": 100.2},
+                    {"close": 100.4},
+                    {"close": 100.6},
+                ]
+            if timeframe == "1h":
+                candles = [{"volume": 100.0, "close": 1.0} for _ in range(20)]
+                candles.append(
+                    {"volume": 100.0 * VOLUME_SPIKE_RATIO * 1.2, "close": 1.02}
+                )
+                return candles
+            raise AssertionError(f"unexpected timeframe {timeframe}")
+
+        summary = enrich_mtf_entry_signals(
+            tickers,
+            analyses,
+            {"holdings": {}},
+            fake_fetch,
+            limit=1,
+        )
+
+        self.assertEqual(summary["enriched"], 1)
+        self.assertEqual(summary["volumeFetched"], 1)
+        self.assertIn((symbol, "1h", ENTRY_MTF_1H_LIMIT), calls)
+        self.assertTrue(analyses[symbol]["volumeSpike"])
+        self.assertIn("volume_spike", entry_structure_block_reason(analyses[symbol]) or "")
+        self.assertTrue(
+            _is_buy_blocked(
+                symbol,
+                analyses[symbol],
+                blocked_buys=set(),
+                blocked_setups=set(),
+                regime="bull",
+                regime_info={"regime": "bull", "breadth_up_pct": 55.0},
+            )
+        )
 
 
 class BuyBlockedIntegrationTests(SimpleTestCase):

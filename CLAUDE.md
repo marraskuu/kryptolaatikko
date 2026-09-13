@@ -91,6 +91,9 @@ Live evidence ~Jun–Aug 2026: start €1000 → ~€840 (−16%). **Bull sells 
 
 6. **Churn death** — “estetty vapautus”, “ei valinnoissa”, concentration, time-stop under ~3 h: many small losses. Prefer cash in bear over “fixing” idle with weak entries.
 
+7. **Volume-spike gate must be live-wired** — adding `entry_structure_blocks()` is not enough if `volumeSpike` is only refreshed by slower deep/Gemini analysis.
+   **Fix (2026-09-13):** `enrich_mtf_entry_signals()` fetches 1h volume candles for the same pre-trade candidates as 15m/4h, so climax-volume buys are blocked before execution.
+
 ### What to do when portfolio is losing
 
 Priority order (proven):
@@ -130,6 +133,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260913e` — Fix live entry-structure enrichment to compute 1h volume-spike gates before buys
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike

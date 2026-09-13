@@ -33,6 +33,7 @@ MIN_ENTRY_CHANGE_4H_PCT = float(os.environ.get("MIN_ENTRY_CHANGE_4H_PCT", "-1.5"
 ENTRY_MTF_SYMBOL_LIMIT = int(os.environ.get("ENTRY_MTF_SYMBOL_LIMIT", "8"))
 ENTRY_MTF_BUDGET_SEC = float(os.environ.get("ENTRY_MTF_BUDGET_SEC", "25"))
 ENTRY_MTF_15M_LIMIT = int(os.environ.get("ENTRY_MTF_15M_LIMIT", "20"))
+ENTRY_MTF_1H_LIMIT = int(os.environ.get("ENTRY_MTF_1H_LIMIT", "24"))
 ENTRY_MTF_4H_LIMIT = int(os.environ.get("ENTRY_MTF_4H_LIMIT", "24"))
 # Spike yksin ei riitä; vaadi myös nousumomentum (climax).
 VOLUME_SPIKE_MIN_CHANGE_1H_PCT = float(
@@ -218,13 +219,15 @@ def enrich_mtf_entry_signals(
     *,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """Hae 15m + 4h top-symboleille (budjetoitu)."""
+    """Hae 15m + 1h + 4h top-symboleille (budjetoitu)."""
     if not ENTRY_STRUCTURE_ENABLED:
         return {"enabled": False, "enriched": 0}
     lim = limit if limit is not None else ENTRY_MTF_SYMBOL_LIMIT
     deadline = time.time() + ENTRY_MTF_BUDGET_SEC
     enriched = 0
     errors = 0
+    volume_fetched = 0
+    volume_errors = 0
     for symbol in _symbols_for_mtf(tickers, portfolio, lim):
         if time.time() >= deadline:
             logger.warning("Entry MTF enrich budget exhausted")
@@ -242,4 +245,20 @@ def enrich_mtf_entry_signals(
         except Exception:
             errors += 1
             logger.warning("Entry MTF enrich failed for %s", symbol, exc_info=True)
-    return {"enabled": True, "enriched": enriched, "errors": errors, "limit": lim}
+            continue
+
+        try:
+            c1h = fetch_candles_fn(symbol, "1h", ENTRY_MTF_1H_LIMIT)
+            apply_volume_structure(analysis, c1h)
+            volume_fetched += 1
+        except Exception:
+            volume_errors += 1
+            logger.warning("Entry volume enrich failed for %s", symbol, exc_info=True)
+    return {
+        "enabled": True,
+        "enriched": enriched,
+        "errors": errors,
+        "limit": lim,
+        "volumeFetched": volume_fetched,
+        "volumeErrors": volume_errors,
+    }
