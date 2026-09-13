@@ -22,6 +22,12 @@ CHANGELOG: list[Day] = [
         "date": "2026-09-13",
         "entries": [
             {
+                "title": "BTC-trendiportti + pidempi rebuy-kielto (churn-stop)",
+                "body": "Ei uusia ostoja kun BTC 21 pv momentum ≤ 0 % (Bitfinex 1D). Takaisinosto tappion jälkeen 4 h (ei 30 min). Bitfinex-historiaskannaus: ZEC/UNI/XMR/BTC nousivat +24…+155 %, botti churnasi ne tappiolle — cash heikossa trendissä on edge.",
+                "title_en": "BTC trend gate + longer rebuy cooldown (churn stop)",
+                "body_en": "No new buys while BTC 21-day momentum ≤ 0% (Bitfinex 1D). Rebuy after a loss waits 4 h (not 30 min). Bitfinex history scan: ZEC/UNI/XMR/BTC rose +24…+155% while the bot churned them to a loss — cash in a weak trend is the edge.",
+            },
+            {
                 "title": "Force-exit: non-major max-pito + vanhentunut trailing",
                 "body": "Majors-listan ulkopuoliset legacy-omistukset (esim. tokenisoitu bond ALT2612) myydään ≥24 h jälkeen. Jos voitonotto on aseistettu mutta hinta ei tipu kynnystä ≥8 h, voitto realisoidaan — matala volatiliteetti ei saa jumittaa pääomaa.",
                 "title_en": "Force-exit: non-major max hold + stale trailing",

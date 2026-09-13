@@ -36,7 +36,7 @@ ROTATION_OUT_MIN_PROFIT_PCT = 0.5
 # Ei koske voitollisia myyntejä (trailing/voitto-otto) — niiden jälkeinen nopea
 # takaisinosto samaan nousevaan kohteeseen on ollut toimiva kuvio.
 SYMBOL_REBUY_COOLDOWN_SEC = float(
-    os.environ.get("SYMBOL_REBUY_COOLDOWN_SEC", str(MIN_ROTATION_INTERVAL_SEC))
+    os.environ.get("SYMBOL_REBUY_COOLDOWN_SEC", "14400")
 )
 # Idle-käteinen: deploy vain kun iso osa salkusta on käteistä (ei pakko-sijoittaa).
 IDLE_CASH_DEPLOY_PCT = 0.50
@@ -78,6 +78,13 @@ BUY_MAJOR_BASES = frozenset(
 # Legacy-omistukset majors-listan ulkopuolella (esim. tokenisoitu bond ALT2612):
 # vapauta pääoma — trailing ei toimi matalavolatiliteettisilla instrumenteilla.
 FORCE_EXIT_NON_MAJOR_HOURS = float(os.environ.get("FORCE_EXIT_NON_MAJOR_HOURS", "24"))
+# BTC N-day momentum ≤ 0 → ei uusia ostoja (cash kun trendi heikko).
+BTC_TREND_GATE_ENABLED = os.environ.get("BTC_TREND_GATE_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 # “Huono asetelma −1.5 %” täysmyynti pois oletuksena (live −€52 / 86 myyntiä).
 # Krooninen/blocked/score-häviäjä -exitit säilyvät.
 SETUP_FAST_EXIT_ENABLED = os.environ.get("SETUP_FAST_EXIT_ENABLED", "0").lower() not in (
@@ -1138,6 +1145,19 @@ def _is_buy_blocked(
         return True
     if _breadth_blocks_buy(regime_info):
         return True
+    if BTC_TREND_GATE_ENABLED and isinstance(regime_info, dict):
+        if regime_info.get("btc_trend_blocks_buy"):
+            return True
+        # Fallback if only pct is present
+        raw_trend = regime_info.get("btc_trend_pct")
+        if raw_trend is not None:
+            try:
+                from .btc_trend_gate import BTC_TREND_MIN_PCT
+
+                if float(raw_trend) <= BTC_TREND_MIN_PCT:
+                    return True
+            except (TypeError, ValueError):
+                pass
     ch24 = _entry_change_24h(analysis)
     if ch24 is not None and ch24 >= MAX_ENTRY_CHANGE_24H_PCT:
         return True

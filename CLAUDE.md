@@ -130,6 +130,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike
 - `20260913a` — Profit Pack v1: chase ≤6% 24h, breadth ≥35%, majors only, no setup −1.5% exit, PT 3.5%/20%
@@ -146,6 +147,8 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 | `BUY_MAJORS_ONLY` | on | BTC/ETH/SOL/XRP/LTC/LINK only |
 | `FORCE_EXIT_NON_MAJOR_HOURS` | 24 | Sell legacy non-majors (bonds/alts) after max hold |
 | `FORCE_EXIT_ARMED_STALE_HOURS` | 8 | Take profit if trailing armed with no pullback |
+| `BTC_TREND_GATE_ENABLED` | on | No buys when BTC 21d momentum ≤ 0 |
+| `SYMBOL_REBUY_COOLDOWN_SEC` | 14400 | 4h no rebuy after losing exit |
 | `SETUP_FAST_EXIT_ENABLED` | off | No −1.5% “bad setup” full sells |
 | `PARTIAL_TAKE_TRIGGER_PCT` | 3.5 | Later first profit tier |
 | `PARTIAL_TAKE_FRACTION` | 0.20 | Smaller first harvest — let winners run |
@@ -157,7 +160,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 When breadth is low (e.g. 16% bear), expect **cash** — that is intended, not a bug.
 
-**94d live lesson (2026-09-13):** BTC HODL +15% while bot −15%; bot bull sells +€348 / bear −€423; non-majors −€156 ≈ full loss; profit-takes +€786 eaten by stops+rotation+setup (−€814). Edge existed — wrong universe + bear churn destroyed it.
+**94d live lesson (2026-09-13):** BTC HODL +24% while bot −15%; ZEC/UNI HODL +150% while bot churned −€34/−€22; XMR +73% with 173 sells → −€8. Edge was hold/trend, not churn. Bull sells +€348 / bear −€423. Non-majors −€156 ≈ full loss; profit-takes +€786 eaten by stops+rotation+setup (−€814).
 
 ---
 

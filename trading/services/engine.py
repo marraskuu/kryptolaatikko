@@ -647,6 +647,13 @@ def execute_trading_cycle() -> dict[str, Any]:
         prev_regime = prev_info.get("regime")
         prev_margin = prev_info.get("signal_margin")
         regime_info = enrich_regime_phase(regime_info, prev_regime, prev_margin)
+        try:
+            from .btc_trend_gate import attach_btc_trend_to_regime, refresh_btc_trend
+
+            btc_trend = refresh_btc_trend(state)
+            regime_info = attach_btc_trend_to_regime(regime_info, btc_trend)
+        except Exception:
+            logger.warning("BTC trend gate refresh failed", exc_info=True)
         regime = regime_info["regime"]
         state["regime"] = regime_info
         from .regime_anticipation_learning import record_regime_snapshot
