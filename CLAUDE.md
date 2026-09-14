@@ -91,6 +91,9 @@ Live evidence ~Jun–Aug 2026: start €1000 → ~€840 (−16%). **Bull sells 
 
 6. **Churn death** — “estetty vapautus”, “ei valinnoissa”, concentration, time-stop under ~3 h: many small losses. Prefer cash in bear over “fixing” idle with weak entries.
 
+7. **Fail-open risk gates after API errors** — trend/micro gates are protective brakes; once a valid blocking reading exists, a transient Bitfinex refresh failure must not replace it with an allow-buy state.  
+   **Fix (2026-09-14):** BTC trend refresh preserves the last successful reading on fetch failure and keeps stale negative trend blocking buys.
+
 ### What to do when portfolio is losing
 
 Priority order (proven):
@@ -130,6 +133,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260914a` — BTC trend refresh preserves stale blocking readings on Bitfinex errors
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike

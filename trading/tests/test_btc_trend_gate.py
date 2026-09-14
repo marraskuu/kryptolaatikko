@@ -1,10 +1,13 @@
 """BTC trend gate + longer rebuy cooldown."""
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from trading.services.btc_trend_gate import (
     btc_trend_blocks_buy,
     compute_btc_trend_pct,
+    refresh_btc_trend,
 )
 from trading.services.ai_trader import (
     SYMBOL_REBUY_COOLDOWN_SEC,
@@ -29,6 +32,28 @@ class BtcTrendComputeTests(SimpleTestCase):
         self.assertFalse(
             btc_trend_blocks_buy({"ok": True, "changePct": 2.0, "blocksBuy": False})
         )
+
+    def test_refresh_failure_preserves_stale_negative_trend_block(self):
+        state = {
+            "btcTrend": {
+                "ok": True,
+                "changePct": -2.5,
+                "lookbackDays": 21,
+                "minPct": 0.0,
+                "symbol": "tBTCUSD",
+                "blocksBuy": True,
+                "fetchedAt": 0,
+            }
+        }
+        with patch("trading.services.bitfinex.fetch_candles", side_effect=RuntimeError("429")):
+            trend = refresh_btc_trend(state)
+
+        self.assertTrue(trend["ok"])
+        self.assertEqual(trend["changePct"], -2.5)
+        self.assertTrue(trend["blocksBuy"])
+        self.assertTrue(trend["stale"])
+        self.assertTrue(trend["error"])
+        self.assertTrue(state["btcTrend"]["blocksBuy"])
 
 
 class BtcTrendBuyBlockTests(SimpleTestCase):
