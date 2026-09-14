@@ -65,6 +65,24 @@ def btc_trend_blocks_buy(trend: dict[str, Any] | None) -> bool:
         return False
 
 
+def _cached_trend_on_refresh_error(
+    cached: dict[str, Any] | None,
+    now: float,
+) -> dict[str, Any] | None:
+    """Use the last valid BTC trend as the live gate when refresh fails."""
+    if not isinstance(cached, dict) or not cached.get("ok"):
+        return None
+    if cached.get("changePct") is None:
+        return None
+
+    trend = dict(cached)
+    trend["blocksBuy"] = btc_trend_blocks_buy(trend)
+    trend["stale"] = True
+    trend["error"] = True
+    trend["lastRefreshErrorAt"] = now
+    return trend
+
+
 def refresh_btc_trend(state: dict[str, Any]) -> dict[str, Any]:
     """Update state['btcTrend'] at most once per BTC_TREND_CACHE_SEC."""
     now = time.time()
@@ -100,16 +118,18 @@ def refresh_btc_trend(state: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception:
         logger.warning("BTC trend refresh failed", exc_info=True)
-        trend = {
-            "ok": False,
-            "changePct": None,
-            "lookbackDays": BTC_TREND_LOOKBACK_DAYS,
-            "minPct": BTC_TREND_MIN_PCT,
-            "symbol": BTC_TREND_SYMBOL,
-            "blocksBuy": False,
-            "fetchedAt": now,
-            "error": True,
-        }
+        trend = _cached_trend_on_refresh_error(cached, now)
+        if trend is None:
+            trend = {
+                "ok": False,
+                "changePct": None,
+                "lookbackDays": BTC_TREND_LOOKBACK_DAYS,
+                "minPct": BTC_TREND_MIN_PCT,
+                "symbol": BTC_TREND_SYMBOL,
+                "blocksBuy": False,
+                "fetchedAt": now,
+                "error": True,
+            }
 
     state["btcTrend"] = trend
     return trend
