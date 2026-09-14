@@ -38,6 +38,9 @@ ENTRY_MTF_4H_LIMIT = int(os.environ.get("ENTRY_MTF_4H_LIMIT", "24"))
 VOLUME_SPIKE_MIN_CHANGE_1H_PCT = float(
     os.environ.get("VOLUME_SPIKE_MIN_CHANGE_1H_PCT", "1.0")
 )
+# Volume-spike havainto on vain lyhyen ajan validi. Ilman TTL:ää vanha
+# climax-lippu voisi jäädä estämään symbolin uudelleenoston pysyvästi.
+VOLUME_STRUCTURE_TTL_SEC = int(os.environ.get("VOLUME_STRUCTURE_TTL_SEC", "7200"))
 
 CARRY_STRUCTURE_KEYS = (
     "distToHigh24hPct",
@@ -99,6 +102,7 @@ def apply_volume_structure(
         return
     rel = last / med
     analysis["relVolume1h"] = round(rel, 3)
+    analysis["volumeStructureTs"] = time.time()
     ch1 = analysis.get("change1hPct")
     try:
         ch1_f = float(ch1) if ch1 is not None else 0.0

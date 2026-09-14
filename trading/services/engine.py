@@ -118,12 +118,28 @@ _CARRY_FORWARD_KEYS = (
     "recentReturns",
     "distToHigh24hPct",
     "near24hHigh",
-    "relVolume1h",
-    "volumeSpike",
     "change15mPct",
     "change4hCandlePct",
     "entryMtfChecked",
 )
+
+
+def _carry_recent_volume_structure(prev: dict[str, Any], fresh: dict[str, Any]) -> None:
+    measured_at = prev.get("volumeStructureTs")
+    if measured_at is None:
+        return
+    try:
+        age_sec = time.time() - float(measured_at)
+    except (TypeError, ValueError):
+        return
+
+    from .entry_structure import VOLUME_STRUCTURE_TTL_SEC
+
+    if VOLUME_STRUCTURE_TTL_SEC <= 0 or age_sec > VOLUME_STRUCTURE_TTL_SEC:
+        return
+    for key in ("relVolume1h", "volumeSpike", "volumeStructureTs"):
+        if prev.get(key) is not None:
+            fresh[key] = prev[key]
 
 
 def _refresh_analyses(state: dict[str, Any]) -> None:
@@ -135,6 +151,7 @@ def _refresh_analyses(state: dict[str, Any]) -> None:
         for key in _CARRY_FORWARD_KEYS:
             if prev.get(key) is not None:
                 fresh[key] = prev[key]
+        _carry_recent_volume_structure(prev, fresh)
         apply_ticker_structure(fresh, ticker)
         state["analyses"][symbol] = fresh
 

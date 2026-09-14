@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-14",
+        "entries": [
+            {
+                "title": "Volume-spike-portti ei enää jää jumiin",
+                "body": "Climax-volyymin ostoesto saa nyt aikaleiman ja vanhenee automaattisesti. Vanha liputus ei voi enää jäädä estämään saman symbolin uusia ostoja pysyvästi myynnin jälkeen.",
+                "title_en": "Volume-spike gate no longer gets stuck",
+                "body_en": "The climax-volume buy block now gets a timestamp and expires automatically. An old flag can no longer permanently block new buys for the same symbol after a sell.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {
