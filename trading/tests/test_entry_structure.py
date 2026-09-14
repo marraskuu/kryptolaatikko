@@ -1,5 +1,7 @@
 """Entry structure gates: 24h-high, volume spike, 15m/4h."""
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from trading.services.entry_structure import (
@@ -7,6 +9,7 @@ from trading.services.entry_structure import (
     MIN_DIST_FROM_24H_HIGH_PCT,
     MIN_ENTRY_CHANGE_4H_PCT,
     VOLUME_SPIKE_RATIO,
+    VOLUME_STRUCTURE_TTL_SEC,
     apply_mtf_candles,
     apply_ticker_structure,
     apply_volume_structure,
@@ -14,6 +17,7 @@ from trading.services.entry_structure import (
     entry_structure_blocks,
 )
 from trading.services.ai_trader import _is_buy_blocked
+from trading.services.engine import _refresh_analyses
 
 
 class TickerHighDistanceTests(SimpleTestCase):
@@ -47,6 +51,78 @@ class VolumeSpikeTests(SimpleTestCase):
         analysis = {"change1hPct": 0.0}
         apply_volume_structure(analysis, candles)
         self.assertFalse(analysis.get("volumeSpike"))
+
+    def test_volume_structure_records_measurement_time(self):
+        candles = [{"volume": 100.0, "close": 1.0} for _ in range(20)]
+        candles.append({"volume": 100.0, "close": 1.0})
+        analysis = {"change1hPct": 0.0}
+
+        with patch("trading.services.entry_structure.time.time", return_value=1234.0):
+            apply_volume_structure(analysis, candles)
+
+        self.assertEqual(analysis["volumeStructureTs"], 1234.0)
+
+
+class VolumeSpikeRefreshCarryTests(SimpleTestCase):
+    def _state_with_previous_analysis(self, previous: dict) -> dict:
+        return {
+            "tickers": {
+                "tBTCUSD": {
+                    "last": 90.0,
+                    "high": 100.0,
+                    "changePct": 1.5,
+                    "volumeEur": 5_000_000.0,
+                }
+            },
+            "analyses": {"tBTCUSD": previous},
+        }
+
+    def test_refresh_drops_legacy_volume_spike_without_measurement_time(self):
+        state = self._state_with_previous_analysis(
+            {"volumeSpike": True, "relVolume1h": 4.2}
+        )
+
+        _refresh_analyses(state)
+
+        analysis = state["analyses"]["tBTCUSD"]
+        self.assertNotIn("volumeSpike", analysis)
+        self.assertNotIn("relVolume1h", analysis)
+        self.assertFalse(entry_structure_blocks(analysis))
+
+    def test_refresh_carries_recent_volume_spike(self):
+        state = self._state_with_previous_analysis(
+            {
+                "volumeSpike": True,
+                "relVolume1h": 4.2,
+                "volumeStructureTs": 1000.0,
+            }
+        )
+
+        with patch("trading.services.engine.time.time", return_value=1000.0):
+            _refresh_analyses(state)
+
+        analysis = state["analyses"]["tBTCUSD"]
+        self.assertTrue(analysis["volumeSpike"])
+        self.assertEqual(analysis["relVolume1h"], 4.2)
+
+    def test_refresh_expires_old_volume_spike(self):
+        state = self._state_with_previous_analysis(
+            {
+                "volumeSpike": True,
+                "relVolume1h": 4.2,
+                "volumeStructureTs": 1000.0,
+            }
+        )
+
+        with patch(
+            "trading.services.engine.time.time",
+            return_value=1001.0 + VOLUME_STRUCTURE_TTL_SEC,
+        ):
+            _refresh_analyses(state)
+
+        analysis = state["analyses"]["tBTCUSD"]
+        self.assertNotIn("volumeSpike", analysis)
+        self.assertNotIn("relVolume1h", analysis)
 
 
 class MtfCandleGateTests(SimpleTestCase):
