@@ -130,6 +130,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260915a` — preserve BTC trend gate on candle refresh failure; clear profit watches after full sells
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike

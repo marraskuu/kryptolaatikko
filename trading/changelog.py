@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-15",
+        "entries": [
+            {
+                "title": "Turvaportit pysyvät päällä häiriöissä ja uudelleenostoissa",
+                "body": "BTC-trendiportti ei enää aukea vahingossa, jos Bitfinexin päiväkynttilähaku epäonnistuu tai palauttaa tyhjää dataa — viimeisin mitattu trendi pysyy voimassa. Täysmyynti nollaa myös voitonseurannan, jotta myöhempi samaan kolikkoon tehty uusi osto ei peri vanhaa trailing-huippua.",
+                "title_en": "Safety gates stay active across outages and re-buys",
+                "body_en": "The BTC trend gate no longer fails open when Bitfinex daily candles fail or return empty data — the last measured trend remains enforced. Full sells also clear profit-watch state so a later re-buy of the same coin cannot inherit an old trailing peak.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {
