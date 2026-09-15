@@ -304,6 +304,13 @@ def _apply_entry_size_blend(
         d["amount"] = d["eurAmount"] / price
 
 
+def _clear_profit_watch_state(state: dict[str, Any], symbol: str) -> None:
+    for key in ("watches", "profitWatch", "watchLogKeys"):
+        bucket = state.get(key)
+        if isinstance(bucket, dict):
+            bucket.pop(symbol, None)
+
+
 def _check_profit_sells(
     state: dict[str, Any],
     portfolio: Portfolio,
@@ -426,8 +433,7 @@ def _check_profit_sells(
             # Täysi myynti vapauttaa seurannan; osittainen (porras 1) jättää lopun
             # trailing-stopin seurattavaksi.
             if frac >= 0.999:
-                state["watches"].pop(symbol, None)
-                state["profitWatch"].pop(symbol, None)
+                _clear_profit_watch_state(state, symbol)
 
     state["portfolio"] = portfolio.to_dict()
     return executed
@@ -982,13 +988,25 @@ def execute_trading_cycle() -> dict[str, Any]:
             )
             if d.get("reasonEn"):
                 sell_meta["reasonEn"] = d["reasonEn"]
-            portfolio.sell(
+            holding_before = portfolio.holdings.get(d["symbol"])
+            sell_amount = float(d.get("amount") or 0)
+            if sell_amount <= 0:
+                continue
+            full_sell = bool(
+                holding_before
+                and sell_amount >= float(holding_before.get("amount") or 0) * 0.999
+            )
+            sold = portfolio.sell(
                 d["symbol"],
-                d["amount"],
+                sell_amount,
                 analysis["currentPrice"],
                 d["reason"],
                 meta=sell_meta,
             )
+            if not sold:
+                continue
+            if full_sell:
+                _clear_profit_watch_state(state, d["symbol"])
             log_ai_event(
                 state,
                 "sell",
