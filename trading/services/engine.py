@@ -123,6 +123,7 @@ _CARRY_FORWARD_KEYS = (
     "change15mPct",
     "change4hCandlePct",
     "entryMtfChecked",
+    "entryMtfUnavailable",
 )
 
 

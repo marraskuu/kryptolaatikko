@@ -127,9 +127,11 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 - `trading/tests/test_profit_bleed_fixes.py` — bear freeze vs anticipated bull, size cap, cash/micro gates
 - `trading/tests/test_idle_empty_deploy.py` — idle ranked path does not bypass blocks
 - `trading/tests/test_profitability_path.py` / `test_daily_policy_live_gate.py` — daily policy gates
+- `trading/tests/test_entry_structure.py` — entry-structure gates fail closed on missing 15m/4h candle data
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260915a` — entry-structure MTF gate blocks buys when 15m/4h candles are missing
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike
