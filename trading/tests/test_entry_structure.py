@@ -10,6 +10,7 @@ from trading.services.entry_structure import (
     apply_mtf_candles,
     apply_ticker_structure,
     apply_volume_structure,
+    enrich_mtf_entry_signals,
     entry_structure_block_reason,
     entry_structure_blocks,
 )
@@ -79,6 +80,34 @@ class MtfCandleGateTests(SimpleTestCase):
         apply_mtf_candles(analysis, c15, c4h)
         self.assertFalse(entry_structure_blocks(analysis))
 
+    def test_missing_mtf_data_clears_stale_metrics_and_blocks(self):
+        analysis = {
+            "change15mPct": 0.1,
+            "change4hCandlePct": 0.2,
+            "entryMtfChecked": True,
+        }
+        complete = apply_mtf_candles(analysis, [], [])
+        self.assertFalse(complete)
+        self.assertNotIn("change15mPct", analysis)
+        self.assertNotIn("change4hCandlePct", analysis)
+        self.assertFalse(analysis["entryMtfChecked"])
+        self.assertTrue(analysis["entryMtfUnavailable"])
+        self.assertTrue(entry_structure_blocks(analysis))
+        self.assertEqual(entry_structure_block_reason(analysis), "mtf_unavailable")
+
+    def test_enrich_empty_mtf_data_does_not_count_as_enriched(self):
+        analyses = {"tBTCUSD": {"currentPrice": 100.0}}
+        summary = enrich_mtf_entry_signals(
+            {"tBTCUSD": {"last": 100.0, "high": 110.0, "volumeEur": 10_000_000.0}},
+            analyses,
+            {"holdings": {}},
+            lambda *_args: [],
+            limit=1,
+        )
+        self.assertEqual(summary["enriched"], 0)
+        self.assertEqual(summary["errors"], 0)
+        self.assertTrue(analyses["tBTCUSD"]["entryMtfUnavailable"])
+
 
 class BuyBlockedIntegrationTests(SimpleTestCase):
     def test_is_buy_blocked_respects_near_high(self):
@@ -93,6 +122,29 @@ class BuyBlockedIntegrationTests(SimpleTestCase):
             "microBlocked": False,
             "near24hHigh": True,
             "distToHigh24hPct": 0.5,
+        }
+        blocked = _is_buy_blocked(
+            "tBTCUSD",
+            analysis,
+            blocked_buys=set(),
+            blocked_setups=set(),
+            regime="bull",
+            regime_info={"regime": "bull", "breadth_up_pct": 55.0},
+        )
+        self.assertTrue(blocked)
+
+    def test_is_buy_blocked_respects_unavailable_mtf_data(self):
+        analysis = {
+            "currentPrice": 60_000.0,
+            "volumeEur": 5_000_000.0,
+            "action": "buy",
+            "score": 8,
+            "mtfAlign": 1,
+            "changePct": 2.0,
+            "microChecked": True,
+            "microBlocked": False,
+            "entryMtfChecked": False,
+            "entryMtfUnavailable": True,
         }
         blocked = _is_buy_blocked(
             "tBTCUSD",

@@ -47,6 +47,7 @@ CARRY_STRUCTURE_KEYS = (
     "change15mPct",
     "change4hCandlePct",
     "entryMtfChecked",
+    "entryMtfUnavailable",
 )
 
 
@@ -113,7 +114,14 @@ def apply_mtf_candles(
     analysis: dict[str, Any],
     candles_15m: list[dict[str, Any]],
     candles_4h: list[dict[str, Any]],
-) -> None:
+) -> bool:
+    for key in (
+        "change15mPct",
+        "change4hCandlePct",
+        "entryMtfChecked",
+        "entryMtfUnavailable",
+    ):
+        analysis.pop(key, None)
     closes_15 = [float(c["close"]) for c in candles_15m if c.get("close")]
     closes_4h = [float(c["close"]) for c in candles_4h if c.get("close")]
     ch15 = _period_change_pct(closes_15, 1)
@@ -122,7 +130,11 @@ def apply_mtf_candles(
         analysis["change15mPct"] = round(ch15, 3)
     if ch4 is not None:
         analysis["change4hCandlePct"] = round(ch4, 3)
-    analysis["entryMtfChecked"] = True
+    complete = ch15 is not None and ch4 is not None
+    analysis["entryMtfChecked"] = complete
+    if not complete:
+        analysis["entryMtfUnavailable"] = True
+    return complete
 
 
 def entry_structure_blocks(analysis: dict[str, Any] | None) -> bool:
@@ -147,6 +159,8 @@ def entry_structure_blocks(analysis: dict[str, Any] | None) -> bool:
                 return True
         except (TypeError, ValueError):
             pass
+    if analysis.get("entryMtfUnavailable"):
+        return True
     return False
 
 
@@ -173,6 +187,8 @@ def entry_structure_block_reason(analysis: dict[str, Any] | None) -> str | None:
                 return f"downtrend_4h({ch4})"
         except (TypeError, ValueError):
             pass
+    if analysis.get("entryMtfUnavailable"):
+        return "mtf_unavailable"
     return "entry_structure"
 
 
@@ -236,9 +252,10 @@ def enrich_mtf_entry_signals(
         try:
             c15 = fetch_candles_fn(symbol, "15m", ENTRY_MTF_15M_LIMIT)
             c4h = fetch_candles_fn(symbol, "4h", ENTRY_MTF_4H_LIMIT)
-            apply_mtf_candles(analysis, c15, c4h)
+            complete = apply_mtf_candles(analysis, c15, c4h)
             apply_ticker_structure(analysis, ticker)
-            enriched += 1
+            if complete:
+                enriched += 1
         except Exception:
             errors += 1
             logger.warning("Entry MTF enrich failed for %s", symbol, exc_info=True)

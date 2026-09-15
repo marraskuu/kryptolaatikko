@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-15",
+        "entries": [
+            {
+                "title": "Rakenneportti sulkeutuu jos 15m/4h-kynttilät puuttuvat",
+                "body": "Jos Bitfinexin 15m/4h-kynttilähaku palauttaa tyhjää tai vajaan datan, osto estetään eikä vanhoja rakennearvoja kierrätetä. Tämä pitää chase- ja 4h-downtrend-portit kiinni myös datakatkoissa.",
+                "title_en": "Structure gate closes when 15m/4h candles are missing",
+                "body_en": "If the Bitfinex 15m/4h candle fetch returns empty or incomplete data, the buy is blocked and old structure values are not reused. This keeps chase and 4h-downtrend gates closed during data gaps.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {
