@@ -65,6 +65,20 @@ def btc_trend_blocks_buy(trend: dict[str, Any] | None) -> bool:
         return False
 
 
+def _stale_valid_trend(cached: Any, now: float) -> dict[str, Any] | None:
+    """Keep enforcing the last measured trend when a refresh cannot measure BTC."""
+    if not isinstance(cached, dict):
+        return None
+    if not cached.get("ok") or cached.get("changePct") is None:
+        return None
+    trend = dict(cached)
+    trend["blocksBuy"] = btc_trend_blocks_buy(trend)
+    trend["stale"] = True
+    trend["error"] = True
+    trend["lastErrorAt"] = now
+    return trend
+
+
 def refresh_btc_trend(state: dict[str, Any]) -> dict[str, Any]:
     """Update state['btcTrend'] at most once per BTC_TREND_CACHE_SEC."""
     now = time.time()
@@ -86,6 +100,11 @@ def refresh_btc_trend(state: dict[str, Any]) -> dict[str, Any]:
             limit=lookback + 5,
         )
         pct = compute_btc_trend_pct(candles, BTC_TREND_LOOKBACK_DAYS)
+        if pct is None:
+            stale = _stale_valid_trend(cached, now)
+            if stale is not None:
+                state["btcTrend"] = stale
+                return stale
         trend = {
             "ok": pct is not None,
             "changePct": round(pct, 3) if pct is not None else None,
@@ -100,16 +119,18 @@ def refresh_btc_trend(state: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception:
         logger.warning("BTC trend refresh failed", exc_info=True)
-        trend = {
-            "ok": False,
-            "changePct": None,
-            "lookbackDays": BTC_TREND_LOOKBACK_DAYS,
-            "minPct": BTC_TREND_MIN_PCT,
-            "symbol": BTC_TREND_SYMBOL,
-            "blocksBuy": False,
-            "fetchedAt": now,
-            "error": True,
-        }
+        trend = _stale_valid_trend(cached, now)
+        if trend is None:
+            trend = {
+                "ok": False,
+                "changePct": None,
+                "lookbackDays": BTC_TREND_LOOKBACK_DAYS,
+                "minPct": BTC_TREND_MIN_PCT,
+                "symbol": BTC_TREND_SYMBOL,
+                "blocksBuy": False,
+                "fetchedAt": now,
+                "error": True,
+            }
 
     state["btcTrend"] = trend
     return trend
