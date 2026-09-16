@@ -226,6 +226,7 @@ def is_discretionary_sell(reason: str) -> bool:
         "stablecoin",
         "matala volyymi",
         "estetty kohde",
+        "max-pito non-major",
         "kotiut",
         "realisoidaan voitto",
         "huipusta",

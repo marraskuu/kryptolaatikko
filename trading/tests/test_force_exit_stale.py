@@ -96,6 +96,54 @@ class NonMajorMaxHoldTests(SimpleTestCase):
         self.assertIn("Max-pito non-major", sells[0]["reason"])
 
     @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_alt_bond_force_sold_using_fifo_age_when_opened_at_missing(self):
+        sym = "tALT2612UST"
+        opened = (datetime.now(timezone.utc) - timedelta(hours=FORCE_EXIT_NON_MAJOR_HOURS + 1)).isoformat()
+        analyses = {
+            sym: {
+                "currentPrice": 97.0,
+                "volumeEur": 300_000.0,
+                "action": "hold",
+                "score": 3,
+                "mtfAlign": 0,
+                "changePct": 0.1,
+                "change4hPct": 0.0,
+                "atrPct": 0.2,
+                **_MICRO_OK,
+            }
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 500.0
+        portfolio["holdings"] = {
+            sym: {"amount": 2.5, "avgPrice": 92.6}
+        }
+        portfolio["trades"] = [
+            {
+                "type": "buy",
+                "symbol": sym,
+                "amount": 2.5,
+                "price": 92.6,
+                "eurTotal": 231.5,
+                "timestamp": opened,
+            }
+        ]
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=742.0,
+            label_fn=lambda s: s,
+            gemini_insights={},
+            regime="bear",
+            regime_info={"regime": "bear", "phase": "bear", "breadth_up_pct": 18.0},
+            learning={"entry_score_min": 4, "blocked_buys": []},
+        )
+
+        sells = [d for d in result["decisions"] if d.get("type") == "sell" and d.get("symbol") == sym]
+        self.assertTrue(sells)
+        self.assertIn("Max-pito non-major", sells[0]["reason"])
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
     def test_major_not_force_sold_by_non_major_rule(self):
         sym = "tBTCUSD"
         opened = (datetime.now(timezone.utc) - timedelta(hours=FORCE_EXIT_NON_MAJOR_HOURS + 10)).isoformat()

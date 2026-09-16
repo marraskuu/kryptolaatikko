@@ -58,6 +58,12 @@ class DailyPolicySellGateTests(SimpleTestCase):
         result = _apply_daily_policy_sell_gate(decisions, flags)
         self.assertEqual(result, decisions)
 
+    def test_daily_stop_does_not_block_non_major_force_exit(self):
+        decisions = [_sell("tALT2612UST", "Max-pito non-major ≥24 h (26 h, +1.2 %) — vapautetaan pääomaa")]
+        flags = {"dailyStopActive": True, "profitLockTier": "none"}
+        result = _apply_daily_policy_sell_gate(decisions, flags)
+        self.assertEqual(result, decisions)
+
     def test_daily_stop_does_not_block_buys(self):
         decisions = [_buy("tBTCUSD")]
         flags = {"dailyStopActive": True, "profitLockTier": "none"}
