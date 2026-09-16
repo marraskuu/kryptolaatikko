@@ -13,7 +13,7 @@ from trading.services.entry_structure import (
     entry_structure_block_reason,
     entry_structure_blocks,
 )
-from trading.services.ai_trader import _is_buy_blocked
+from trading.services.ai_trader import _is_buy_blocked, enrich_analyses_for_gemini
 
 
 class TickerHighDistanceTests(SimpleTestCase):
@@ -103,3 +103,56 @@ class BuyBlockedIntegrationTests(SimpleTestCase):
             regime_info={"regime": "bull", "breadth_up_pct": 55.0},
         )
         self.assertTrue(blocked)
+
+    def test_gemini_deep_refresh_preserves_mtf_entry_block(self):
+        symbol = "tBTCUSD"
+        analyses = {
+            symbol: {
+                "currentPrice": 100.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 8,
+                "mtfAlign": 1,
+                "changePct": 2.0,
+                "microChecked": True,
+                "microBlocked": False,
+                "change15mPct": MAX_ENTRY_CHANGE_15M_PCT + 0.5,
+                "change4hCandlePct": 0.5,
+                "entryMtfChecked": True,
+            }
+        }
+        tickers = {
+            symbol: {
+                "last": 100.0,
+                "high": 110.0,
+                "changePct": 2.0,
+                "volumeEur": 5_000_000.0,
+            }
+        }
+        candles = [
+            {"open": 99.0, "close": 100.0 + (i * 0.1), "high": 101.0, "low": 98.0, "volume": 100.0}
+            for i in range(25)
+        ]
+
+        enrich_analyses_for_gemini(
+            tickers,
+            analyses,
+            {"holdings": {}},
+            lambda *_args, **_kwargs: candles,
+            limit=1,
+        )
+
+        refreshed = analyses[symbol]
+        self.assertTrue(refreshed["entryMtfChecked"])
+        self.assertGreaterEqual(refreshed["change15mPct"], MAX_ENTRY_CHANGE_15M_PCT)
+        self.assertTrue(entry_structure_blocks(refreshed))
+        self.assertTrue(
+            _is_buy_blocked(
+                symbol,
+                refreshed,
+                blocked_buys=set(),
+                blocked_setups=set(),
+                regime="bull",
+                regime_info={"regime": "bull", "breadth_up_pct": 55.0},
+            )
+        )

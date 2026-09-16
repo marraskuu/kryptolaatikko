@@ -49,6 +49,15 @@ CARRY_STRUCTURE_KEYS = (
     "entryMtfChecked",
 )
 
+MTF_ENTRY_KEYS = ("change15mPct", "change4hCandlePct", "entryMtfChecked")
+
+
+def carry_mtf_entry_fields(prev: dict[str, Any], target: dict[str, Any]) -> None:
+    """Säilytä saman kierroksen 15m/4h-portit kun analyysi korvataan deep-versiolla."""
+    for key in MTF_ENTRY_KEYS:
+        if key in prev:
+            target[key] = prev[key]
+
 
 def _period_change_pct(closes: list[float], bars: int) -> float | None:
     if bars <= 0 or len(closes) < bars + 1:

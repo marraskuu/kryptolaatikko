@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-16",
+        "entries": [
+            {
+                "title": "Korjaus: Profit Pack -portit säilyvät Gemini-kierroksella",
+                "body": "Geminin deep-analyysi ei enää pudota saman kierroksen 15m/4h entry-portteja pois ennen ostospäätöstä. Non-major max-pito on pakollinen force-exit myös päivästopissa, ja legacy-omistuksen ikä haetaan tarvittaessa FIFO-kaupoista jos openedAt puuttuu.",
+                "title_en": "Fix: Profit Pack gates survive Gemini cycles",
+                "body_en": "Gemini deep analysis no longer drops the same-cycle 15m/4h entry gates before buy decisions. Non-major max-hold is treated as a mandatory force exit even during a daily stop, and legacy holding age falls back to FIFO trades when openedAt is missing.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {

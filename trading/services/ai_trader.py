@@ -1747,8 +1747,10 @@ def enrich_analyses_for_gemini(
             logger.warning("Deep analysis failed for %s", symbol, exc_info=True)
             fresh = analyze_ticker_quick(ticker)
         from .market_microstructure import carry_micro_fields
+        from .entry_structure import carry_mtf_entry_fields
 
         carry_micro_fields(prev, fresh)
+        carry_mtf_entry_fields(prev, fresh)
         analyses[symbol] = fresh
 
 
@@ -3007,6 +3009,13 @@ def make_trading_decisions(
             and not _is_buy_major(symbol)
         ):
             age_h = _holding_age_hours(holding.get("openedAt"))
+            if age_h is None:
+                age_h = fifo_oldest_stuck_lot_age_hours(
+                    symbol,
+                    portfolio_trades,
+                    FORCE_EXIT_NON_MAJOR_HOURS,
+                    lots_cache=fifo_lots,
+                )
             if age_h is not None and age_h >= FORCE_EXIT_NON_MAJOR_HOURS:
                 decisions.append(
                     {
