@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-16",
+        "entries": [
+            {
+                "title": "Salkun legacy-symbolien korjaus ei enää pudota positioita",
+                "body": "Jos vanha Bitfinex-muoto (esim. tBTC:USD) ja nykyinen muoto (tBTCUSD) löytyvät samaan aikaan tallennetusta salkusta, korjaus yhdistää määrät ja hankintahinnan painotetusti sen sijaan että toinen rivi katoaisi.",
+                "title_en": "Portfolio legacy-symbol repair no longer drops positions",
+                "body_en": "If an old Bitfinex symbol form (for example tBTC:USD) and the current form (tBTCUSD) are both present in saved portfolio state, repair now merges amount and weighted cost basis instead of dropping one row.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {

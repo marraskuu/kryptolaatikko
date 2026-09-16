@@ -95,3 +95,31 @@ class StateStoreConcurrencyTests(TransactionTestCase):
         self.assertEqual(final["portfolio"]["tradeId"], 10)
         self.assertEqual(final["portfolio"]["cash"], 42.0)
         self.assertEqual(final.get("_testMarker"), 1)
+
+    def test_symbol_normalization_merges_duplicate_holdings(self):
+        """Legacy tBASE:QUOTE + current tBASEQUOTE keys must not drop a lot."""
+        state = default_state()
+        state["portfolio"]["holdings"] = {
+            "tBTC:USD": {
+                "amount": 1.0,
+                "avgPrice": 100.0,
+                "openedAt": "2026-01-02T00:00:00+00:00",
+            },
+            "tBTCUSD": {
+                "amount": 2.0,
+                "avgPrice": 130.0,
+                "openedAt": "2026-01-01T00:00:00+00:00",
+            },
+        }
+        BotState.objects.update_or_create(pk=1, defaults={"data": state})
+
+        repaired = load_state()
+
+        holdings = repaired["portfolio"]["holdings"]
+        self.assertEqual(set(holdings), {"tBTCUSD"})
+        self.assertAlmostEqual(holdings["tBTCUSD"]["amount"], 3.0)
+        self.assertAlmostEqual(holdings["tBTCUSD"]["avgPrice"], 120.0)
+        self.assertEqual(
+            holdings["tBTCUSD"]["openedAt"],
+            "2026-01-01T00:00:00+00:00",
+        )
