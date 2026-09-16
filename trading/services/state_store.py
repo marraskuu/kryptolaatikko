@@ -1,6 +1,7 @@
 import os
 import threading
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 from trading.models import BotState
@@ -90,13 +91,61 @@ def _ensure_bot_started_at(state: dict[str, Any]) -> bool:
     return True
 
 
+def _as_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (TypeError, ValueError):
+        return None
+
+
+def _earliest_iso(a: Any, b: Any) -> Any:
+    da = _parse_iso(a)
+    db = _parse_iso(b)
+    if da and db:
+        return a if da <= db else b
+    return a or b
+
+
+def _merge_holding_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Yhdistä samaan normalisoituun symboliin osuvat legacy- ja nykyholdingit."""
+    out = {**deepcopy(existing), **deepcopy(incoming)}
+    existing_amount = _as_float(existing.get("amount"))
+    incoming_amount = _as_float(incoming.get("amount"))
+    total_amount = existing_amount + incoming_amount
+    if total_amount > 0:
+        existing_cost = existing_amount * _as_float(existing.get("avgPrice"))
+        incoming_cost = incoming_amount * _as_float(incoming.get("avgPrice"))
+        out["amount"] = total_amount
+        out["avgPrice"] = (existing_cost + incoming_cost) / total_amount
+    out["openedAt"] = _earliest_iso(existing.get("openedAt"), incoming.get("openedAt"))
+    return out
+
+
 def _normalize_state_symbols(state: dict[str, Any]) -> bool:
     """Korjaa vanhat Bitfinex-symbolit (tBTC:USD → tBTCUSD) tietokannassa."""
     changed = False
     portfolio = state.get("portfolio", {})
     holdings = portfolio.get("holdings", {})
     if holdings:
-        normalized = {normalize_symbol(sym): data for sym, data in holdings.items()}
+        normalized: dict[str, Any] = {}
+        for sym, data in holdings.items():
+            norm = normalize_symbol(sym)
+            if norm in normalized and isinstance(normalized[norm], dict) and isinstance(data, dict):
+                normalized[norm] = _merge_holding_records(normalized[norm], data)
+            else:
+                normalized[norm] = deepcopy(data)
         if normalized != holdings:
             portfolio["holdings"] = normalized
             changed = True
@@ -105,7 +154,15 @@ def _normalize_state_symbols(state: dict[str, Any]) -> bool:
         bucket = state.get(key)
         if not isinstance(bucket, dict):
             continue
-        normalized = {normalize_symbol(sym): val for sym, val in bucket.items()}
+        normalized = {}
+        for sym, val in bucket.items():
+            norm = normalize_symbol(sym)
+            if norm in normalized and isinstance(normalized[norm], dict) and isinstance(val, dict):
+                merged = deepcopy(normalized[norm])
+                merged.update(deepcopy(val))
+                normalized[norm] = merged
+            else:
+                normalized[norm] = deepcopy(val)
         if normalized != bucket:
             bucket.clear()
             bucket.update(normalized)
