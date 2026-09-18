@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-18",
+        "entries": [
+            {
+                "title": "Päivästoppi ei enää estä pakollisia riskimyyntejä",
+                "body": "Voittolukko/päivästoppi estää edelleen harkinnanvaraiset rotaatiomyynnit, mutta päästää läpi pakolliset riskienhallinnan myynnit: non-major max-pito, jämähtäneet positiot, ohut order book / jumi-riski ja huonoksi opitut setupit.",
+                "title_en": "Daily stop no longer blocks mandatory risk exits",
+                "body_en": "Profit lock / daily stop still blocks discretionary rotation sells, but mandatory risk-control exits now pass through: non-major max hold, stuck positions, thin order book / stuck-risk exits, and setups learned as bad.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {

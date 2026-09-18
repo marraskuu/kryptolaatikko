@@ -91,6 +91,8 @@ Live evidence ~Jun–Aug 2026: start €1000 → ~€840 (−16%). **Bull sells 
 
 6. **Churn death** — “estetty vapautus”, “ei valinnoissa”, concentration, time-stop under ~3 h: many small losses. Prefer cash in bear over “fixing” idle with weak entries.
 
+7. **Daily sell gate must not block forced exits** — daily stop / firm lock should block discretionary rotation/trims only. Non-major max-hold, stuck-position, thin-book/stuck-risk, and learned-bad full exits are mandatory risk exits and must pass through `is_discretionary_sell`.
+
 ### What to do when portfolio is losing
 
 Priority order (proven):
@@ -130,6 +132,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260918a` — daily-policy sell gate lets mandatory forced risk exits through
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike

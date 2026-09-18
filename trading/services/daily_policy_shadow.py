@@ -232,6 +232,13 @@ def is_discretionary_sell(reason: str) -> bool:
         "trailing-stop",
         "porras",
         "tasaantui",
+        "max-pito",
+        "positio jämähtänyt",
+        "jumi-riski",
+        "ohut order book",
+        "tunnettu häviäjä",
+        "huono markkina-asetelma",
+        "huono oma asetelma",
     )
     return not any(k in lower for k in skip)
 
