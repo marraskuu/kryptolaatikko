@@ -58,6 +58,33 @@ class DailyPolicySellGateTests(SimpleTestCase):
         result = _apply_daily_policy_sell_gate(decisions, flags)
         self.assertEqual(result, decisions)
 
+    def test_daily_stop_does_not_block_forced_risk_exits(self):
+        reasons = [
+            "Max-pito non-major ≥24 h (25 h, -0.7 %) — vapautetaan pääomaa",
+            "Positio jämähtänyt ≥4 h (-0.8 %) — myydään riippumatta markkinan noususta",
+            "Ohut order book (4 k€ ostovelk.) — positio 120 € jumi-riski — myydään tappiolla",
+            "Tunnettu häviäjä (score -2.5) — täysi myynti -1.0 %",
+            "Huono markkina-asetelma — täysi myynti -1.0 % (raja -0.8 %)",
+            "Huono oma asetelma — täysi myynti -1.1 % (raja -0.8 %)",
+        ]
+        flags = {"dailyStopActive": True, "profitLockTier": "none"}
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                decisions = [_sell("tALT2612:USD", reason)]
+                result = _apply_daily_policy_sell_gate(decisions, flags)
+                self.assertEqual(result, decisions)
+
+    def test_profit_lock_firm_does_not_block_forced_risk_exits(self):
+        decisions = [
+            _sell(
+                "tALT2612:USD",
+                "Max-pito non-major ≥24 h (25 h, -0.7 %) — vapautetaan pääomaa",
+            )
+        ]
+        flags = {"dailyStopActive": False, "profitLockTier": "firm"}
+        result = _apply_daily_policy_sell_gate(decisions, flags)
+        self.assertEqual(result, decisions)
+
     def test_daily_stop_does_not_block_buys(self):
         decisions = [_buy("tBTCUSD")]
         flags = {"dailyStopActive": True, "profitLockTier": "none"}
