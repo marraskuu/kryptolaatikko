@@ -106,15 +106,45 @@ class MicrostructureGateTests(SimpleTestCase):
     @patch("trading.services.market_microstructure.BOOK_REQ_PAUSE_SEC", 0)
     @patch("trading.services.market_microstructure._cached_position_stats", return_value=None)
     @patch("trading.services.market_microstructure.fetch_trades_hist", return_value=[])
+    @patch(
+        "trading.services.market_microstructure.parse_order_book",
+        return_value={
+            "bookImbalance": 0.1,
+            "bookSpreadPct": 0.01,
+            "bookBidDepthEur": 90_000.0,
+            "bookAskDepthEur": 95_000.0,
+        },
+    )
+    @patch("trading.services.market_microstructure.fetch_order_book", return_value=[["raw"]])
+    @patch("trading.services.market_microstructure.ENABLED", True)
+    def test_enrich_marks_checked_after_micro_observation(
+        self,
+        _mock_book,
+        _mock_parse_book,
+        _mock_trades,
+        _mock_stats,
+    ):
+        tickers = {"tBTCUSD": {"last": 100.0, "volumeEur": 1_000_000.0, "changePct": 1.0}}
+        analyses = {"tBTCUSD": {"score": 5, "currentPrice": 100.0}}
+
+        enrich_analyses(tickers, analyses, {"holdings": {}, "cash": 1000, "trades": []}, "neutral")
+
+        self.assertTrue(analyses["tBTCUSD"]["microChecked"])
+        self.assertFalse(analyses["tBTCUSD"]["microBlocked"])
+        self.assertFalse(blocks_entry(analyses["tBTCUSD"]))
+
+    @patch("trading.services.market_microstructure.BOOK_REQ_PAUSE_SEC", 0)
+    @patch("trading.services.market_microstructure._cached_position_stats", return_value=None)
+    @patch("trading.services.market_microstructure.fetch_trades_hist", return_value=[])
     @patch("trading.services.market_microstructure.fetch_order_book", return_value=[])
     @patch("trading.services.market_microstructure.ENABLED", True)
-    def test_enrich_marks_all_candidates_micro_checked(
+    def test_enrich_leaves_empty_micro_fetches_unchecked(
         self,
         _mock_book,
         _mock_trades,
         _mock_stats,
     ):
-        """Myös BOOK_SYMBOL_LIMITin ulkopuoliset kandidaatit saavat microChecked."""
+        """Tyhjät/parseamattomat micro-vastaukset eivät saa avata ostoporttia."""
         symbols = [f"tSYM{i}USD" for i in range(15)]
         tickers = {
             sym: {"last": 100.0 + i, "volumeEur": 1_000_000.0 - i * 1000, "changePct": 1.0}
@@ -125,7 +155,8 @@ class MicrostructureGateTests(SimpleTestCase):
         enrich_analyses(tickers, analyses, {"holdings": {}, "cash": 1000, "trades": []}, "neutral")
 
         for sym in symbols:
-            self.assertTrue(
+            self.assertFalse(
                 analyses[sym].get("microChecked"),
-                f"{sym} missing microChecked",
+                f"{sym} unexpectedly marked microChecked",
             )
+            self.assertTrue(blocks_entry(analyses[sym]), f"{sym} entry gate opened")
