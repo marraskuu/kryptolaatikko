@@ -6,6 +6,7 @@ from typing import Any
 from trading.models import BotState
 
 from .bitfinex import normalize_symbol
+from .portfolio import INITIAL_CAPITAL
 from .session_state import default_state
 
 logger = __import__("logging").getLogger(__name__)
@@ -33,8 +34,161 @@ def _portfolio_version(portfolio: dict[str, Any]) -> tuple[int, int]:
     return (int(portfolio.get("tradeId") or 0), len(portfolio.get("trades") or []))
 
 
+def _trade_fingerprint(trade: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Tunnista sama kauppa myös silloin, kun rinnakkaiset tallentajat törmäävät id:ssä."""
+    return tuple(
+        sorted((str(key), repr(value)) for key, value in trade.items() if key != "id")
+    )
+
+
+def _trade_sort_key(trade: dict[str, Any], fallback_order: int) -> tuple[str, int]:
+    return (str(trade.get("timestamp") or ""), fallback_order)
+
+
+def _float_value(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _assign_unique_trade_ids(trades_newest_first: list[dict[str, Any]]) -> int:
+    used: set[int] = set()
+    max_id = 0
+    for trade in reversed(trades_newest_first):
+        raw_id = int(_float_value(trade.get("id"), 0))
+        if raw_id > 0 and raw_id not in used:
+            trade_id = raw_id
+        else:
+            trade_id = max(max_id, max(used, default=0)) + 1
+        trade["id"] = trade_id
+        used.add(trade_id)
+        max_id = max(max_id, trade_id)
+    return max_id
+
+
+def _rebuild_portfolio_from_trades(
+    preferred: dict[str, Any],
+    trades_newest_first: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    portfolio = deepcopy(preferred)
+    initial_capital = _float_value(portfolio.get("initialCapital"), INITIAL_CAPITAL)
+    cash = initial_capital
+    holdings: dict[str, dict[str, Any]] = {}
+    total_tax = 0.0
+    total_realized_profit = 0.0
+
+    for trade in reversed(trades_newest_first):
+        trade_type = trade.get("type")
+        symbol = trade.get("symbol")
+        if trade_type == "buy":
+            if not symbol:
+                return None
+            amount = _float_value(trade.get("amount"))
+            price = _float_value(trade.get("price"))
+            eur_total = _float_value(trade.get("eurTotal"), amount * price)
+            fee = _float_value(trade.get("fee"))
+            if amount <= 0 or price <= 0:
+                return None
+            cash -= eur_total + fee
+            existing = holdings.get(symbol)
+            if existing:
+                total_amount = _float_value(existing.get("amount")) + amount
+                total_cost = _float_value(existing.get("avgPrice")) * _float_value(
+                    existing.get("amount")
+                ) + eur_total
+                existing["amount"] = total_amount
+                existing["avgPrice"] = total_cost / total_amount if total_amount else price
+                existing.setdefault("openedAt", trade.get("timestamp"))
+            else:
+                holdings[symbol] = {
+                    "amount": amount,
+                    "avgPrice": price,
+                    "openedAt": trade.get("timestamp"),
+                }
+        elif trade_type == "sell":
+            if not symbol:
+                return None
+            amount = _float_value(trade.get("amount"))
+            price = _float_value(trade.get("price"))
+            eur_total = _float_value(trade.get("eurTotal"), amount * price)
+            fee = _float_value(trade.get("fee"))
+            holding = holdings.get(symbol)
+            if amount <= 0 or price <= 0 or not holding:
+                return None
+            remaining = _float_value(holding.get("amount")) - amount
+            if remaining < -0.00000001:
+                return None
+            cash += eur_total - fee
+            if remaining < 0.00000001:
+                holdings.pop(symbol, None)
+            else:
+                holding["amount"] = remaining
+            profit = _float_value(trade.get("profitLoss"), _float_value(trade.get("profit")))
+            if profit > 0:
+                total_realized_profit += profit
+                total_tax += _float_value(trade.get("tax"))
+        else:
+            return None
+
+    trade_id = _assign_unique_trade_ids(trades_newest_first)
+    portfolio.update(
+        {
+            "initialCapital": initial_capital,
+            "cash": cash,
+            "totalTaxPaid": total_tax,
+            "totalRealizedProfit": total_realized_profit,
+            "holdings": holdings,
+            "trades": trades_newest_first,
+            "tradeId": trade_id,
+        }
+    )
+    return portfolio
+
+
+def _merge_diverged_portfolios(
+    latest: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> dict[str, Any] | None:
+    combined: dict[tuple[tuple[str, str], ...], tuple[int, dict[str, Any]]] = {}
+    order = 0
+    for portfolio in (latest, snapshot):
+        for trade in portfolio.get("trades") or []:
+            if not isinstance(trade, dict):
+                return None
+            fingerprint = _trade_fingerprint(trade)
+            combined.setdefault(fingerprint, (order, deepcopy(trade)))
+            order += 1
+
+    if not combined:
+        return None
+
+    unique_entries = list(combined.values())
+    unique_entries.sort(
+        key=lambda item: _trade_sort_key(item[1], item[0]),
+        reverse=True,
+    )
+    unique_trades = [item[1] for item in unique_entries]
+    preferred = snapshot if _portfolio_version(snapshot) >= _portfolio_version(latest) else latest
+    return _rebuild_portfolio_from_trades(preferred, unique_trades)
+
+
 def _merge_portfolio(latest: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
     """Säilytä uudempi salkkuversio — estää vanhan snapshotin kaupan peruutuksen."""
+    latest_trades = latest.get("trades") or []
+    snapshot_trades = snapshot.get("trades") or []
+    latest_fingerprints = {
+        _trade_fingerprint(trade) for trade in latest_trades if isinstance(trade, dict)
+    }
+    snapshot_fingerprints = {
+        _trade_fingerprint(trade) for trade in snapshot_trades if isinstance(trade, dict)
+    }
+
+    if snapshot_fingerprints - latest_fingerprints and latest_fingerprints - snapshot_fingerprints:
+        merged = _merge_diverged_portfolios(latest, snapshot)
+        if merged is not None:
+            return merged
+
     if _portfolio_version(snapshot) > _portfolio_version(latest):
         return deepcopy(snapshot)
     return deepcopy(latest)

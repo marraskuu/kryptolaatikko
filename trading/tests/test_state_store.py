@@ -5,7 +5,7 @@ import threading
 from django.test import TestCase, TransactionTestCase
 
 from trading.models import BotState
-from trading.services.portfolio import default_portfolio
+from trading.services.portfolio import Portfolio, default_portfolio
 from trading.services.session_state import default_state
 from trading.services.state_store import (
     STATE_DELETED_KEYS,
@@ -95,3 +95,31 @@ class StateStoreConcurrencyTests(TransactionTestCase):
         self.assertEqual(final["portfolio"]["tradeId"], 10)
         self.assertEqual(final["portfolio"]["cash"], 42.0)
         self.assertEqual(final.get("_testMarker"), 1)
+
+    def test_concurrent_portfolio_trades_with_same_next_id_are_merged(self):
+        """Rinnakkaiset kaupat eivät saa kadota, vaikka snapshotit käyttävät samaa id:tä."""
+        btc_state = load_state()
+        eth_state = load_state()
+
+        btc_portfolio = Portfolio(btc_state["portfolio"])
+        self.assertTrue(btc_portfolio.buy("tBTCUSD", 100.0, 100.0, "BTC buy"))
+        btc_state["portfolio"] = btc_portfolio.to_dict()
+
+        eth_portfolio = Portfolio(eth_state["portfolio"])
+        self.assertTrue(eth_portfolio.buy("tETHUSD", 150.0, 50.0, "ETH buy"))
+        eth_state["portfolio"] = eth_portfolio.to_dict()
+
+        self.assertEqual(btc_state["portfolio"]["tradeId"], 1)
+        self.assertEqual(eth_state["portfolio"]["tradeId"], 1)
+
+        save_state(btc_state)
+        save_state(eth_state)
+
+        final = BotState.objects.get(pk=1).data["portfolio"]
+        trades_by_symbol = {trade["symbol"]: trade for trade in final["trades"]}
+        self.assertEqual(set(trades_by_symbol), {"tBTCUSD", "tETHUSD"})
+        self.assertEqual(final["tradeId"], 2)
+        self.assertEqual({trade["id"] for trade in final["trades"]}, {1, 2})
+        self.assertAlmostEqual(final["cash"], 750.0)
+        self.assertAlmostEqual(final["holdings"]["tBTCUSD"]["amount"], 1.0)
+        self.assertAlmostEqual(final["holdings"]["tETHUSD"]["amount"], 3.0)
