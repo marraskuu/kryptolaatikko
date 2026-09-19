@@ -3,16 +3,19 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
+from trading.models import BotState
 from trading.services.learning_report import (
     NARRATIVE_ERROR_RETRY_SEC,
     _merge_cached_learning_report,
     _narrative_error_retry_due,
     _next_narrative_error_retry_sec,
+    _run_narrative_refresh,
     ensure_narrative_error_state,
     needs_narrative_refresh,
 )
+from trading.services.session_state import default_state
 
 
 def _iso_ago(seconds: int) -> str:
@@ -119,3 +122,92 @@ class LearningReportRetryTests(SimpleTestCase):
         }
         with patch("trading.services.gemini.is_configured", return_value=True):
             self.assertTrue(needs_narrative_refresh(state))
+
+
+class LearningNarrativePersistenceTests(TransactionTestCase):
+    def setUp(self):
+        BotState.objects.update_or_create(pk=1, defaults={"data": default_state()})
+
+    def tearDown(self):
+        BotState.objects.filter(pk=1).update(data=default_state())
+
+    def test_success_patches_narrative_without_full_state_save(self):
+        state = default_state()
+        state["lastPriceTick"] = 2_000
+        state["tickers"] = {"tBTCUSD": {"last": 125.0}}
+        state["analyses"] = {"tBTCUSD": {"price": 125.0}}
+        state["learningNarrativePendingSince"] = _iso_ago(5)
+        state["learningReport"] = {
+            "sections": [{"title": "fresh rules"}],
+            "timestamp": "fresh-ts",
+            "changes": {"fresh": True},
+            "narrativePending": True,
+        }
+        BotState.objects.update_or_create(pk=1, defaults={"data": state})
+
+        fallback_report = {
+            "sections": [{"title": "stale rules"}],
+            "timestamp": "stale-ts",
+            "changes": {"stale": True},
+            "snapshot": {"stale": True},
+            "narrativePending": True,
+        }
+        with (
+            patch(
+                "trading.services.gemini.generate_learning_narrative",
+                return_value=({"story": "Kertomus valmis"}, {"ok": True}),
+            ),
+            patch("trading.services.state_store.save_state") as save_state_mock,
+        ):
+            _run_narrative_refresh(dict(state), fallback_report)
+
+        save_state_mock.assert_not_called()
+        final = BotState.objects.get(pk=1).data
+        self.assertEqual(final["lastPriceTick"], 2_000)
+        self.assertEqual(final["tickers"], {"tBTCUSD": {"last": 125.0}})
+        self.assertEqual(final["analyses"], {"tBTCUSD": {"price": 125.0}})
+        self.assertNotIn("learningNarrativePendingSince", final)
+        self.assertEqual(final["learningNarrative"], {"story": "Kertomus valmis"})
+        self.assertEqual(final["learningReportHistory"][0]["changes"], {"stale": True})
+        report = final["learningReport"]
+        self.assertEqual(report["sections"], [{"title": "fresh rules"}])
+        self.assertEqual(report["timestamp"], "fresh-ts")
+        self.assertEqual(report["changes"], {"fresh": True})
+        self.assertEqual(report["narrative"], {"story": "Kertomus valmis"})
+        self.assertFalse(report["narrativePending"])
+        self.assertNotIn("narrativeError", report)
+
+    def test_error_patches_narrative_error_without_full_state_save(self):
+        state = default_state()
+        state["lastPriceTick"] = 2_000
+        state["tickers"] = {"tBTCUSD": {"last": 125.0}}
+        state["learningNarrativePendingSince"] = _iso_ago(5)
+        state["learningReport"] = {
+            "sections": [{"title": "fresh rules"}],
+            "timestamp": "fresh-ts",
+            "changes": {"fresh": True},
+            "narrativePending": True,
+        }
+        BotState.objects.update_or_create(pk=1, defaults={"data": state})
+
+        with (
+            patch(
+                "trading.services.gemini.generate_learning_narrative",
+                return_value=(None, {"ok": False, "message": "Gemini down"}),
+            ),
+            patch("trading.services.state_store.save_state") as save_state_mock,
+        ):
+            _run_narrative_refresh(dict(state), {"sections": [{"title": "stale rules"}]})
+
+        save_state_mock.assert_not_called()
+        final = BotState.objects.get(pk=1).data
+        self.assertEqual(final["lastPriceTick"], 2_000)
+        self.assertEqual(final["tickers"], {"tBTCUSD": {"last": 125.0}})
+        self.assertNotIn("learningNarrativePendingSince", final)
+        self.assertEqual(final["learningNarrativeError"], "Gemini down")
+        report = final["learningReport"]
+        self.assertEqual(report["sections"], [{"title": "fresh rules"}])
+        self.assertEqual(report["timestamp"], "fresh-ts")
+        self.assertEqual(report["changes"], {"fresh": True})
+        self.assertEqual(report["narrativeError"], "Gemini down")
+        self.assertFalse(report["narrativePending"])
