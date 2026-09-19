@@ -40,11 +40,47 @@ def _merge_portfolio(latest: dict[str, Any], snapshot: dict[str, Any]) -> dict[s
     return deepcopy(latest)
 
 
+_PRICE_STATE_KEYS = {"lastPriceTick", "tickers", "analyses", "error"}
+
+
+def _price_state_version(state: dict[str, Any]) -> int:
+    try:
+        return int(state.get("lastPriceTick") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _should_keep_latest_price_state(
+    latest: dict[str, Any], snapshot: dict[str, Any], key: str
+) -> bool:
+    if key not in _PRICE_STATE_KEYS:
+        return False
+
+    latest_version = _price_state_version(latest)
+    snapshot_version = _price_state_version(snapshot)
+    if snapshot_version < latest_version:
+        return True
+
+    # Failed refreshes keep the previous lastPriceTick. Do not let an older
+    # worker with the same tick clear a newly persisted Bitfinex error.
+    if (
+        key == "error"
+        and snapshot_version == latest_version
+        and latest.get("error")
+        and not snapshot.get("error")
+    ):
+        return True
+
+    return False
+
+
 def _merge_concurrent_state(latest: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
     """Yhdistä DB:n tuorein tila ja tallentajan snapshot — säilytä avaimet joita snapshot ei koske."""
     merged = deepcopy(latest)
     for key, value in snapshot.items():
         if key == STATE_DELETED_KEYS:
+            continue
+        if _should_keep_latest_price_state(latest, snapshot, key):
             continue
         if key == "portfolio" and isinstance(value, dict):
             merged[key] = _merge_portfolio(merged.get("portfolio") or {}, value)
