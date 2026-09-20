@@ -67,6 +67,28 @@ class TaxNettingTests(SimpleTestCase):
         self.assertEqual(tax_by_year[2026], 0.0)
         self.assertAlmostEqual(portfolio.loss_carryforward(), 200.0, places=6)
 
+    def test_loss_carryforward_is_usable_in_fifth_following_year(self):
+        """Vuoden 2020 tappio on vielä vähennyskelpoinen vuonna 2025."""
+        trades = [
+            _sell("tBTCUSD", -500.0, "2020-06-01T12:00:00Z"),
+            _sell("tETHUSD", 300.0, "2025-06-01T12:00:00Z"),
+        ]
+        portfolio = self._portfolio_with_trades(trades)
+        tax_by_year = portfolio.tax_owed_by_year()
+        self.assertEqual(tax_by_year[2025], 0.0)
+        self.assertAlmostEqual(portfolio.loss_carryforward(as_of_year=2025), 200.0, places=6)
+
+    def test_loss_carryforward_expires_after_five_following_years(self):
+        """Vuoden 2020 tappio ei saa enää pienentää vuoden 2026 veroa."""
+        trades = [
+            _sell("tBTCUSD", -500.0, "2020-06-01T12:00:00Z"),
+            _sell("tETHUSD", 300.0, "2026-06-01T12:00:00Z"),
+        ]
+        portfolio = self._portfolio_with_trades(trades)
+        tax_by_year = portfolio.tax_owed_by_year()
+        self.assertAlmostEqual(tax_by_year[2026], 300.0 * 0.30, places=6)
+        self.assertEqual(portfolio.loss_carryforward(as_of_year=2026), 0.0)
+
     def test_get_tax_summary_reflects_net_current_year(self):
         trades = [
             _sell("tBTCUSD", 825.27, "2026-03-01T12:00:00Z"),
