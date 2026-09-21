@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-21",
+        "entries": [
+            {
+                "title": "Bull-satelliitti kunnioittaa ydinoston portteja",
+                "body": "65/35-käteisjako ei enää lisää ydinpositioon, jos sama osto olisi estetty micro-, rakenne-, breadth- tai muulla live-portilla. Tällöin botti voi käyttää tavallista ostosilmukkaa vain sallittuihin kohteisiin.",
+                "title_en": "Bull satellite respects primary buy gates",
+                "body_en": "The 65/35 cash split no longer adds to the primary position when that buy would be blocked by micro, structure, breadth, or other live gates. The bot can then fall back to the normal buy loop for allowed targets only.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {

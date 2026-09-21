@@ -479,6 +479,8 @@ def evaluate_bull_satellite_split(
     primary_analysis = analyses.get(primary_sym) or analyses.get(primary_norm) or {}
     if not primary_analysis:
         return None
+    if not entry_eligible(primary_analysis) or buy_blocked(primary_sym, primary_analysis):
+        return None
 
     share = _holding_value_share(primary_sym, primary_holding, analyses, total_value)
     if share < BULL_SATELLITE_MIN_HOLDING_SHARE:
