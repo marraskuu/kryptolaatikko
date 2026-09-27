@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-09-27",
+        "entries": [
+            {
+                "title": "Regime Core: idle-osto, major-PT, ei winner-churnia",
+                "body": "Tyhjä salkku nousevassa markkinassa: Gemini hold/zombie top_picks ei enää lukitse idle-deployta; entry_score soft-cap 3. Majoreilla myöhempi voitonotto (arm ~4.5 %, pullback ~1.75 %, partial ≥8 %) ja ei fade-tighten/stale-pakkoa. Rotaatio/keskittyminen ei myy major-voittajia. Rebuy-kielto 4 h myös voitollisen trailingin jälkeen.",
+                "title_en": "Regime Core: idle deploy, wider major PT, no winner churn",
+                "body_en": "Empty book in a rising market: Gemini hold/zombie top_picks no longer lock idle deploy; entry_score soft-capped at 3. Majors get later profit-take (arm ~4.5%, pullback ~1.75%, partial ≥8%) and no fade-tighten/stale force. Rotation/concentration won’t sell major winners. 4h rebuy cooldown also after profitable trailing exits.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-13",
         "entries": [
             {

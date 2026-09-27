@@ -336,6 +336,10 @@ def _check_profit_sells(
         from .ai_trader import _holding_age_hours
 
         hold_age_h = _holding_age_hours(holding.get("openedAt"))
+        from .ai_trader import _is_buy_major, risk_regime_key
+
+        is_major = _is_buy_major(symbol)
+        defense_regime = risk_regime_key(regime_info if regime_info else regime)
         result = update_profit_sell(
             state["watches"],
             symbol,
@@ -346,6 +350,8 @@ def _check_profit_sells(
             analysis=analysis,
             exit_learned=exit_learned,
             hold_age_hours=hold_age_h,
+            is_major=is_major,
+            defense_regime=defense_regime,
         )
         if shadow_flags:
             shadow_watches = deepcopy(state["watches"])
@@ -359,6 +365,8 @@ def _check_profit_sells(
                 analysis=analysis,
                 exit_learned=exit_learned,
                 hold_age_hours=hold_age_h,
+                is_major=is_major,
+                defense_regime=defense_regime,
             )
             record_profit_take_shadow(
                 state,
@@ -847,9 +855,13 @@ def execute_trading_cycle() -> dict[str, Any]:
                 include_rolling_dd=DAILY_POLICY_LIVE_ROLLING_DD,
             )
             if buy_blocked:
+                reasons = list(decision_result.get("buyBlockReasons") or [])
+                reasons.append("daily_policy_live_buy_block")
+                decision_result["buyBlockReasons"] = reasons
                 decision_result["initialAllocation"] = []
                 decision_result["idleEmptyDeploy"] = False
         state["activeSymbols"] = decision_result.get("topSymbols", [])
+        state["buyBlockReasons"] = list(decision_result.get("buyBlockReasons") or [])
 
         executed_buys: list[dict[str, Any]] = []
         executed_sells = [

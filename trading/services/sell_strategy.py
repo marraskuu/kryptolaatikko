@@ -32,6 +32,17 @@ PARTIAL_TAKE_FRACTION = float(os.environ.get("PARTIAL_TAKE_FRACTION", "0.20"))
 # Trailing aseistettu mutta hinta ei koskaan tipu kynnystä (bondit / flat):
 # realisoi voitto sen sijaan että odotetaan päiviä 0.5 % pullbackia.
 FORCE_EXIT_ARMED_STALE_HOURS = float(os.environ.get("FORCE_EXIT_ARMED_STALE_HOURS", "8"))
+# Regime Core — majors: anna voittajien juosta (HODL-edge 94 pv).
+MAJOR_PROFIT_TRIGGER_FLOOR_PCT = float(
+    os.environ.get("MAJOR_PROFIT_TRIGGER_FLOOR_PCT", "4.5")
+)
+MAJOR_PULLBACK_FLOOR_PCT = float(os.environ.get("MAJOR_PULLBACK_FLOOR_PCT", "1.75"))
+MAJOR_PARTIAL_TAKE_TRIGGER_PCT = float(
+    os.environ.get("MAJOR_PARTIAL_TAKE_TRIGGER_PCT", "8.0")
+)
+MAJOR_FORCE_EXIT_ARMED_STALE_HOURS = float(
+    os.environ.get("MAJOR_FORCE_EXIT_ARMED_STALE_HOURS", "0")
+)  # 0 = pois majoreilta
 
 # Pitkä pito + hiipuva 1h/flow → aiempi arm + tiukempi trailing
 LONG_HOLD_EARLY_HOURS = 2.0
@@ -73,27 +84,43 @@ def default_watch_state() -> dict[str, Any]:
     }
 
 
-def _trigger_pct(atr_pct: float | None, config: dict[str, Any]) -> float:
+def _trigger_pct(
+    atr_pct: float | None,
+    config: dict[str, Any],
+    *,
+    is_major: bool = False,
+) -> float:
     scale = float(config.get("trigger_scale", 1.0))
+    floor = MAJOR_PROFIT_TRIGGER_FLOOR_PCT if is_major else PROFIT_TRIGGER_FLOOR_PCT
+    cap = max(PROFIT_TRIGGER_CAP_PCT, floor) if is_major else PROFIT_TRIGGER_CAP_PCT
     if atr_pct and atr_pct > 0:
         return min(
-            PROFIT_TRIGGER_CAP_PCT * scale,
+            cap * scale,
             max(
-                PROFIT_TRIGGER_FLOOR_PCT * scale,
+                floor * scale,
                 PROFIT_TRIGGER_ATR_MULT * scale * atr_pct,
             ),
         )
-    return PROFIT_TRIGGER_PCT * scale
+    base = PROFIT_TRIGGER_PCT if not is_major else max(PROFIT_TRIGGER_PCT, floor)
+    return base * scale
 
 
-def _pullback_threshold_pct(atr_pct: float | None, config: dict[str, Any]) -> float:
+def _pullback_threshold_pct(
+    atr_pct: float | None,
+    config: dict[str, Any],
+    *,
+    is_major: bool = False,
+) -> float:
     scale = float(config.get("pullback_scale", 1.0))
+    floor = MAJOR_PULLBACK_FLOOR_PCT if is_major else PULLBACK_FLOOR_PCT
+    cap = max(PULLBACK_CAP_PCT, floor) if is_major else PULLBACK_CAP_PCT
     if atr_pct and atr_pct > 0:
         return min(
-            PULLBACK_CAP_PCT * scale,
-            max(PULLBACK_FLOOR_PCT * scale, PULLBACK_ATR_MULT * scale * atr_pct),
+            cap * scale,
+            max(floor * scale, PULLBACK_ATR_MULT * scale * atr_pct),
         )
-    return PULLBACK_FROM_PEAK_PCT * scale
+    base = PULLBACK_FROM_PEAK_PCT if not is_major else floor
+    return base * scale
 
 
 def _momentum_fading(analysis: dict[str, Any] | None) -> bool:
@@ -181,6 +208,7 @@ def compute_peak_exit_adjustments(
     pullback_pct: float,
     learned: dict[str, Any] | None = None,
     hold_age_hours: float | None = None,
+    skip_long_hold_fade: bool = False,
 ) -> dict[str, Any]:
     """
     Dynaaminen huippumyynti: RSI/MTF/book + opittu exit-setup + pitkä pito/1h/flow
@@ -263,9 +291,10 @@ def compute_peak_exit_adjustments(
         force_sell = True
         signals.append(f"nopea lasku -{pullback_pct:.2f} % huipusta")
 
-    # Pitkä pito + hiipuva momentum → tiukempi trailing ja nopeampi arm
+    # Pitkä pito + hiipuva momentum → tiukempi trailing (ei majoreille bull/neutral)
     if (
-        hold_age_hours is not None
+        not skip_long_hold_fade
+        and hold_age_hours is not None
         and hold_age_hours >= LONG_HOLD_EARLY_HOURS
         and profit_pct >= LONG_HOLD_MIN_PROFIT_PCT
         and _momentum_fading(analysis)
@@ -307,21 +336,41 @@ def update_profit_sell(
     analysis: dict[str, Any] | None = None,
     exit_learned: dict[str, Any] | None = None,
     hold_age_hours: float | None = None,
+    is_major: bool = False,
+    defense_regime: str | None = None,
 ) -> dict[str, Any]:
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     cfg = _scaled_config(profit_take_config)
     state = dict(states.get(symbol) or default_watch_state())
     profit_pct = ((current_price - avg_price) / avg_price) * 100 if avg_price else 0
-    trigger_pct = _trigger_pct(atr_pct, cfg)
-    early_mult, early_signals = long_hold_trigger_mult(
-        analysis, hold_age_hours, profit_pct
+    # Regime Core: majoreilla myöhempi arm + leveämpi trail (ei bearissä).
+    major_wide = bool(is_major and (defense_regime or "") != "bear")
+    skip_fade = major_wide
+    trigger_pct = _trigger_pct(atr_pct, cfg, is_major=major_wide)
+    early_mult, early_signals = (
+        (1.0, [])
+        if skip_fade
+        else long_hold_trigger_mult(analysis, hold_age_hours, profit_pct)
     )
     if early_mult < 1.0:
         trigger_pct *= early_mult
-    pullback_threshold = _pullback_threshold_pct(atr_pct, cfg)
+    pullback_threshold = _pullback_threshold_pct(atr_pct, cfg, is_major=major_wide)
     covers_cost = profit_pct > ROUND_TRIP_COST_PCT
-    partial_policy = long_hold_partial_policy(analysis, hold_age_hours, profit_pct)
-    partial_trigger = PARTIAL_TAKE_TRIGGER_PCT * float(cfg.get("partial_trigger_scale", 1.0))
+    partial_policy = (
+        {
+            "skip_partial": False,
+            "trigger_mult": 1.0,
+            "fraction_mult": 1.0,
+            "arm_remainder": False,
+            "signals": [],
+        }
+        if skip_fade
+        else long_hold_partial_policy(analysis, hold_age_hours, profit_pct)
+    )
+    partial_base = (
+        MAJOR_PARTIAL_TAKE_TRIGGER_PCT if major_wide else PARTIAL_TAKE_TRIGGER_PCT
+    )
+    partial_trigger = partial_base * float(cfg.get("partial_trigger_scale", 1.0))
     if float(partial_policy.get("trigger_mult") or 1.0) < 1.0:
         partial_trigger *= float(partial_policy["trigger_mult"])
     partial_fraction = min(
@@ -334,6 +383,11 @@ def update_profit_sell(
         ),
     )
     skip_partial = bool(partial_policy.get("skip_partial"))
+    stale_hours = (
+        MAJOR_FORCE_EXIT_ARMED_STALE_HOURS
+        if major_wide
+        else FORCE_EXIT_ARMED_STALE_HOURS
+    )
 
     if (
         cfg.get("partial_enabled", True)
@@ -420,6 +474,7 @@ def update_profit_sell(
         pullback_pct=pullback_pct,
         learned=exit_learned,
         hold_age_hours=hold_age_hours,
+        skip_long_hold_fade=skip_fade,
     )
     stabilize_ms = int(peak_adj["stabilize_ms"])
     pullback_threshold *= float(peak_adj["pullback_mult"])
@@ -457,15 +512,16 @@ def update_profit_sell(
             f"→ realisoidaan voitto{signal_note}"
         )
     elif (
-        FORCE_EXIT_ARMED_STALE_HOURS > 0
+        stale_hours > 0
         and state["armed"]
         and peak > 0
         and covers_cost
         and profit_pct >= LONG_HOLD_MIN_PROFIT_PCT
-        and elapsed >= int(FORCE_EXIT_ARMED_STALE_HOURS * 3600 * 1000)
+        and elapsed >= int(stale_hours * 3600 * 1000)
         and pullback_pct < pullback_threshold
     ):
         # Matala volatiliteetti: hinta jää huipulle → trailing ei koskaan laukea.
+        # Majoreilla stale_hours=0 (Regime Core) — ei pakkomyyntiä.
         should_sell = True
         stale_h = elapsed / 3_600_000
         exit_signals.append(f"trailing vanhentunut {stale_h:.0f} h")

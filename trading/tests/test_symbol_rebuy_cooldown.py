@@ -38,7 +38,7 @@ class RecentlyLostSymbolsTests(SimpleTestCase):
         ]
         self.assertIn("tXMRUST", _recently_lost_symbols(portfolio))
 
-    def test_recent_profitable_sell_is_not_blocked(self):
+    def test_recent_profitable_sell_without_pt_reason_is_not_blocked(self):
         portfolio = default_portfolio()
         portfolio["trades"] = [
             {
@@ -46,9 +46,23 @@ class RecentlyLostSymbolsTests(SimpleTestCase):
                 "symbol": "tXMRUST",
                 "timestamp": _iso(60),
                 "profitLoss": 8.4,
+                "reason": "Muutos",
             }
         ]
         self.assertEqual(_recently_lost_symbols(portfolio), set())
+
+    def test_recent_profit_take_is_blocked(self):
+        portfolio = default_portfolio()
+        portfolio["trades"] = [
+            {
+                "type": "sell",
+                "symbol": "tXMRUST",
+                "timestamp": _iso(60),
+                "profitLoss": 8.4,
+                "reason": "Voitto +2.5 % — trailing-stop -0.5 % huipusta",
+            }
+        ]
+        self.assertIn("tXMRUST", _recently_lost_symbols(portfolio))
 
     def test_losing_sell_outside_cooldown_window_is_not_blocked(self):
         portfolio = default_portfolio()
@@ -119,7 +133,8 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
         self.assertNotIn(symbol, symbols)
 
     @patch("trading.services.market_microstructure.ENABLED", False)
-    def test_idle_empty_deploy_allows_symbol_after_profitable_exit(self):
+    def test_idle_empty_deploy_blocks_symbol_after_profit_take(self):
+        """Regime Core: voitollinen trailing lukitsee 4 h rebuy-cooldownin."""
         symbol = "tBTCUSD"
         portfolio = default_portfolio()
         portfolio["cash"] = 910.0
@@ -146,4 +161,4 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
 
         allocation = result.get("initialAllocation") or []
         symbols = [slot["symbol"] for slot in allocation]
-        self.assertIn(symbol, symbols)
+        self.assertNotIn(symbol, symbols)

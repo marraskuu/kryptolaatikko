@@ -29,14 +29,16 @@ ROTATION_TRIM_FRACTION = 0.5
 MIN_ROTATION_INTERVAL_SEC = 30 * 60
 # "ei valinnoissa" -trimmaus vain voitolla — tappiorotaatio on ollut −78 € / 37 pv.
 ROTATION_OUT_MIN_PROFIT_PCT = 0.5
-# Estä välitön takaisinosto samaan symboliin tappiollisen myynnin jälkeen (stop-loss,
-# huono asetelma, krooninen häviäjä, ...) — Keskittymistila ja idle-cash-polku ohittavat
-# muuten 30 min churn-cooldownin kokonaan, mikä salli esim. XMR:n oston/myynnin 5x
-# <24 h:ssa täydellä salkkukoolla (2026-07-30/31, netto selvästi negatiivinen).
-# Ei koske voitollisia myyntejä (trailing/voitto-otto) — niiden jälkeinen nopea
-# takaisinosto samaan nousevaan kohteeseen on ollut toimiva kuvio.
+# Estä välitön takaisinosto samaan symboliin myynnin jälkeen (stop TAI voitto-otto).
+# Regime Core: myös voitollinen trailing → 4 h kielto — sell→rebuy→stop churnasi majoreita.
 SYMBOL_REBUY_COOLDOWN_SEC = float(
     os.environ.get("SYMBOL_REBUY_COOLDOWN_SEC", "14400")
+)
+# Idle-tyhjällä entry_score_min ei saa nousta yli tämän (BTC/ETH quick-score≈3).
+IDLE_EMPTY_ENTRY_SCORE_CAP = int(os.environ.get("IDLE_EMPTY_ENTRY_SCORE_CAP", "3"))
+# Majors + bull + BTC-trendi ok: hieman löysempi 24h-chase (muuten koko kori lukossa).
+MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT = float(
+    os.environ.get("MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT", "8.0")
 )
 # Idle-käteinen: deploy vain kun iso osa salkusta on käteistä (ei pakko-sijoittaa).
 IDLE_CASH_DEPLOY_PCT = 0.50
@@ -870,6 +872,57 @@ def _breadth_blocks_buy(regime_info: dict[str, Any] | str | None) -> bool:
         return False
 
 
+def _chase_cap_pct(
+    symbol: str,
+    regime_info: dict[str, Any] | str | None,
+) -> float:
+    """Majors + bull + BTC-trendi ok → löysempi chase-katto."""
+    if not _is_buy_major(symbol):
+        return MAX_ENTRY_CHANGE_24H_PCT
+    regime = ""
+    btc_ok = True
+    if isinstance(regime_info, dict):
+        regime = str(regime_info.get("regime") or "")
+        if regime_info.get("btc_trend_blocks_buy"):
+            btc_ok = False
+        else:
+            raw = regime_info.get("btc_trend_pct")
+            if raw is not None:
+                try:
+                    from .btc_trend_gate import BTC_TREND_MIN_PCT
+
+                    btc_ok = float(raw) > BTC_TREND_MIN_PCT
+                except (TypeError, ValueError):
+                    btc_ok = True
+    elif isinstance(regime_info, str):
+        regime = regime_info
+    if regime == "bull" and btc_ok:
+        return max(MAX_ENTRY_CHANGE_24H_PCT, MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT)
+    return MAX_ENTRY_CHANGE_24H_PCT
+
+
+def _gemini_buyable_pick_count(
+    gemini_insights: dict[str, Any] | None,
+    *,
+    min_confidence: int = GEMINI_BUY_MIN_CONFIDENCE,
+) -> int:
+    """Montako top_pickiä on oikeasti osto-kelpoisia (ei hold/sell/zombie)."""
+    if not gemini_insights:
+        return 0
+    picks = _gemini_top_picks(gemini_insights)
+    if not picks:
+        return 0
+    n = 0
+    for sym in picks:
+        sig = _gemini_signal_for(gemini_insights, sym)
+        if not sig or _gemini_prefers_cash(sig):
+            continue
+        if int(sig.get("confidence") or 0) < min_confidence:
+            continue
+        n += 1
+    return n
+
+
 def _stagnant_min_loss_pct(regime: str) -> float:
     if regime == "bear" and BEAR_DEFENSE_ENABLED:
         return BEAR_STAGNANT_MIN_LOSS_PCT
@@ -958,12 +1011,17 @@ def _apply_bear_cash_reserve_trim(
         trim_priority = 1 if norm in preferred or symbol in preferred else 0
         score = float(analysis.get("score") or 0)
         avg_price = float(holding.get("avgPrice") or 0)
-        # Trim käteisvaraukseen ensin voitolla/tasan olevista positioista — vältä
-        # tarpeetonta tappion realisointia kun vaihtoehto on olemassa (bear_cash_trim
-        # oli win rate 8 % koska valinta oli P/L-sokea, ks. sellOutcomeLearning).
+        # Trim käteisvaraukseen: älä leikkaa major-voittajia (Regime Core).
+        # Preferoi tappiollisia / non-majoreita.
+        is_major = _is_buy_major(symbol)
+        in_profit = avg_price > 0 and price >= avg_price
+        if is_major and in_profit:
+            continue
         loss_rank = 1 if (avg_price > 0 and price < avg_price) else 0
+        # Non-majors first (0), then majors at loss (1)
+        major_rank = 0 if not is_major else 1
         candidates.append(
-            ((trim_priority, loss_rank, score, -value), symbol, amount, price, analysis)
+            ((trim_priority, major_rank, loss_rank, score, -value), symbol, amount, price, analysis)
         )
 
     candidates.sort(key=lambda item: item[0])
@@ -1159,7 +1217,8 @@ def _is_buy_blocked(
             except (TypeError, ValueError):
                 pass
     ch24 = _entry_change_24h(analysis)
-    if ch24 is not None and ch24 >= MAX_ENTRY_CHANGE_24H_PCT:
+    chase_cap = _chase_cap_pct(symbol, regime_info)
+    if ch24 is not None and ch24 >= chase_cap:
         return True
     if normalize_symbol(symbol) in blocked_buys:
         return True
@@ -1791,13 +1850,11 @@ def in_churn_cooldown(portfolio_data: dict[str, Any]) -> bool:
 def _recently_lost_symbols(
     portfolio_data: dict[str, Any], cooldown_sec: float = SYMBOL_REBUY_COOLDOWN_SEC
 ) -> set[str]:
-    """Symbolit joilla oli tappiollinen myynti viimeisen cooldownin sisällä.
+    """Symbolit joilla oli myynti (tappio TAI voitto-otto) viimeisen cooldownin sisällä.
 
-    Toisin kuin in_churn_cooldown (globaali, ei laske stop-lossia), tämä on
-    per-symboli eikä katso trade-tyyppiä — koskee myös stop-lossia, jotta samaa
-    kohdetta ei osteta heti takaisin täydellä koolla. Voitollisia myyntejä ei
-    estetä (trades on tuoreimmasta vanhimpaan, joten voidaan katkaista ensimmäiseen
-    cooldownin ulkopuolelle jäävään kauppaan).
+    Regime Core: myös voitollinen trailing/profit-take lukitsee 4 h — estää
+    sell→rebuy→stop -churnin majoreilla. Vanha käyttäytyminen (vain tappio)
+    jätettiin pois todisteiden perusteella.
     """
     if cooldown_sec <= 0:
         return set()
@@ -1810,7 +1867,24 @@ def _recently_lost_symbols(
             continue
         if (now - ts).total_seconds() >= cooldown_sec:
             break
-        if trade.get("type") == "sell" and (trade.get("profitLoss") or 0) < 0:
+        if trade.get("type") != "sell":
+            continue
+        pl = trade.get("profitLoss")
+        reason = str(trade.get("reason") or "").lower()
+        is_loss = pl is not None and float(pl) < 0
+        is_pt = any(
+            x in reason
+            for x in (
+                "voitto",
+                "trailing",
+                "tasaant",
+                "realisoidaan",
+                "porras",
+                "kotiutetaan",
+                "profit",
+            )
+        )
+        if is_loss or is_pt:
             out.add(normalize_symbol(trade["symbol"]))
     return out
 
@@ -2321,6 +2395,9 @@ def _deploy_cash_to_targets(
                 )
         elif target_symbols:
             if concentration_mode:
+                profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
+                if _is_buy_major(symbol) and profit_pct > 0:
+                    continue
                 sell_amount = amount * concentration_trim
                 _append_sell_decision(
                     decisions,
@@ -2331,9 +2408,10 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
             else:
-                # Rotaatio pois valinnoista vain voitolla + selvällä edgellä.
-                # Tappio-/nollatrimmaus on tuottanut −78 € (37 pv live).
+                # Rotaatio pois valinnoista: Regime Core — ei major-voittajia.
                 profit_pct = _holding_profit_pct(holdings.get(symbol, {}), analysis)
+                if _is_buy_major(symbol) and profit_pct > 0:
+                    continue
                 if profit_pct < ROTATION_OUT_MIN_PROFIT_PCT:
                     continue
                 if not _rotation_worthwhile(analysis, best_target_edge):
@@ -2706,6 +2784,8 @@ def make_trading_decisions(
     blocked_buys |= recently_lost
     blocked_setups = set(learning.get("blocked_setups") or [])
     entry_score_min = int(learning.get("entry_score_min", 1))
+    # Regime Core: tyhjällä idle-kirjalla score-min ei saa estää BTC/ETH (quick≈3).
+    idle_score_min = min(entry_score_min, IDLE_EMPTY_ENTRY_SCORE_CAP)
     position_cap = effective_max_positions(learning, regime_info or regime)
     max_new_positions = position_cap
     setup_memory = learning.get("setup_memory") or {}
@@ -2858,6 +2938,7 @@ def make_trading_decisions(
         if idle_cash and not _bear_cash_deploy_ok(cash, total_value, regime_info):
             idle_cash = False
         idle_empty_deploy = False
+        buy_block_reasons: list[str] = []
 
         def _empty_pick_blocked(
             sym: str,
@@ -2873,7 +2954,8 @@ def make_trading_decisions(
                 gemini_active=gemini_active,
                 gemini_conf_scales=gemini_conf_scales,
                 gemini_buy_min_confidence=gemini_buy_min_conf,
-                allow_non_gemini_pick=False,
+                # Regime Core: tyhjä kirja → Gemini ei veto-oikeutta (zombie hold).
+                allow_non_gemini_pick=True,
                 regime_info=regime_info if regime_info is not None else regime,
             )
 
@@ -2891,12 +2973,15 @@ def make_trading_decisions(
                 for c in picks
                 if not _empty_pick_blocked(c["symbol"], c.get("analysis"))
             ]
-        # Tyhjä salkku + idle-käteinen + Gemini 0 pickiä → 1 ranked-osto normaaleilla
-        # gateilla (blocked_buys/setup/micro/entry), ohittaen vain "pakko olla Gemini-pick".
-        # ranked_buyable on usein tyhjä kun Gemini on aktiivinen ilman pickejä (buy_blocked
-        # suodattaa jo listan), joten rakennetaan ehdokkaat uudelleen allow_non_gemini_pickillä.
-        gemini_pick_n = len(_gemini_top_picks(gemini_insights)) if gemini_active else 0
-        if not picks and idle_cash and gemini_pick_n == 0:
+        # Idle kun Gemini ei anna osto-kelpoisia pickejä (hold/zombie top_picks ei lukitse).
+        gemini_buyable_n = (
+            _gemini_buyable_pick_count(
+                gemini_insights, min_confidence=gemini_buy_min_conf
+            )
+            if gemini_active
+            else 0
+        )
+        if not picks and idle_cash and gemini_buyable_n == 0:
             idle_ranked = [
                 r
                 for r in ranked
@@ -2916,7 +3001,7 @@ def make_trading_decisions(
                     allow_non_gemini_pick=True,
                     regime_info=regime_info if regime_info is not None else regime,
                 )
-                and r["rank"] >= entry_score_min
+                and r["rank"] >= idle_score_min
             ]
             if not idle_ranked:
                 idle_ranked = [
@@ -2939,12 +3024,29 @@ def make_trading_decisions(
                         regime_info=regime_info if regime_info is not None else regime,
                     )
                 ]
-            picks = _liquid_crypto_items(idle_ranked[:1])
+            picks = _liquid_crypto_items(idle_ranked[: max(1, min(2, position_cap))])
             if picks:
                 idle_empty_deploy = True
                 logger.info(
-                    "Tyhjä salkku: idle ranked-deploy (1 kohde, Gemini 0 pickiä, gatet voimassa)"
+                    "Tyhjä salkku: idle ranked-deploy (%d kohdetta, Gemini buyable=%d, score_cap=%d)",
+                    len(picks),
+                    gemini_buyable_n,
+                    idle_score_min,
                 )
+            else:
+                buy_block_reasons.append(
+                    "idle_empty: ei ehdokasta gatejen läpi "
+                    f"(score_cap={idle_score_min}, gemini_buyable={gemini_buyable_n})"
+                )
+        elif not picks:
+            if not idle_cash:
+                buy_block_reasons.append("empty_book: ei idle-käteistä (≥50 % / ≥250 €)")
+            elif gemini_buyable_n > 0:
+                buy_block_reasons.append(
+                    f"empty_book: Gemini buyable picks={gemini_buyable_n} mutta estetty gateilla"
+                )
+            else:
+                buy_block_reasons.append("empty_book: ei pickejä desired/ranked_buyable")
         if picks:
             empty_conc, picks, empty_conc_reason = _resolve_concentration(
                 picks, gemini_insights, regime, rotation_enabled
@@ -2967,7 +3069,20 @@ def make_trading_decisions(
                 "concentrationMode": empty_conc,
                 "idleCashDeploy": idle_cash,
                 "idleEmptyDeploy": idle_empty_deploy,
+                "buyBlockReasons": buy_block_reasons,
             }
+        # Tyhjä kirja ilman allokaatiota — älä jatka hold-looppiin; palauta syyt.
+        return {
+            "decisions": [],
+            "targetCount": 0,
+            "topSymbols": [],
+            "initialAllocation": [],
+            "geminiActive": gemini_active,
+            "concentrationMode": False,
+            "idleCashDeploy": idle_cash,
+            "idleEmptyDeploy": False,
+            "buyBlockReasons": buy_block_reasons,
+        }
 
     portfolio_trades = portfolio_data.get("trades") or []
     from .fifo_lots import fifo_oldest_stuck_lot_age_hours, open_fifo_lots
@@ -3127,6 +3242,20 @@ def make_trading_decisions(
 
         norm_hold = normalize_symbol(symbol)
         if concentration_mode and norm_hold not in top_norms:
+            # Regime Core: älä rotaatioi major-voittajia pois.
+            if _is_buy_major(symbol) and profit_pct > 0:
+                decisions.append(
+                    {
+                        "type": "hold",
+                        "symbol": symbol,
+                        "reason": (
+                            f"Major voitolla ({profit_pct:+.1f} %) — "
+                            f"ei keskittymis-trimmausta"
+                        ),
+                        "analysis": analysis,
+                    }
+                )
+                continue
             edge_here = _edge_pct(analysis)
             gap = best_target_edge - edge_here
             # Älä lukitse pientä tappiota (−0.5 %) chaseen — stop/time-stop hoitavat.

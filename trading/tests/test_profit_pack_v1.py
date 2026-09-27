@@ -51,16 +51,45 @@ class MajorsAllowlistTests(SimpleTestCase):
 
 class ChaseAndBreadthGateTests(SimpleTestCase):
     def test_chase_24h_blocks_buy(self):
-        analysis = _btc_analysis(changePct=MAX_ENTRY_CHANGE_24H_PCT)
+        from trading.services.ai_trader import MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT
+
+        # Bull + major → löysempi katto; block vasta sen yli.
+        analysis = _btc_analysis(changePct=MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT)
         blocked = _is_buy_blocked(
             "tBTCUSD",
             analysis,
             blocked_buys=set(),
             blocked_setups=set(),
             regime="bull",
-            regime_info={"regime": "bull", "breadth_up_pct": 55.0},
+            regime_info={
+                "regime": "bull",
+                "breadth_up_pct": 55.0,
+                "btc_trend_pct": 3.0,
+                "btc_trend_blocks_buy": False,
+            },
         )
         self.assertTrue(blocked)
+
+    def test_major_bull_allows_between_base_and_major_chase_cap(self):
+        from trading.services.ai_trader import MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT
+
+        mid = (MAX_ENTRY_CHANGE_24H_PCT + MAX_ENTRY_CHANGE_24H_MAJOR_BULL_PCT) / 2
+        analysis = _btc_analysis(changePct=mid)
+        blocked = _is_buy_blocked(
+            "tBTCUSD",
+            analysis,
+            blocked_buys=set(),
+            blocked_setups=set(),
+            regime="bull",
+            regime_info={
+                "regime": "bull",
+                "breadth_up_pct": 55.0,
+                "btc_trend_pct": 3.0,
+                "btc_trend_blocks_buy": False,
+            },
+            allow_non_gemini_pick=True,
+        )
+        self.assertFalse(blocked)
 
     def test_calm_entry_allowed(self):
         analysis = _btc_analysis(changePct=2.0)

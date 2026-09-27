@@ -130,6 +130,7 @@ Learning often tightens further live (`buy_scale` 0.5, `entry_score_min` 4, rota
 
 ### Recent related builds (see `trading/changelog.py`)
 
+- `20260927a` — Regime Core: idle vs Gemini zombie, wider major PT, no winner rotation, PT rebuy cooldown
 - `20260913d` — BTC 21d trend gate + 4h rebuy cooldown (churn stop)
 - `20260913c` — force-exit non-major max hold + stale armed trailing
 - `20260913b` — Bitfinex structure: 15m/4h gates, near-24h-high, volume spike
