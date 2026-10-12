@@ -2224,6 +2224,14 @@ def _effective_holding_amount(
     return max(0.0, amount)
 
 
+def _pending_sell_symbols(decisions: list[dict[str, Any]]) -> set[str]:
+    return {
+        normalize_symbol(d["symbol"])
+        for d in decisions
+        if d.get("type") == "sell" and d.get("symbol")
+    }
+
+
 def _holding_profit_pct(holding: dict[str, Any], analysis: dict[str, Any]) -> float:
     avg = float(holding.get("avgPrice") or 0)
     price = float(analysis.get("currentPrice") or 0)
@@ -2327,10 +2335,12 @@ def _deploy_cash_to_targets(
     blocked_setups = blocked_setups or set()
     # D: älä sijoita käteistä kolikkoon, joka on tappio-cooldownissa (vältä keskihinnan
     # alaspäin keskiarvoistamista häviäjään).
+    pending_sell_norms = _pending_sell_symbols(decisions)
     buy_targets = [
         s
         for s in target_symbols
-        if not _is_buy_blocked(
+        if normalize_symbol(s) not in pending_sell_norms
+        and not _is_buy_blocked(
             s,
             analyses.get(s),
             blocked_buys=blocked_buys,
@@ -2428,6 +2438,12 @@ def _deploy_cash_to_targets(
                     analysis,
                 )
 
+    pending_sell_norms = _pending_sell_symbols(decisions)
+    if pending_sell_norms:
+        buy_targets = [
+            s for s in buy_targets if normalize_symbol(s) not in pending_sell_norms
+        ]
+
     sell_proceeds = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "sell")
     buy_spent = sum(d.get("eurAmount", 0) for d in decisions if d["type"] == "buy")
     available = cash + sell_proceeds - buy_spent - CASH_BUFFER_EUR
@@ -2444,7 +2460,12 @@ def _deploy_cash_to_targets(
     if bull_satellite_split:
         from .bull_satellite import deploy_bull_satellite_cash
 
-        if deploy_bull_satellite_cash(
+        satellite_legs = {
+            normalize_symbol(str(bull_satellite_split.get("primary") or "")),
+            normalize_symbol(str(bull_satellite_split.get("satellite") or "")),
+        }
+        can_use_satellite_split = not (satellite_legs & pending_sell_norms)
+        if can_use_satellite_split and deploy_bull_satellite_cash(
             decisions,
             available_cash=available,
             split=bull_satellite_split,

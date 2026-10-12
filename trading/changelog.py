@@ -19,6 +19,17 @@ Day = dict[str, Any]
 
 CHANGELOG: list[Day] = [
     {
+        "date": "2026-10-12",
+        "entries": [
+            {
+                "title": "Stop-loss ei osta samaa kolikkoa heti takaisin",
+                "body": "Jos kierros päättää myydä symbolin stopin, force-exitin tai muun myyntisäännön takia, sama päätöserä ei enää käytä myyntituottoja saman symbolin ostoon. Rebuy-kielto ehtii näin suojata churnilta.",
+                "title_en": "Stop-loss no longer rebuys the same coin immediately",
+                "body_en": "When a cycle decides to sell a symbol via stop, force-exit, or another sell rule, the same decision batch no longer redeploys those proceeds into the same symbol. The rebuy cooldown can now protect against churn.",
+            },
+        ],
+    },
+    {
         "date": "2026-09-27",
         "entries": [
             {

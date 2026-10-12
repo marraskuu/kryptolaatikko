@@ -162,3 +162,47 @@ class SymbolRebuyCooldownIntegrationTests(SimpleTestCase):
         allocation = result.get("initialAllocation") or []
         symbols = [slot["symbol"] for slot in allocation]
         self.assertNotIn(symbol, symbols)
+
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_same_cycle_stop_loss_does_not_rebuy_symbol(self):
+        """Saman päätöserän stop-myynti ei saa kiertää rebuy-cooldownia."""
+        symbol = "tETHUSD"
+        portfolio = default_portfolio()
+        portfolio["cash"] = 700.0
+        portfolio["holdings"] = {
+            symbol: {
+                "amount": 3.0,
+                "avgPrice": 100.0,
+                "openedAt": _iso(2 * 3600),
+            }
+        }
+        analyses = {
+            symbol: {
+                "currentPrice": 97.0,
+                "volumeEur": 5_000_000.0,
+                "action": "buy",
+                "score": 9,
+                "mtfAlign": 2,
+                "changePct": 2.0,
+                "change4hPct": 1.0,
+                **_MICRO_OK,
+            }
+        }
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=991.0,
+            label_fn=lambda sym: sym.replace("t", "").replace("USD", ""),
+            regime="neutral",
+            regime_info={"regime": "neutral", "phase": "neutral", "breadth_up_pct": 55.0},
+            learning={"entry_score_min": 1, "blocked_buys": []},
+        )
+
+        decisions = result.get("decisions") or []
+        self.assertTrue(
+            [d for d in decisions if d.get("type") == "sell" and d.get("symbol") == symbol]
+        )
+        self.assertFalse(
+            [d for d in decisions if d.get("type") == "buy" and d.get("symbol") == symbol]
+        )
