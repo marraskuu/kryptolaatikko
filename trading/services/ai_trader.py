@@ -3241,51 +3241,42 @@ def make_trading_decisions(
                     continue
 
         norm_hold = normalize_symbol(symbol)
+        skipped_major_concentration_trim = False
         if concentration_mode and norm_hold not in top_norms:
             # Regime Core: älä rotaatioi major-voittajia pois.
             if _is_buy_major(symbol) and profit_pct > 0:
-                decisions.append(
-                    {
-                        "type": "hold",
-                        "symbol": symbol,
-                        "reason": (
-                            f"Major voitolla ({profit_pct:+.1f} %) — "
-                            f"ei keskittymis-trimmausta"
-                        ),
-                        "analysis": analysis,
-                    }
+                skipped_major_concentration_trim = True
+            else:
+                edge_here = _edge_pct(analysis)
+                gap = best_target_edge - edge_here
+                # Älä lukitse pientä tappiota (−0.5 %) chaseen — stop/time-stop hoitavat.
+                # Keskittyminen myy vain voitolla / selkeällä edulla (alla).
+                skip_consolidate = (
+                    profit_pct >= PROFIT_TAKE_TRIGGER_PCT
+                    and _in_uptrend(analysis)
+                    and gap < ROTATION_MIN_EDGE_PCT * 2
+                ) or (
+                    profit_pct > 0
+                    and _in_uptrend(analysis)
+                    and gap < ROTATION_MIN_EDGE_PCT
                 )
-                continue
-            edge_here = _edge_pct(analysis)
-            gap = best_target_edge - edge_here
-            # Älä lukitse pientä tappiota (−0.5 %) chaseen — stop/time-stop hoitavat.
-            # Keskittyminen myy vain voitolla / selkeällä edulla (alla).
-            skip_consolidate = (
-                profit_pct >= PROFIT_TAKE_TRIGGER_PCT
-                and _in_uptrend(analysis)
-                and gap < ROTATION_MIN_EDGE_PCT * 2
-            ) or (
-                profit_pct > 0
-                and _in_uptrend(analysis)
-                and gap < ROTATION_MIN_EDGE_PCT
-            )
-            if not skip_consolidate and _rotation_trim_allowed(profit_pct, defense_regime):
-                sell_amount = _rotation_sell_amount(
-                    holding["amount"], profit_pct, concentration_trim
-                )
-                if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
-                    _append_sell_decision(
-                        decisions,
-                        symbol,
-                        sell_amount,
-                        analysis["currentPrice"],
-                        (
-                            f"Keskittymistila — {profit_pct:+.1f} %, "
-                            f"siirretään pääomaa vahvempaan nosteeseen"
-                        ),
-                        analysis,
+                if not skip_consolidate and _rotation_trim_allowed(profit_pct, defense_regime):
+                    sell_amount = _rotation_sell_amount(
+                        holding["amount"], profit_pct, concentration_trim
                     )
-                    continue
+                    if sell_amount * analysis["currentPrice"] >= MIN_TRADE_EUR:
+                        _append_sell_decision(
+                            decisions,
+                            symbol,
+                            sell_amount,
+                            analysis["currentPrice"],
+                            (
+                                f"Keskittymistila — {profit_pct:+.1f} %, "
+                                f"siirretään pääomaa vahvempaan nosteeseen"
+                            ),
+                            analysis,
+                        )
+                        continue
 
         if profit_pct >= PROFIT_TAKE_TRIGGER_PCT:
             decisions.append(
@@ -3697,6 +3688,18 @@ def make_trading_decisions(
                     "reason": (
                         "Oppiminen: rotaatio tuottanut tappiota — pidetään ja "
                         "annetaan teknisen stopin hoitaa"
+                    ),
+                    "analysis": analysis,
+                }
+            )
+        elif skipped_major_concentration_trim:
+            decisions.append(
+                {
+                    "type": "hold",
+                    "symbol": symbol,
+                    "reason": (
+                        f"Major voitolla ({profit_pct:+.1f} %) — "
+                        f"ei keskittymis-trimmausta"
                     ),
                     "analysis": analysis,
                 }

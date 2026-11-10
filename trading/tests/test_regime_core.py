@@ -266,6 +266,79 @@ class NoMajorWinnerRotationTests(SimpleTestCase):
             self.assertNotIn("Keskittymistila", reason)
             self.assertNotIn("ei valinnoissa", reason)
 
+    @patch("trading.services.market_microstructure.ENABLED", False)
+    def test_concentration_major_profit_still_allows_forced_release(self):
+        sym = "tSOLUSD"
+        opened = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+        analyses = {
+            sym: _major_analysis(
+                sym,
+                currentPrice=100.2,
+                score=4,
+                changePct=-2.0,
+                change4hPct=-0.6,
+                change1hPct=-0.1,
+                mtfAlign=-1,
+            ),
+            "tBTCUSD": _major_analysis(
+                "tBTCUSD",
+                score=12,
+                changePct=5.0,
+                change4hPct=3.0,
+                mtfAlign=1,
+            ),
+        }
+        portfolio = default_portfolio()
+        portfolio["cash"] = 100.0
+        portfolio["holdings"] = {
+            sym: {"amount": 2.0, "avgPrice": 100.0, "openedAt": opened}
+        }
+        portfolio["trades"] = [
+            {
+                "type": "buy",
+                "symbol": sym,
+                "amount": 2.0,
+                "timestamp": opened,
+            }
+        ]
+
+        result = make_trading_decisions(
+            analyses,
+            portfolio,
+            total_value=300.4,
+            label_fn=lambda s: s.replace("t", "").replace("USD", ""),
+            gemini_insights={
+                "top_picks": ["tBTCUSD"],
+                "signals": {
+                    "tBTCUSD": {"action": "buy", "confidence": 9, "reason": "strong"},
+                },
+            },
+            regime="neutral",
+            regime_info={
+                "regime": "neutral",
+                "phase": "neutral",
+                "breadth_up_pct": 60.0,
+                "btc_trend_pct": 5.0,
+                "btc_trend_blocks_buy": False,
+            },
+            learning={
+                "entry_score_min": 1,
+                "blocked_buys": [],
+                "rotation_enabled": True,
+            },
+        )
+
+        sell = next(
+            (
+                d
+                for d in result.get("decisions") or []
+                if d.get("type") == "sell" and d.get("symbol") == sym
+            ),
+            None,
+        )
+        self.assertIsNotNone(sell)
+        self.assertIn("Positio jämähtänyt", sell.get("reason") or "")
+
 
 class MajorHelpersTests(SimpleTestCase):
     def test_btc_is_major(self):
